@@ -188,9 +188,6 @@ function applyTechniqueVisuals(card, rulesCount, mitigationCount, winningSource)
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
 
-  if (rulesCount > 0) {
-    card.innerHTML += `<div class="rule-badge">${rulesCount}</div>`;
-  }
   if (mitigationCount > 0) {
     card.innerHTML += `<div class="mitigation-badge">OK${mitigationCount}</div>`;
   }

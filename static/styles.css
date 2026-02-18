@@ -113,12 +113,6 @@ h1 {
 .technique-id { font-size: 0.65rem; opacity: 0.85; margin-bottom: 2px; }
 .technique-name { font-weight: 500; font-size: 0.8rem; line-height: 1.1; }
 
-.rule-badge {
-  position: absolute; top: -5px; right: -5px; background: #d32f2f; color: white;
-  border-radius: 50%; width: 18px; height: 18px; font-size: 0.7rem; font-weight: bold;
-  display: flex; align-items: center; justify-content: center;
-  border: 2px solid var(--bg-color); box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-}
 
 .mitigation-badge {
   position: absolute; top: -5px; right: 18px; background: #2e7d32; color: white;
@@ -252,3 +246,4 @@ button.action-btn {
 .mitigation-info { margin-left: 6px; cursor: pointer; color: #9fb2bd; font-weight: bold; }
 .mitigation-pop { display: none; background: #1c2327; border: 1px solid #2c3a40; color: #d7e2e7; padding: 8px; border-radius: 6px; font-size: 0.8rem; margin-top: 6px; }
 .mitigation-pop.open { display: block; }
+
