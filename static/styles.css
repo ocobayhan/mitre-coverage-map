@@ -19,12 +19,10 @@ body {
   background-color: var(--bg-color);
   color: var(--text-color);
   margin: 0;
-  padding: 10px;
+  padding: 0;
   font-size: 11px;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .header-section { flex-shrink: 0; }
@@ -287,3 +285,90 @@ button.action-btn {
 .mitigation-pop { display: none; background: #1c2327; border: 1px solid #2c3a40; color: #d7e2e7; padding: 8px; border-radius: 6px; font-size: 0.8rem; margin-top: 6px; }
 .mitigation-pop.open { display: block; }
 
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  background: #0f1316;
+  border-right: 1px solid #1f262b;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.brand {
+  font-weight: bold;
+  font-size: 0.95rem;
+  color: #e6f0f5;
+  margin-bottom: 6px;
+}
+
+.nav-item {
+  background: #151b20;
+  color: #c7d2d9;
+  border: 1px solid #202830;
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.nav-item:hover { border-color: #41505a; color: #fff; }
+.nav-item.active { background: #1f2a30; border-color: #6b7d88; color: #fff; }
+
+.sidebar-note {
+  margin-top: auto;
+  font-size: 0.75rem;
+  color: #8a99a3;
+  line-height: 1.4;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+}
+
+.panel { display: none; }
+.panel.active { display: block; }
+
+.info-card {
+  background: #151b20;
+  border: 1px solid #243039;
+  border-radius: 10px;
+  padding: 16px;
+  max-width: 900px;
+}
+
+.info-card h2 { margin: 0 0 10px 0; font-size: 1rem; }
+.info-section { margin-top: 14px; }
+.info-section h3 { margin: 0 0 6px 0; font-size: 0.9rem; color: #b7d0dd; }
+.info-section p { margin: 0 0 8px 0; color: #c3cfd6; }
+.info-list { display: flex; flex-direction: column; gap: 4px; color: #c3cfd6; }
+
+
+.nav-toggle {
+  background: #151b20;
+  color: #c7d2d9;
+  border: 1px solid #202830;
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  align-self: flex-start;
+}
+
+.nav-toggle:hover { border-color: #41505a; color: #fff; }
+
+.sidebar.collapsed { width: 64px; }
+.sidebar.collapsed .brand { display: none; }
+.sidebar.collapsed .sidebar-note { display: none; }
+.sidebar.collapsed .nav-item { text-align: center; padding: 8px 6px; }
+
+.content { transition: margin-left 0.2s ease; }

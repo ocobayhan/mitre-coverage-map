@@ -1,83 +1,121 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Manager</title>
-  <link rel="stylesheet" href="/static/styles.css?v=6" />
+  <link rel="stylesheet" href="/static/styles.css?v=12" />
 </head>
 <body>
-  <div class="header-section">
-    <h1>SOC Coverage Manager</h1>
-    <div class="top-bar">
-      <div class="stats">
-        Toplam Kural: <span id="totalRules">0</span> | Kapsanan Teknik: <span id="coveredTechs">0</span>
-      </div>      <div class="admin-actions">
-        <button class="action-btn btn-reset" id="btnReset" title="Verileri sifirla ve seed dosyasindan yeniden yukle">Sifirla & Yeniden Yukle</button>
-      </div>
-      <div class="legend">
-        <div class="legend-item" title="Öncelik 1"><div class="legend-box" style="background:var(--color-qradar)"></div> QRadar</div>
-        <div class="legend-item" title="Öncelik 2"><div class="legend-box" style="background:var(--color-dfe)"></div> DFE</div>
-        <div class="legend-item" title="Öncelik 3"><div class="legend-box" style="background:var(--color-mdo)"></div> DefO365</div>
-        <div class="legend-item" title="Öncelik 4"><div class="legend-box" style="background:var(--color-mdi)"></div> DefIdentity</div>
-        <div class="legend-item" title="Öncelik 5"><div class="legend-box" style="background:var(--color-other)"></div> Diğer</div>
-      </div>
-    </div>
-  </div>
+  <div class="app-shell">
+    <nav class="sidebar">
+      <div class="brand">SOC Coverage Manager</div>
+      <button class="nav-toggle" id="sidebarToggle" title="Menüyü aç/kapat">Menu</button>
+      <button class="nav-item active" data-target="matrixPanel">Matrix</button>
+      <button class="nav-item" data-target="infoPanel">Bilgilendirme</button>
+      <div class="sidebar-note">Puanlama ve renklerin anlamı için Bilgilendirme sekmesini kullanın.</div>
+    </nav>
 
-  <div class="matrix-container" id="matrix"></div>
+    <main class="content">
+      <div id="matrixPanel" class="panel active">
+        <div class="header-section">
+          <h1>SOC Coverage Manager</h1>
+          <div class="top-bar">
+            <div class="stats">
+              Toplam Kural: <span id="totalRules">0</span> | Kapsanan Teknik: <span id="coveredTechs">0</span>
+            </div>
+            <div class="admin-actions">
+              <button class="action-btn btn-reset" id="btnReset" title="Verileri sifirla ve seed dosyasindan yeniden yukle">Sifirla & Yeniden Yukle</button>
+            </div>
+            <div class="legend">
+              <div class="legend-item" title="Öncelik 1"><div class="legend-box" style="background:var(--color-qradar)"></div> QRadar</div>
+              <div class="legend-item" title="Öncelik 2"><div class="legend-box" style="background:var(--color-dfe)"></div> DFE</div>
+              <div class="legend-item" title="Öncelik 3"><div class="legend-box" style="background:var(--color-mdo)"></div> DefO365</div>
+              <div class="legend-item" title="Öncelik 4"><div class="legend-box" style="background:var(--color-mdi)"></div> DefIdentity</div>
+              <div class="legend-item" title="Öncelik 5"><div class="legend-box" style="background:var(--color-other)"></div> Diğer</div>
+            </div>
+          </div>
+        </div>
 
-  <div class="resizer-bar" id="dragHandle"><div class="resizer-icon"></div></div>
+        <div class="matrix-container" id="matrix"></div>
 
-  <div class="form-section">
-    <div class="form-container">
-      <p class="form-title">Yeni Kural</p>
-      <div class="input-group">
-        <div class="input-wrapper">
-          <label>Kural Adı</label>
-          <input type="text" id="newRuleName" placeholder="Örn: Suspicious PowerShell" />
+        <div class="resizer-bar" id="dragHandle"><div class="resizer-icon"></div></div>
+
+        <div class="form-section">
+          <div class="form-container">
+            <p class="form-title">Yeni Kural</p>
+            <div class="input-group">
+              <div class="input-wrapper">
+                <label>Kural Adı</label>
+                <input type="text" id="newRuleName" placeholder="Örn: Suspicious PowerShell" />
+              </div>
+              <div class="input-wrapper">
+                <label>Taktik</label>
+                <select id="newRuleTactic"></select>
+              </div>
+              <div class="input-wrapper">
+                <label>Teknik (ID veya İsim)</label>
+                <input type="text" id="newRuleTech" placeholder="Örn: T1059" />
+              </div>
+              <div class="input-wrapper">
+                <label>Kaynak</label>
+                <select id="newRuleSource">
+                  <option value="QRadar">QRadar</option>
+                  <option value="DFE">Def Endpoint</option>
+                  <option value="DefO365">Def Office365</option>
+                  <option value="DefIdentity">Def Identity</option>
+                  <option value="Other">Diğer</option>
+                </select>
+              </div>
+              <button class="action-btn btn-add" id="btnAdd">Ekle</button>
+            </div>
+          </div>
         </div>
-        <div class="input-wrapper">
-          <label>Taktik</label>
-          <select id="newRuleTactic"></select>
-        </div>
-        <div class="input-wrapper">
-          <label>Teknik (ID veya İsim)</label>
-          <input type="text" id="newRuleTech" placeholder="Örn: T1059" />
-        </div>
-        <div class="input-wrapper">
-          <label>Kaynak</label>
-          <select id="newRuleSource">
-            <option value="QRadar">QRadar</option>
-            <option value="DFE">Def Endpoint</option>
-            <option value="DefO365">Def Office365</option>
-            <option value="DefIdentity">Def Identity</option>
-            <option value="Other">Diğer</option>
-          </select>
-        </div>
-        <button class="action-btn btn-add" id="btnAdd">Ekle</button>
       </div>
-    </div>
+
+      <div id="infoPanel" class="panel">
+        <div class="info-card">
+          <h2>Puanlama ve Renkler</h2>
+          <p>Bu uygulamada her teknik için bir skor hesaplanır ve kutunun rengi bu skora göre gri tonundan yeşile doğru değişir.</p>
+          <div class="info-section">
+            <h3>Skor Hesabı</h3>
+            <p>Skor, kural sayısı ve işaretlenen mitigations sayısına göre ağırlıklı hesaplanır.</p>
+            <div class="info-list">
+              <div>1. Kural skoru: <code>min(kural_sayısı, 10) / 10</code></div>
+              <div>2. Mitigation skoru: <code>min(mitigation_sayısı, 5) / 5</code></div>
+              <div>3. Nihai skor: <code>kural_skoru * 0.6 + mitigation_skoru * 0.4</code></div>
+            </div>
+          </div>
+          <div class="info-section">
+            <h3>Renk Anlamı</h3>
+            <p>Skor düşükse kutu koyu griye yakındır. Skor arttıkça renk yumuşak şekilde yeşile döner. Bu, kapsamanın arttığını gösterir.</p>
+          </div>
+          <div class="info-section">
+            <h3>Kaynak Öncelikleri</h3>
+            <p>Teknik kutusunun solundaki renkli çizgi, en yüksek Öncelikli kaynağı temsil eder.</p>
+            <div class="info-list">
+              <div>QRadar: Öncelik 1</div>
+              <div>DFE: Öncelik 2</div>
+              <div>DefO365: Öncelik 3</div>
+              <div>DefIdentity: Öncelik 4</div>
+              <div>Diğer: Öncelik 5</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
   </div>
 
   <div id="ruleModal" class="modal" style="display: none;">
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="modalTitle"></h2>
-        <button id="modalClose" class="modal-close">×</button>
+        <button id="modalClose" class="modal-close">x</button>
       </div>
       <div id="modalBody" class="modal-body"></div>
     </div>
   </div>
 
-  <script src="/static/app.js?v=7"></script>
+  <script src="/static/app.js?v=14"></script>
 </body>
 </html>
-
-
-
-
-
-
-
-

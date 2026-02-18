@@ -391,7 +391,7 @@ function openModal(parentId, parentName, rules) {
     const emptyMit = document.createElement('div');
     emptyMit.style.color = '#aaa';
     emptyMit.style.fontSize = '0.85rem';
-    emptyMit.textContent = 'Bu teknik i?in Mitigation bulunamad?.';
+    emptyMit.textContent = 'Bu teknik için Mitigation bulunamadı.';
     mitigationSection.appendChild(emptyMit);
   } else {
     mitigations.forEach(m => {
@@ -421,7 +421,7 @@ function openModal(parentId, parentName, rules) {
   Object.keys(grouped).forEach(key => {
     const groupRules = grouped[key];
     if (groupRules.length == 0) return;
-    const headerTitle = (key == 'Direct') ? 'Do?rudan E?le?meler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
+    const headerTitle = (key == 'Direct') ? 'Doğrudan Eşleşmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
     const groupDiv = document.createElement('div');
     groupDiv.className = 'sub-tech-group';
     groupDiv.innerHTML = `<div class="sub-tech-header">${headerTitle}</div>`;
@@ -495,7 +495,33 @@ async function saveMitigationNote(techId, mitId, note) {
   });
 }
 
+
+
+function wireSidebarToggle() {
+  const toggle = document.getElementById('sidebarToggle');
+  const sidebar = document.querySelector('.sidebar');
+  if (!toggle || !sidebar) return;
+  toggle.addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+  });
+}
+
+function wireNavigation() {
+  const items = document.querySelectorAll('.nav-item');
+  const panels = document.querySelectorAll('.panel');
+  items.forEach(item => {
+    item.addEventListener('click', () => {
+      const target = item.dataset.target;
+      items.forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+      panels.forEach(p => p.classList.toggle('active', p.id === target));
+    });
+  });
+}
+
 function wireActions() {
+  wireNavigation();
+  wireSidebarToggle();
   document.getElementById('btnAdd').addEventListener('click', addNewRule);
   document.getElementById('modalClose').addEventListener('click', () => {
     document.getElementById('ruleModal').style.display = 'none';
