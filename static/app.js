@@ -1,0 +1,490 @@
+const SOURCE_COLORS = { 'QRadar': 'var(--color-qradar)', 'DFE': 'var(--color-dfe)', 'DefO365': 'var(--color-mdo)', 'DefIdentity': 'var(--color-mdi)', 'Other': 'var(--color-other)' };
+const PRIORITY_ORDER = ['QRadar', 'DFE', 'DefO365', 'DefIdentity', 'Other'];
+const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
+const tacticOrder = Object.values(tacticMap);
+
+const SCORE_RULE_MAX = 10;
+const SCORE_MITIGATION_MAX = 5;
+const SCORE_RULE_WEIGHT = 0.6;
+const SCORE_MITIGATION_WEIGHT = 0.4;
+
+let mitreObjects = [];
+let techDetailsMap = {};
+let nameToIdMap = {};
+let matrixStructure = {};
+let subTechsByParent = {};
+let attackIdToTid = {};
+let mitigationById = {};
+let mitigationsByTechnique = {};
+let currentRulesByParent = {};
+
+let userRules = [];
+let mitigationNotes = {};
+
+async function init() {
+  try {
+    const [mitreRes, rulesRes, notesRes] = await Promise.all([
+      fetch('/api/mitre'),
+      fetch('/api/rules'),
+      fetch('/api/mitigation-notes')
+    ]);
+
+    if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
+    mitreObjects = (await mitreRes.json()).objects || [];
+    userRules = rulesRes.ok ? await rulesRes.json() : [];
+    const notes = notesRes.ok ? await notesRes.json() : [];
+    mitigationNotes = normalizeNotes(notes);
+
+    prepareMitreLookup();
+    populateTacticSelect();
+    wireActions();
+    renderMatrix();
+  } catch (e) {
+    document.getElementById('matrix').innerHTML = `Veri Hatasý: ${e.message}`;
+  }
+}
+async function reloadData() {
+  const [rulesRes, notesRes] = await Promise.all([
+    fetch('/api/rules'),
+    fetch('/api/mitigation-notes')
+  ]);
+  userRules = rulesRes.ok ? await rulesRes.json() : [];
+  const notes = notesRes.ok ? await notesRes.json() : [];
+  mitigationNotes = normalizeNotes(notes);
+}
+
+function normalizeNotes(list) {
+  const out = {};
+  list.forEach(n => {
+    if (!out[n.technique_id]) out[n.technique_id] = {};
+    out[n.technique_id][n.mitigation_id] = { checked: !!n.checked, comment: n.comment || '' };
+  });
+  return out;
+}
+
+function prepareMitreLookup() {
+  tacticOrder.forEach(t => matrixStructure[t] = []);
+  subTechsByParent = {};
+  attackIdToTid = {};
+  mitigationById = {};
+  mitigationsByTechnique = {};
+  techDetailsMap = {};
+  nameToIdMap = {};
+
+  mitreObjects.forEach(obj => {
+    if (obj.type === 'attack-pattern' && !obj.revoked && !obj.x_mitre_deprecated) {
+      const mitreRef = obj.external_references.find(ref => ref.source_name === 'mitre-attack');
+      const tid = mitreRef ? mitreRef.external_id : null;
+      if (tid) {
+        const isSub = obj.x_mitre_is_subtechnique;
+        const parentId = (isSub && tid.includes('.')) ? tid.split('.')[0] : tid;
+        techDetailsMap[tid] = { id: tid, name: obj.name, isSub: isSub, parentId: parentId };
+        nameToIdMap[obj.name.toLowerCase()] = tid;
+        nameToIdMap[tid.toLowerCase()] = tid;
+        attackIdToTid[obj.id] = tid;
+
+        if (isSub) {
+          if (!subTechsByParent[parentId]) subTechsByParent[parentId] = [];
+          subTechsByParent[parentId].push({ id: tid, name: obj.name });
+        } else if (obj.kill_chain_phases) {
+          obj.kill_chain_phases.forEach(phase => {
+            const prettyTactic = tacticMap[phase.phase_name];
+            if (prettyTactic) matrixStructure[prettyTactic].push({ id: tid, name: obj.name });
+          });
+        }
+      }
+    }
+  });
+
+  mitreObjects.forEach(obj => {
+    if (obj.type === 'course-of-action' && !obj.revoked && !obj.x_mitre_deprecated) {
+      const mitreRef = obj.external_references.find(ref => ref.source_name === 'mitre-attack');
+      const mid = mitreRef ? mitreRef.external_id : null;
+      if (mid) mitigationById[obj.id] = { id: mid, name: obj.name };
+    }
+  });
+
+  mitreObjects.forEach(obj => {
+    if (obj.type === 'relationship' && obj.relationship_type === 'mitigates') {
+      const tid = attackIdToTid[obj.target_ref];
+      const mitigation = mitigationById[obj.source_ref];
+      if (tid && mitigation) {
+        if (!mitigationsByTechnique[tid]) mitigationsByTechnique[tid] = [];
+        mitigationsByTechnique[tid].push(mitigation);
+      }
+    }
+  });
+
+  Object.keys(subTechsByParent).forEach(parentId => {
+    subTechsByParent[parentId].sort((a, b) => a.id.localeCompare(b.id));
+  });
+  Object.keys(mitigationsByTechnique).forEach(tid => {
+    mitigationsByTechnique[tid].sort((a, b) => a.id.localeCompare(b.id));
+  });
+}
+
+function populateTacticSelect() {
+  const select = document.getElementById('newRuleTactic');
+  select.innerHTML = '';
+  tacticOrder.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    select.appendChild(opt);
+  });
+}
+
+function enrichRules() {
+  return userRules.map((r) => {
+    if (r.tech === 'None') return null;
+    const searchKey = (r.tech || '').toLowerCase().trim();
+    let tid = nameToIdMap[searchKey];
+    if (!tid && /^t\d{4}/.test(searchKey)) tid = r.tech.toUpperCase();
+    if (!tid) return null;
+    const details = techDetailsMap[tid];
+    const parentId = details ? details.parentId : tid.split('.')[0];
+    return { ...r, tid: tid, parentId: parentId, isSub: details ? details.isSub : tid.includes('.') };
+  }).filter(Boolean);
+}
+
+function getMitigationNote(techId, mitigationId) {
+  if (!mitigationNotes[techId]) mitigationNotes[techId] = {};
+  if (!mitigationNotes[techId][mitigationId]) mitigationNotes[techId][mitigationId] = { checked: false, comment: '' };
+  return mitigationNotes[techId][mitigationId];
+}
+
+function getCheckedMitigationCountForTech(techId) {
+  const notes = mitigationNotes[techId];
+  if (!notes) return 0;
+  return Object.values(notes).filter(n => n.checked).length;
+}
+
+function getCheckedMitigationCountForParent(parentId) {
+  let count = getCheckedMitigationCountForTech(parentId);
+  const subs = subTechsByParent[parentId] || [];
+  subs.forEach(sub => { count += getCheckedMitigationCountForTech(sub.id); });
+  return count;
+}
+
+function computeScore(rulesCount, mitigationCount) {
+  const ruleScore = Math.min(rulesCount, SCORE_RULE_MAX) / SCORE_RULE_MAX;
+  const mitScore = Math.min(mitigationCount, SCORE_MITIGATION_MAX) / SCORE_MITIGATION_MAX;
+  return Math.min(1, (ruleScore * SCORE_RULE_WEIGHT) + (mitScore * SCORE_MITIGATION_WEIGHT));
+}
+
+function scoreToColor(score) {
+  const hue = Math.round(120 * score);
+  return `hsl(${hue}, 65%, 35%)`;
+}
+
+function applyTechniqueVisuals(card, rulesCount, mitigationCount, winningSource) {
+  const score = computeScore(rulesCount, mitigationCount);
+  card.style.backgroundColor = scoreToColor(score);
+  card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
+
+  if (rulesCount > 0) {
+    card.innerHTML += `<div class="rule-badge">${rulesCount}</div>`;
+  }
+  if (mitigationCount > 0) {
+    card.innerHTML += `<div class="mitigation-badge">?${mitigationCount}</div>`;
+  }
+  if (winningSource) {
+    card.innerHTML += `<div class="source-pill" style="background:${SOURCE_COLORS[winningSource]}"></div>`;
+  }
+}
+
+function updateTechniqueCard(parentId) {
+  const card = document.querySelector(`.technique-card[data-tech-id="${parentId}"]`);
+  if (!card) return;
+  const rulesCount = currentRulesByParent[parentId] || 0;
+  const mitigationCount = getCheckedMitigationCountForParent(parentId);
+  const score = computeScore(rulesCount, mitigationCount);
+  card.style.backgroundColor = scoreToColor(score);
+  card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
+  card.style.borderColor = (rulesCount > 0 || mitigationCount > 0) ? '#fff' : 'var(--card-border)';
+
+  const badge = card.querySelector('.mitigation-badge');
+  if (mitigationCount > 0) {
+    if (badge) {
+      badge.textContent = `?${mitigationCount}`;
+    } else {
+      const newBadge = document.createElement('div');
+      newBadge.className = 'mitigation-badge';
+      newBadge.textContent = `?${mitigationCount}`;
+      card.appendChild(newBadge);
+    }
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function renderMatrix() {
+  const enrichedData = enrichRules();
+  const container = document.getElementById('matrix');
+  container.innerHTML = '';
+  currentRulesByParent = {};
+
+  document.getElementById('totalRules').innerText = userRules.length;
+  const uniqueParents = new Set(enrichedData.map(r => r.parentId));
+  document.getElementById('coveredTechs').innerText = uniqueParents.size;
+
+  tacticOrder.forEach(tactic => {
+    const col = document.createElement('div');
+    col.className = 'tactic-column';
+    col.innerHTML = `<div class="tactic-header">${tactic}</div>`;
+    const techniques = (matrixStructure[tactic] || []).sort((a, b) => a.id.localeCompare(b.id));
+
+    techniques.forEach(tech => {
+      const rulesForCell = enrichedData.filter(r => r.parentId === tech.id);
+      const card = document.createElement('div');
+      card.className = 'technique-card';
+      card.dataset.techId = tech.id;
+      currentRulesByParent[tech.id] = rulesForCell.length;
+
+      let winningSource = null;
+      if (rulesForCell.length > 0) {
+        let highestPriorityIndex = 999;
+        rulesForCell.forEach(r => {
+          const pIndex = PRIORITY_ORDER.indexOf(r.source);
+          if (pIndex !== -1 && pIndex < highestPriorityIndex) {
+            highestPriorityIndex = pIndex;
+            winningSource = r.source;
+          }
+        });
+        card.style.borderColor = '#fff';
+      }
+
+      const mitigationCount = getCheckedMitigationCountForParent(tech.id);
+      applyTechniqueVisuals(card, rulesForCell.length, mitigationCount, winningSource);
+      card.style.cursor = 'pointer';
+      card.onclick = () => openModal(tech.id, tech.name, rulesForCell);
+      card.innerHTML += `<div class="technique-id">${tech.id}</div><div class="technique-name">${tech.name}</div>`;
+      col.appendChild(card);
+    });
+
+    container.appendChild(col);
+  });
+}
+
+async function addNewRule() {
+  const name = document.getElementById('newRuleName').value.trim();
+  const tactic = document.getElementById('newRuleTactic').value.trim();
+  const tech = document.getElementById('newRuleTech').value.trim();
+  const source = document.getElementById('newRuleSource').value.trim();
+
+  if (!name || !tactic || !tech || !source) {
+    alert('Lütfen alanlarý doldurun.');
+    return;
+  }
+
+  const res = await fetch('/api/rules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, tactic, tech, source })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'Kural eklenemedi');
+    return;
+  }
+
+  const created = await res.json();
+  userRules.push(created);
+  renderMatrix();
+}
+
+async function deleteRule(ruleId) {
+  const res = await fetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
+  if (!res.ok) return;
+  userRules = userRules.filter(r => r.id !== ruleId);
+  renderMatrix();
+  document.getElementById('ruleModal').style.display = 'none';
+}
+
+function openModal(parentId, parentName, rules) {
+  document.getElementById('modalTitle').innerText = `${parentId} - ${parentName}`;
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '';
+
+  const treeSection = document.createElement('div');
+  treeSection.className = 'tree-section';
+  const subTechs = subTechsByParent[parentId] || [];
+  treeSection.innerHTML = '<div class="tree-title">Alt Teknikler</div>';
+  const treeRoot = document.createElement('div');
+  treeRoot.className = 'tree-root';
+  treeRoot.innerHTML = `> ${parentId} - ${parentName}`;
+  const children = document.createElement('div');
+  children.className = 'tree-children';
+
+  if (subTechs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'tree-item';
+    empty.innerHTML = '<span>Alt teknik yok</span>';
+    children.appendChild(empty);
+  } else {
+    const rulesBySub = {};
+    rules.filter(r => r.isSub).forEach(r => { rulesBySub[r.tid] = (rulesBySub[r.tid] || 0) + 1; });
+    subTechs.forEach(st => {
+      const item = document.createElement('div');
+      item.className = 'tree-item';
+      const count = rulesBySub[st.id] || 0;
+      item.innerHTML = `<div>${st.id} - ${st.name}</div><span>Kural: ${count}</span>`;
+      children.appendChild(item);
+    });
+  }
+
+  treeRoot.onclick = () => {
+    const open = children.classList.toggle('open');
+    treeRoot.innerHTML = `${open ? 'v' : '>'} ${parentId} - ${parentName}`;
+  };
+
+  treeSection.appendChild(treeRoot);
+  treeSection.appendChild(children);
+  body.appendChild(treeSection);
+
+  const mitigationSection = document.createElement('div');
+  mitigationSection.className = 'mitigation-section';
+  const mitigations = mitigationsByTechnique[parentId] || [];
+  mitigationSection.innerHTML = `<div class="mitigation-title">Mitigations (${mitigations.length})</div>`;
+
+  if (mitigations.length === 0) {
+    const emptyMit = document.createElement('div');
+    emptyMit.style.color = '#aaa';
+    emptyMit.style.fontSize = '0.85rem';
+    emptyMit.textContent = 'Bu teknik için Mitigation bulunamadý.';
+    mitigationSection.appendChild(emptyMit);
+  } else {
+    mitigations.forEach(m => {
+      const note = getMitigationNote(parentId, m.id);
+      const row = document.createElement('div');
+      row.className = 'mitigation-row';
+      row.innerHTML = `
+        <label class="mitigation-name">
+          <input type="checkbox" data-tech="${parentId}" data-mit="${m.id}" ${note.checked ? 'checked' : ''}>
+          ${m.id} - ${m.name}
+        </label>
+        <textarea class="mitigation-comment" data-tech="${parentId}" data-mit="${m.id}" placeholder="Ekip / uygulama notu">${note.comment || ''}</textarea>
+      `;
+      mitigationSection.appendChild(row);
+    });
+  }
+
+  body.appendChild(mitigationSection);
+
+  const grouped = {};
+  grouped['Direct'] = rules.filter(r => !r.isSub);
+  rules.filter(r => r.isSub).forEach(r => { if (!grouped[r.tid]) grouped[r.tid] = []; grouped[r.tid].push(r); });
+
+  Object.keys(grouped).forEach(key => {
+    const groupRules = grouped[key];
+    if (groupRules.length === 0) return;
+    const headerTitle = (key === 'Direct') ? 'Doðrudan Eþleþmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'sub-tech-group';
+    groupDiv.innerHTML = `<div class="sub-tech-header">${headerTitle}</div>`;
+
+    const table = document.createElement('table');
+    table.className = 'table';
+    let tbody = '<tbody>';
+    groupRules.forEach(r => {
+      tbody += `<tr>
+        <td>${r.name}</td>
+        <td style="text-align:right">
+          <span class="source-tag" style="background:${SOURCE_COLORS[r.source]}">${r.source}</span>
+          <button class="delete-btn" onclick="deleteRule(${r.id})">Sil</button>
+        </td>
+      </tr>`;
+    });
+    tbody += '</tbody>';
+    table.innerHTML = tbody;
+
+    groupDiv.appendChild(table);
+    body.appendChild(groupDiv);
+  });
+
+  body.querySelectorAll('.mitigation-row input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      const techId = e.target.dataset.tech;
+      const mitId = e.target.dataset.mit;
+      const note = getMitigationNote(techId, mitId);
+      note.checked = e.target.checked;
+      updateTechniqueCard(techId);
+      await saveMitigationNote(techId, mitId, note);
+    });
+  });
+  body.querySelectorAll('.mitigation-row textarea').forEach(ta => {
+    ta.addEventListener('input', async (e) => {
+      const techId = e.target.dataset.tech;
+      const mitId = e.target.dataset.mit;
+      const note = getMitigationNote(techId, mitId);
+      note.comment = e.target.value;
+      await saveMitigationNote(techId, mitId, note);
+    });
+  });
+
+  document.getElementById('ruleModal').style.display = 'flex';
+}
+
+async function saveMitigationNote(techId, mitId, note) {
+  await fetch('/api/mitigation-notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      technique_id: techId,
+      mitigation_id: mitId,
+      checked: !!note.checked,
+      comment: note.comment || ''
+    })
+  });
+}
+
+function wireActions() {
+  document.getElementById('btnAdd').addEventListener('click', addNewRule);
+  document.getElementById('modalClose').addEventListener('click', () => {
+    document.getElementById('ruleModal').style.display = 'none';
+  });
+
+  const resetBtn = document.getElementById('btnReset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', async () => {
+      const confirmText = prompt('Islemi onaylamak icin RESET yazin:');
+      if (confirmText !== 'RESET') return;
+      const res = await fetch('/api/admin/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: 'RESET', reseed: true })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Sifirlama basarisiz');
+        return;
+      }
+      await reloadData();
+      renderMatrix();
+      alert('Veriler sifirlandi ve yeniden yuklendi.');
+    });
+  }
+
+
+  const resizer = document.getElementById('dragHandle');
+  const matrixContainer = document.getElementById('matrix');
+  resizer.addEventListener('mousedown', function (e) {
+    e.preventDefault();
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('mouseup', stopResize);
+  });
+  function resize(e) {
+    const newHeight = e.clientY - matrixContainer.getBoundingClientRect().top;
+    if (newHeight > 100 && newHeight < window.innerHeight - 80) matrixContainer.style.height = newHeight + 'px';
+  }
+  function stopResize() {
+    document.removeEventListener('mousemove', resize);
+    document.removeEventListener('mouseup', stopResize);
+  }
+}
+
+init();
+
+
+

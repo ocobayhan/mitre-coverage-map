@@ -1,0 +1,77 @@
+﻿<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SOC Coverage Manager</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="header-section">
+    <h1>SOC Coverage Manager</h1>
+    <div class="top-bar">
+      <div class="stats">
+        Toplam Kural: <span id="totalRules">0</span> | Kapsanan Teknik: <span id="coveredTechs">0</span>
+      </div>      <div class="admin-actions">
+        <button class="action-btn btn-reset" id="btnReset" title="Verileri sifirla ve seed dosyasindan yeniden yukle">Sifirla & Yeniden Yukle</button>
+      </div>
+      <div class="legend">
+        <div class="legend-item" title="Öncelik 1"><div class="legend-box" style="background:var(--color-qradar)"></div> QRadar</div>
+        <div class="legend-item" title="Öncelik 2"><div class="legend-box" style="background:var(--color-dfe)"></div> DFE</div>
+        <div class="legend-item" title="Öncelik 3"><div class="legend-box" style="background:var(--color-mdo)"></div> DefO365</div>
+        <div class="legend-item" title="Öncelik 4"><div class="legend-box" style="background:var(--color-mdi)"></div> DefIdentity</div>
+        <div class="legend-item" title="Öncelik 5"><div class="legend-box" style="background:var(--color-other)"></div> Diğer</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="matrix-container" id="matrix"></div>
+
+  <div class="resizer-bar" id="dragHandle"><div class="resizer-icon"></div></div>
+
+  <div class="form-section">
+    <div class="form-container">
+      <p class="form-title">Yeni Kural</p>
+      <div class="input-group">
+        <div class="input-wrapper">
+          <label>Kural Adı</label>
+          <input type="text" id="newRuleName" placeholder="Örn: Suspicious PowerShell" />
+        </div>
+        <div class="input-wrapper">
+          <label>Taktik</label>
+          <select id="newRuleTactic"></select>
+        </div>
+        <div class="input-wrapper">
+          <label>Teknik (ID veya İsim)</label>
+          <input type="text" id="newRuleTech" placeholder="Örn: T1059" />
+        </div>
+        <div class="input-wrapper">
+          <label>Kaynak</label>
+          <select id="newRuleSource">
+            <option value="QRadar">QRadar</option>
+            <option value="DFE">Def Endpoint</option>
+            <option value="DefO365">Def Office365</option>
+            <option value="DefIdentity">Def Identity</option>
+            <option value="Other">Diğer</option>
+          </select>
+        </div>
+        <button class="action-btn btn-add" id="btnAdd">Ekle</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="ruleModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle"></h2>
+        <button id="modalClose" class="modal-close">×</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
+
+
