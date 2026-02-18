@@ -29,7 +29,7 @@ async function init() {
       fetch('/api/mitigation-notes')
     ]);
 
-    if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
+    if (!mitreRes.ok) throw new Error('MITRE verisi yÃ¼klenemedi');
     mitreObjects = (await mitreRes.json()).objects || [];
     userRules = rulesRes.ok ? await rulesRes.json() : [];
     const notes = notesRes.ok ? await notesRes.json() : [];
@@ -40,7 +40,7 @@ async function init() {
     wireActions();
     renderMatrix();
   } catch (e) {
-    document.getElementById('matrix').innerHTML = `Veri Hatasý: ${e.message}`;
+    document.getElementById('matrix').innerHTML = `Veri HatasÄ±: ${e.message}`;
   }
 }
 async function reloadData() {
@@ -100,7 +100,7 @@ function prepareMitreLookup() {
     if (obj.type === 'course-of-action' && !obj.revoked && !obj.x_mitre_deprecated) {
       const mitreRef = obj.external_references.find(ref => ref.source_name === 'mitre-attack');
       const mid = mitreRef ? mitreRef.external_id : null;
-      if (mid) mitigationById[obj.id] = { id: mid, name: obj.name };
+      if (mid) mitigationById[obj.id] = { id: mid, name: obj.name, description: obj.description || '' };
     }
   });
 
@@ -173,9 +173,15 @@ function computeScore(rulesCount, mitigationCount) {
 }
 
 function scoreToColor(score) {
-  const hue = Math.round(120 * score);
-  return `hsl(${hue}, 65%, 35%)`;
+  const start = { r: 42, g: 47, b: 51 };
+  const end = { r: 46, g: 125, b: 50 };
+  const r = Math.round(start.r + (end.r - start.r) * score);
+  const g = Math.round(start.g + (end.g - start.g) * score);
+  const b = Math.round(start.b + (end.b - start.b) * score);
+  return `rgb(${r}, ${g}, ${b})`;
 }
+
+
 
 function applyTechniqueVisuals(card, rulesCount, mitigationCount, winningSource) {
   const score = computeScore(rulesCount, mitigationCount);
@@ -186,7 +192,7 @@ function applyTechniqueVisuals(card, rulesCount, mitigationCount, winningSource)
     card.innerHTML += `<div class="rule-badge">${rulesCount}</div>`;
   }
   if (mitigationCount > 0) {
-    card.innerHTML += `<div class="mitigation-badge">?${mitigationCount}</div>`;
+    card.innerHTML += `<div class="mitigation-badge">OK${mitigationCount}</div>`;
   }
   if (winningSource) {
     card.innerHTML += `<div class="source-pill" style="background:${SOURCE_COLORS[winningSource]}"></div>`;
@@ -206,11 +212,11 @@ function updateTechniqueCard(parentId) {
   const badge = card.querySelector('.mitigation-badge');
   if (mitigationCount > 0) {
     if (badge) {
-      badge.textContent = `?${mitigationCount}`;
+      badge.textContent = `OK${mitigationCount}`;
     } else {
       const newBadge = document.createElement('div');
       newBadge.className = 'mitigation-badge';
-      newBadge.textContent = `?${mitigationCount}`;
+      newBadge.textContent = `OK${mitigationCount}`;
       card.appendChild(newBadge);
     }
   } else if (badge) {
@@ -273,7 +279,7 @@ async function addNewRule() {
   const source = document.getElementById('newRuleSource').value.trim();
 
   if (!name || !tactic || !tech || !source) {
-    alert('Lütfen alanlarý doldurun.');
+    alert('LÃ¼tfen alanlarÄ± doldurun.');
     return;
   }
 
@@ -313,9 +319,9 @@ function openModal(parentId, parentName, rules) {
   treeSection.innerHTML = '<div class="tree-title">Alt Teknikler</div>';
   const treeRoot = document.createElement('div');
   treeRoot.className = 'tree-root';
-  treeRoot.innerHTML = `> ${parentId} - ${parentName}`;
+  treeRoot.innerHTML = `${parentId} - ${parentName}`;
   const children = document.createElement('div');
-  children.className = 'tree-children';
+  children.className = 'tree-children open';
 
   if (subTechs.length === 0) {
     const empty = document.createElement('div');
@@ -334,11 +340,6 @@ function openModal(parentId, parentName, rules) {
     });
   }
 
-  treeRoot.onclick = () => {
-    const open = children.classList.toggle('open');
-    treeRoot.innerHTML = `${open ? 'v' : '>'} ${parentId} - ${parentName}`;
-  };
-
   treeSection.appendChild(treeRoot);
   treeSection.appendChild(children);
   body.appendChild(treeSection);
@@ -352,19 +353,22 @@ function openModal(parentId, parentName, rules) {
     const emptyMit = document.createElement('div');
     emptyMit.style.color = '#aaa';
     emptyMit.style.fontSize = '0.85rem';
-    emptyMit.textContent = 'Bu teknik için Mitigation bulunamadý.';
+    emptyMit.textContent = 'Bu teknik iÃ§in Mitigation bulunamadÄ±.';
     mitigationSection.appendChild(emptyMit);
   } else {
     mitigations.forEach(m => {
       const note = getMitigationNote(parentId, m.id);
       const row = document.createElement('div');
       row.className = 'mitigation-row';
+      if (note.checked) row.classList.add('checked');
       row.innerHTML = `
         <label class="mitigation-name">
           <input type="checkbox" data-tech="${parentId}" data-mit="${m.id}" ${note.checked ? 'checked' : ''}>
           ${m.id} - ${m.name}
+          <span class="mitigation-info" data-tech="${parentId}" data-mit="${m.id}">i</span>
         </label>
         <textarea class="mitigation-comment" data-tech="${parentId}" data-mit="${m.id}" placeholder="Ekip / uygulama notu">${note.comment || ''}</textarea>
+        <div class="mitigation-pop" data-tech="${parentId}" data-mit="${m.id}">${m.description || 'Aciklama bulunamadi.'}</div>
       `;
       mitigationSection.appendChild(row);
     });
@@ -379,7 +383,7 @@ function openModal(parentId, parentName, rules) {
   Object.keys(grouped).forEach(key => {
     const groupRules = grouped[key];
     if (groupRules.length === 0) return;
-    const headerTitle = (key === 'Direct') ? 'Doðrudan Eþleþmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
+    const headerTitle = (key === 'Direct') ? 'DoÄŸrudan EÅŸleÅŸmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
     const groupDiv = document.createElement('div');
     groupDiv.className = 'sub-tech-group';
     groupDiv.innerHTML = `<div class="sub-tech-header">${headerTitle}</div>`;
@@ -409,6 +413,8 @@ function openModal(parentId, parentName, rules) {
       const mitId = e.target.dataset.mit;
       const note = getMitigationNote(techId, mitId);
       note.checked = e.target.checked;
+      const row = e.target.closest('.mitigation-row');
+      if (row) row.classList.toggle('checked', e.target.checked);
       updateTechniqueCard(techId);
       await saveMitigationNote(techId, mitId, note);
     });
@@ -422,6 +428,16 @@ function openModal(parentId, parentName, rules) {
       await saveMitigationNote(techId, mitId, note);
     });
   });
+
+  body.querySelectorAll('.mitigation-info').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const techId = e.target.dataset.tech;
+      const mitId = e.target.dataset.mit;
+      const pop = body.querySelector(`.mitigation-pop[data-tech="${techId}"][data-mit="${mitId}"]`);
+      if (pop) pop.classList.toggle('open');
+    });
+  });
+
 
   document.getElementById('ruleModal').style.display = 'flex';
 }
@@ -485,6 +501,11 @@ function wireActions() {
 }
 
 init();
+
+
+
+
+
 
 
 
