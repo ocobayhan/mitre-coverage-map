@@ -19,6 +19,9 @@ let currentRulesByParent = {};
 let userRules = [];
 let mitigationNotes = {};
 let products = [];
+let filterSearch = '';
+let filterProducts = new Set();
+let filterAllProducts = true;
 
 async function init() {
   try {
@@ -132,6 +135,22 @@ function prepareMitreLookup() {
 }
 
 
+
+function renderFilters() {}
+
+function matchesSearch(tech) {
+  const term = filterSearch.trim().toLowerCase();
+  if (!term) return true;
+  const id = (tech.id || '').toLowerCase();
+  const name = (tech.name || '').toLowerCase();
+  return id.includes(term) || name.includes(term);
+}
+
+function matchesProduct(rules) {
+  if (filterAllProducts || filterProducts.size === 0) return true;
+  return rules.some(r => filterProducts.has(r.source));
+}
+
 function productColorMap() {
   const map = {};
   products.forEach(p => { map[p.name] = p.color; });
@@ -157,8 +176,26 @@ function renderLegend() {
   container.innerHTML = '';
   products.forEach(p => {
     const item = document.createElement('div');
-    item.className = 'legend-item';
+    const isActive = filterAllProducts || filterProducts.has(p.name);
+    item.className = 'legend-item' + (isActive ? '' : ' legend-item--off');
+    item.setAttribute('data-product', p.name);
     item.innerHTML = `<div class="legend-box" style="background:${p.color}"></div> ${p.name}`;
+    item.addEventListener('click', () => {
+      if (filterAllProducts) {
+        filterAllProducts = false;
+        filterProducts = new Set(products.map(x => x.name));
+      }
+      if (filterProducts.has(p.name)) {
+        filterProducts.delete(p.name);
+      } else {
+        filterProducts.add(p.name);
+      }
+      if (filterProducts.size === 0) {
+        filterAllProducts = true;
+      }
+      renderLegend();
+      renderMatrix();
+    });
     container.appendChild(item);
   });
 }
@@ -353,10 +390,10 @@ function updateTechniqueCard(parentId) {
   }
 }
 
-function buildSubtechContainer(parentId, enrichedData) {
+function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
   const container = document.createElement('div');
   container.className = 'subtech-container';
-  const subTechs = subTechsByParent[parentId] || [];
+  const subTechs = allowedSubs || (subTechsByParent[parentId] || []);
   if (subTechs.length == 0) return container;
 
   subTechs.forEach(st => {
@@ -406,7 +443,23 @@ function renderMatrix() {
     const techniques = (matrixStructure[tactic] || []).sort((a, b) => a.id.localeCompare(b.id));
 
     techniques.forEach(tech => {
-      const rulesForCell = enrichedData.filter(r => r.parentId == tech.id);
+      const parentMatchesSearch = matchesSearch(tech);
+      const parentRules = enrichedData.filter(r => r.parentId == tech.id);
+      const parentMatchesProduct = matchesProduct(parentRules);
+
+      const subTechs = subTechsByParent[tech.id] || [];
+      const subMatches = subTechs.filter(st => {
+        const rulesForSub = enrichedData.filter(r => r.tid == st.id);
+        const subSearch = matchesSearch(st);
+        const subProd = matchesProduct(rulesForSub);
+        return subSearch && subProd;
+      });
+
+      if (!(parentMatchesSearch && parentMatchesProduct) && subMatches.length === 0) {
+        return;
+      }
+
+      const rulesForCell = parentRules;
       const card = document.createElement('div');
       card.className = 'technique-card';
       card.dataset.techId = tech.id;
@@ -439,7 +492,7 @@ function renderMatrix() {
       card.appendChild(nameEl);
       card.appendChild(detailBtn);
 
-      const subContainer = buildSubtechContainer(tech.id, enrichedData);
+      const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches);
       card.style.cursor = 'pointer';
       card.onclick = () => {
         if (subContainer) subContainer.classList.toggle('open');
@@ -453,6 +506,20 @@ function renderMatrix() {
   });
 }
 
+
+function validateTechniqueInput(inputValue) {
+  const val = (inputValue || '').trim();
+  if (!val) return { ok: false, message: 'Teknik alan? bo?.' };
+  const isId = /^T\d{4}(\.\d{3})?$/i.test(val);
+  if (isId) {
+    const tid = val.toUpperCase();
+    if (!techDetailsMap[tid]) return { ok: false, message: 'Teknik ID bulunamad?.' };
+    return { ok: true, tid };
+  }
+  const lookup = nameToIdMap[val.toLowerCase()];
+  if (!lookup) return { ok: false, message: 'Teknik ad? bulunamad?.' };
+  return { ok: true, tid: lookup };
+}
 
 async function addNewRule() {
   const name = document.getElementById('newRuleName').value.trim();
@@ -473,7 +540,7 @@ async function addNewRule() {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || 'Ürün eklenemedi');
+    alert(err.error || 'Kural eklenemedi');
     return;
   }
 
@@ -685,8 +752,18 @@ function wireSettings() {
   if (uploadBtn) uploadBtn.addEventListener('click', uploadCsv);
 }
 
+function wireSearch() {
+  const input = document.getElementById('techSearch');
+  if (!input) return;
+  input.addEventListener('input', (e) => {
+    filterSearch = e.target.value || '';
+    renderMatrix();
+  });
+}
+
 function wireActions() {
   wireNavigation();
+  wireSearch();
   wireSidebarToggle();
   wireSettings();
   document.getElementById('btnAdd').addEventListener('click', addNewRule);

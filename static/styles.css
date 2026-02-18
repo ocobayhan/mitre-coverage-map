@@ -456,3 +456,31 @@ button.action-btn {
   font-size: 0.75rem;
 }
 .product-apply:hover { border-color: #7b8c96; color: #fff; }
+
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 8px 0 10px 0;
+  padding: 8px 10px;
+  background: #0f1418;
+  border: 1px solid #1f262b;
+  border-radius: 8px;
+}
+
+.filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-group label { font-size: 0.75rem; color: #aebbc2; }
+#techSearch { min-width: 220px; }
+
+.product-filter-list { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.product-filter-item { display: flex; gap: 6px; align-items: center; font-size: 0.8rem; color: #c7d2d9; }
+.product-filter-item input { accent-color: #6b7d88; }
+
+.hidden { display: none !important; }
+
+.legend-item--off {
+  opacity: 0.35;
+  filter: grayscale(0.7);
+}
+.legend-item { cursor: pointer; }

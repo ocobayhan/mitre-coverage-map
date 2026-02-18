@@ -3,7 +3,7 @@
 Last updated: 2026-02-18
 
 ## Purpose
-Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, and persistent storage.
+Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, product-based coverage, and persistent storage.
 
 ## Current Status
 - Backend: Flask + SQLite
@@ -11,6 +11,7 @@ Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitiga
 - MITRE data: loaded from `data/mitre.json` (manual updates)
 - Rules: stored in `soc.db`
 - Mitigation notes: stored in `soc.db`
+- Products: stored in `soc.db` (name + color)
 - Reset/reseed: available via `/api/admin/reset`
 
 ## How To Run (Windows)
@@ -32,7 +33,11 @@ If PowerShell execution policy blocks activation:
 - `GET /api/mitre`
 - `GET/POST /api/rules`
 - `DELETE /api/rules/<id>`
+- `POST /api/rules/bulk` (CSV import)
 - `GET/POST /api/mitigation-notes`
+- `GET/POST /api/products`
+- `PUT /api/products/<id>`
+- `DELETE /api/products/<id>`
 - `POST /api/admin/reset` with `{ "confirm": "RESET", "reseed": true }`
 
 ## Admin Reset Behavior
@@ -40,19 +45,55 @@ If PowerShell execution policy blocks activation:
 - Reseeds from `data/rules_seed.json`
 - If seed missing, fallback to parsing `SOC.html` (legacy)
 
-## Known Issues
-- None currently. If MITRE JSON missing, UI shows `Veri Hatasý`.
+## UI Features Implemented
+- MITRE matrix layout (horizontal tactics)
+- Technique card color gradient based on coverage score
+- Sub-techniques expand inline under technique card
+- Technique modal: rules + mitigations + notes
+- Mitigation info popover + checkbox + comment
+- Left sidebar with Matrix / Bilgilendirme / Ayarlar
+- Product legend and multi-color stripe on technique cards
+- Product management in Settings (add/delete/update color)
+- CSV bulk upload in Settings
+- Search bar on Matrix (ID or name)
+- Product filtering via legend toggle (click product name to hide/show)
 
-## Next Suggested Improvements
-- Add MITRE update admin action (upload or replace `data/mitre.json` in UI)
-- Add role-based access / simple auth if public deployment
-- Add search/filter for techniques and rules
-- Add export functions (CSV/JSON)
+## Filters & Validation
+- Search: only matching techniques remain visible
+- Product filter: legend items toggle inclusion
+- Technique validation on add: checks `Txxxx` or `Txxxx.xxx` and existence in MITRE map
 
-## Repo Hygiene
+## Known Issues / Notes
+- Turkish encoding has been problematic before; files now written as UTF-8 with escapes in `index.html`.
+- If UI shows ? characters, hard refresh and ensure server restarts.
+
+## Git / Repo Hygiene
 - `.gitignore` excludes: `.venv/`, `soc.db`, `__pycache__/`, `.env`
+- Untracked files often include `Error.jpg`, `Mitre.jpg` (do not commit)
+
+## Recent Work (High Level)
+- Added products table + CRUD endpoints
+- Implemented product color editing and persistence
+- Implemented CSV bulk import
+- Added search + product filter behavior
+- Fixed sidebar markup issues
+
+## Open Roadmap (Agreed)
+Milestone 1 (in progress):
+- Search + product filtering + validation (nearly done)
+
+Milestone 2:
+- Export: CSV and PDF (should respect active filters)
+
+Milestone 3:
+- MITRE Navigator Layer JSON export (score-based)
+
+Milestone 4:
+- Performance: backend cached/minified MITRE API
+
+Deferred:
+- Audit log (later after user system)
 
 ## Commit Tracking
-- Latest commit on `main`: "Initial commit"
-- For future changes, commit after each feature/fix with concise message
-
+- Latest commit: update after filters/legend toggle fixes (pending in working tree)
+- User pushes to private GitHub repo manually
