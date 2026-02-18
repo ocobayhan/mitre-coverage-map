@@ -16,6 +16,8 @@ SEED_RULES_PATH = DATA_DIR / "rules_seed.json"
 LEGACY_SOC_HTML = BASE_DIR / "SOC.html"
 
 app = Flask(__name__)
+app.config["JSON_AS_ASCII"] = False
+app.config["JSONIFY_MIMETYPE"] = "application/json; charset=utf-8"
 
 
 def get_db() -> sqlite3.Connection:
@@ -54,11 +56,35 @@ def init_db() -> None:
                 comment TEXT NOT NULL DEFAULT "",
                 UNIQUE(technique_id, mitigation_id)
             );
+
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                color TEXT NOT NULL
+            );
             """
         )
         db.commit()
+        ensure_products(db)
     finally:
         db.close()
+
+
+
+def ensure_products(db: sqlite3.Connection) -> None:
+    existing = db.execute("SELECT COUNT(*) AS cnt FROM products").fetchone()[0]
+    if existing:
+        return
+    defaults = [
+        ("QRadar", "#2e7d32"),
+        ("DFE", "#1565c0"),
+        ("DefO365", "#ef6c00"),
+        ("DefIdentity", "#6a1b9a"),
+        ("Other", "#546e7a"),
+    ]
+    db.executemany("INSERT INTO products (name, color) VALUES (?, ?)", defaults)
+    db.commit()
+
 
 def _load_seed_rules() -> list[dict[str, Any]]:
     if SEED_RULES_PATH.exists():
@@ -142,6 +168,55 @@ def rules():
     return jsonify({"id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech, "source": source}), 201
 
 
+
+
+@app.route("/api/rules/bulk", methods=["POST"])
+def rules_bulk():
+    db = get_db()
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "Missing CSV file"}), 400
+
+    import csv
+    try:
+        content = file.read().decode("utf-8")
+    except Exception:
+        return jsonify({"error": "CSV must be UTF-8 encoded"}), 400
+
+    reader = csv.DictReader(content.splitlines())
+    required = {"name", "tactic", "tech", "source"}
+    if not reader.fieldnames:
+        return jsonify({"error": "CSV header must include: name,tactic,tech,source"}), 400
+
+    header_map = {h.strip().lower(): h for h in reader.fieldnames}
+    if not required.issubset(set(header_map.keys())):
+        return jsonify({"error": "CSV header must include: name,tactic,tech,source"}), 400
+
+    products = {r["name"]: True for r in db.execute("SELECT name FROM products").fetchall()}
+
+    inserted = 0
+    errors = []
+    for i, row in enumerate(reader, start=2):
+        norm = {k.strip().lower(): (v or "") for k, v in row.items()}
+        name = norm.get("name", "").strip()
+        tactic = norm.get("tactic", "").strip()
+        tech = norm.get("tech", "").strip()
+        source = norm.get("source", "").strip()
+        if not name or not tactic or not tech or not source:
+            errors.append(f"Satir {i}: eksik alan")
+            continue
+        if source not in products:
+            errors.append(f"Satir {i}: kaynak bulunamadi ({source})")
+            continue
+        db.execute(
+            "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
+            (name, tactic, tech, source),
+        )
+        inserted += 1
+    db.commit()
+    return jsonify({"ok": True, "inserted": inserted, "errors": errors})
+
+
 @app.route("/api/rules/<int:rule_id>", methods=["DELETE"])
 def delete_rule(rule_id: int):
     db = get_db()
@@ -149,6 +224,49 @@ def delete_rule(rule_id: int):
     db.commit()
     return jsonify({"ok": True})
 
+
+
+
+@app.route("/api/products", methods=["GET", "POST"])
+def products():
+    db = get_db()
+    if request.method == "GET":
+        rows = db.execute("SELECT id, name, color FROM products ORDER BY name ASC").fetchall()
+        return jsonify([dict(r) for r in rows])
+
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    color = (payload.get("color") or "").strip()
+    if not name or not color:
+        return jsonify({"error": "Missing fields: name, color"}), 400
+    try:
+        cur = db.execute("INSERT INTO products (name, color) VALUES (?, ?)", (name, color))
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Product already exists"}), 400
+    return jsonify({"id": cur.lastrowid, "name": name, "color": color}), 201
+
+
+@app.route("/api/products/<int:product_id>", methods=["DELETE"])
+def delete_product(product_id: int):
+    db = get_db()
+    db.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+
+
+@app.route("/api/products/<int:product_id>", methods=["PUT"])
+def update_product(product_id: int):
+    db = get_db()
+    payload = request.get_json(silent=True) or {}
+    color = (payload.get("color") or "").strip()
+    if not color:
+        return jsonify({"error": "Missing fields: color"}), 400
+    db.execute("UPDATE products SET color = ? WHERE id = ?", (color, product_id))
+    db.commit()
+    return jsonify({"ok": True})
 
 @app.route("/api/mitigation-notes", methods=["GET", "POST"])
 def mitigation_notes():

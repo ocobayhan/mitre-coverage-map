@@ -1,5 +1,3 @@
-const SOURCE_COLORS = { 'QRadar': 'var(--color-qradar)', 'DFE': 'var(--color-dfe)', 'DefO365': 'var(--color-mdo)', 'DefIdentity': 'var(--color-mdi)', 'Other': 'var(--color-other)' };
-const PRIORITY_ORDER = ['QRadar', 'DFE', 'DefO365', 'DefIdentity', 'Other'];
 const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
 const tacticOrder = Object.values(tacticMap);
 
@@ -20,22 +18,26 @@ let currentRulesByParent = {};
 
 let userRules = [];
 let mitigationNotes = {};
+let products = [];
 
 async function init() {
   try {
-    const [mitreRes, rulesRes, notesRes] = await Promise.all([
+    const [mitreRes, productsRes, rulesRes, notesRes] = await Promise.all([
       fetch('/api/mitre'),
+      fetch('/api/products'),
       fetch('/api/rules'),
       fetch('/api/mitigation-notes')
     ]);
 
     if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
     mitreObjects = (await mitreRes.json()).objects || [];
+    products = productsRes.ok ? await productsRes.json() : [];
     userRules = rulesRes.ok ? await rulesRes.json() : [];
     const notes = notesRes.ok ? await notesRes.json() : [];
     mitigationNotes = normalizeNotes(notes);
 
     prepareMitreLookup();
+    await loadProducts();
     populateTacticSelect();
     wireActions();
     renderMatrix();
@@ -44,13 +46,19 @@ async function init() {
   }
 }
 async function reloadData() {
-  const [rulesRes, notesRes] = await Promise.all([
+  const [productsRes, rulesRes, notesRes] = await Promise.all([
+    fetch('/api/products'),
     fetch('/api/rules'),
     fetch('/api/mitigation-notes')
   ]);
+  products = productsRes.ok ? await productsRes.json() : [];
   userRules = rulesRes.ok ? await rulesRes.json() : [];
   const notes = notesRes.ok ? await notesRes.json() : [];
   mitigationNotes = normalizeNotes(notes);
+  renderLegend();
+  renderProductLegend();
+  populateSourceSelect();
+  renderProductsList();
 }
 
 function normalizeNotes(list) {
@@ -123,6 +131,105 @@ function prepareMitreLookup() {
   });
 }
 
+
+function productColorMap() {
+  const map = {};
+  products.forEach(p => { map[p.name] = p.color; });
+  return map;
+}
+
+
+function renderProductLegend() {
+  const container = document.getElementById('productLegend');
+  if (!container) return;
+  container.innerHTML = '';
+  products.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'product-legend-item';
+    item.innerHTML = `<div class="product-legend-swatch" style="background:${p.color}"></div>${p.name}`;
+    container.appendChild(item);
+  });
+}
+
+function renderLegend() {
+  const container = document.getElementById('legendContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  products.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<div class="legend-box" style="background:${p.color}"></div> ${p.name}`;
+    container.appendChild(item);
+  });
+}
+
+function populateSourceSelect() {
+  const select = document.getElementById('newRuleSource');
+  if (!select) return;
+  select.innerHTML = '';
+  products.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  });
+}
+
+function renderProductsList() {
+  const list = document.getElementById('productList');
+  if (!list) return;
+  list.innerHTML = '';
+  products.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'product-item';
+    row.innerHTML = `
+      <div class="product-info">
+        <div class="product-swatch" style="background:${p.color}"></div>
+        <div>${p.name}</div>
+      </div>
+      <div class="product-actions">
+        <input class="product-color" type="color" value="${p.color}" data-id="${p.id}">
+        <button class="product-apply" data-id="${p.id}">Uygula</button>
+        <button class="product-delete" data-id="${p.id}">Sil</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('.product-apply').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.dataset.id;
+      const picker = list.querySelector(`.product-color[data-id=\"${id}\"]`);
+      const color = picker ? picker.value : null;
+      if (!color) return;
+      await fetch(`/api/products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color })
+      });
+      await loadProducts();
+      renderMatrix();
+    });
+  });
+
+  list.querySelectorAll('.product-delete').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.dataset.id;
+      await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      await loadProducts();
+      renderMatrix();
+    });
+  });
+}
+
+async function loadProducts() {
+  const res = await fetch('/api/products');
+  products = res.ok ? await res.json() : [];
+  renderLegend();
+  renderProductLegend();
+  populateSourceSelect();
+  renderProductsList();
+}
+
 function populateTacticSelect() {
   const select = document.getElementById('newRuleTactic');
   select.innerHTML = '';
@@ -183,7 +290,34 @@ function scoreToColor(score) {
 
 
 
-function applyTechniqueVisuals(card, rulesCount, mitigationCount, winningSource) {
+
+function buildStripeStyle(colors) {
+  if (!colors || colors.length === 0) return null;
+  if (colors.length === 1) return colors[0];
+  const step = 100 / colors.length;
+  let parts = [];
+  colors.forEach((c, i) => {
+    const start = (i * step).toFixed(2);
+    const end = ((i + 1) * step).toFixed(2);
+    parts.push(`${c} ${start}%`, `${c} ${end}%`);
+  });
+  return `linear-gradient(to bottom, ${parts.join(', ')})`;
+}
+
+function applySourceStripe(card, sources) {
+  const map = productColorMap();
+  const colors = Array.from(new Set(sources)).map(s => map[s]).filter(Boolean);
+  const style = buildStripeStyle(colors);
+  const existing = card.querySelector('.source-stripe');
+  if (existing) existing.remove();
+  if (!style) return;
+  const stripe = document.createElement('div');
+  stripe.className = 'source-stripe';
+  stripe.style.background = style;
+  card.appendChild(stripe);
+}
+
+function applyTechniqueVisuals(card, rulesCount, mitigationCount, sources) {
   const score = computeScore(rulesCount, mitigationCount);
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
@@ -191,9 +325,7 @@ function applyTechniqueVisuals(card, rulesCount, mitigationCount, winningSource)
   if (mitigationCount > 0) {
     card.innerHTML += `<div class="mitigation-badge">OK${mitigationCount}</div>`;
   }
-  if (winningSource) {
-    card.innerHTML += `<div class="source-pill" style="background:${SOURCE_COLORS[winningSource]}"></div>`;
-  }
+  applySourceStripe(card, sources);
 }
 
 function updateTechniqueCard(parentId) {
@@ -232,20 +364,9 @@ function buildSubtechContainer(parentId, enrichedData) {
     subCard.className = 'subtech-card';
 
     const rulesForSub = enrichedData.filter(r => r.tid == st.id);
-    let winningSource = null;
-    if (rulesForSub.length > 0) {
-      let highestPriorityIndex = 999;
-      rulesForSub.forEach(r => {
-        const pIndex = PRIORITY_ORDER.indexOf(r.source);
-        if (pIndex != -1 && pIndex < highestPriorityIndex) {
-          highestPriorityIndex = pIndex;
-          winningSource = r.source;
-        }
-      });
-    }
-
     const mitigationCount = getCheckedMitigationCountForTech(st.id);
-    applyTechniqueVisuals(subCard, rulesForSub.length, mitigationCount, winningSource);
+    const sources = rulesForSub.map(r => r.source);
+    applyTechniqueVisuals(subCard, rulesForSub.length, mitigationCount, sources);
 
     const idEl = document.createElement('div');
     idEl.className = 'technique-id';
@@ -291,21 +412,13 @@ function renderMatrix() {
       card.dataset.techId = tech.id;
       currentRulesByParent[tech.id] = rulesForCell.length;
 
-      let winningSource = null;
       if (rulesForCell.length > 0) {
-        let highestPriorityIndex = 999;
-        rulesForCell.forEach(r => {
-          const pIndex = PRIORITY_ORDER.indexOf(r.source);
-          if (pIndex != -1 && pIndex < highestPriorityIndex) {
-            highestPriorityIndex = pIndex;
-            winningSource = r.source;
-          }
-        });
         card.style.borderColor = '#fff';
       }
 
       const mitigationCount = getCheckedMitigationCountForParent(tech.id);
-      applyTechniqueVisuals(card, rulesForCell.length, mitigationCount, winningSource);
+      const sources = rulesForCell.map(r => r.source);
+      applyTechniqueVisuals(card, rulesForCell.length, mitigationCount, sources);
 
       const idEl = document.createElement('div');
       idEl.className = 'technique-id';
@@ -360,7 +473,7 @@ async function addNewRule() {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || 'Kural eklenemedi');
+    alert(err.error || 'Ürün eklenemedi');
     return;
   }
 
@@ -380,6 +493,7 @@ async function deleteRule(ruleId) {
 function openModal(parentId, parentName, rules) {
   document.getElementById('modalTitle').innerText = `${parentId} - ${parentName}`;
   const body = document.getElementById('modalBody');
+  const colorMap = productColorMap();
   body.innerHTML = '';
 
   const mitigationSection = document.createElement('div');
@@ -433,7 +547,7 @@ function openModal(parentId, parentName, rules) {
       tbody += `<tr>
         <td>${r.name}</td>
         <td style="text-align:right">
-          <span class="source-tag" style="background:${SOURCE_COLORS[r.source]}">${r.source}</span>
+          <span class="source-tag" style="background:${colorMap[r.source] || "#546e7a"}">${r.source}</span>
           <button class="delete-btn" onclick="deleteRule(${r.id})">Sil</button>
         </td>
       </tr>`;
@@ -519,9 +633,62 @@ function wireNavigation() {
   });
 }
 
+
+async function addProduct() {
+  const name = document.getElementById('productName').value.trim();
+  const color = document.getElementById('productColor').value.trim();
+  if (!name || !color) {
+    alert('Ürün adı ve renk gerekli.');
+    return;
+  }
+  const res = await fetch('/api/products', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'Ürün eklenemedi');
+    return;
+  }
+  document.getElementById('productName').value = '';
+  await loadProducts();
+  renderMatrix();
+}
+
+async function uploadCsv() {
+  const fileInput = document.getElementById('csvFile');
+  const result = document.getElementById('uploadResult');
+  result.textContent = '';
+  if (!fileInput.files || fileInput.files.length === 0) {
+    result.textContent = 'Lütfen bir CSV dosyası seçin.';
+    return;
+  }
+  const form = new FormData();
+  form.append('file', fileInput.files[0]);
+  const res = await fetch('/api/rules/bulk', { method: 'POST', body: form });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    result.textContent = payload.error || 'Yükleme başarısız.';
+    return;
+  }
+  await reloadData();
+  renderMatrix();
+  const errors = (payload.errors || []).slice(0, 10).join(' | ');
+  result.textContent = `Yüklendi: ${payload.inserted}. Hata: ${payload.errors.length}` + (errors ? ` (${errors})` : '');
+}
+
+function wireSettings() {
+  const addBtn = document.getElementById('btnAddProduct');
+  if (addBtn) addBtn.addEventListener('click', addProduct);
+  const uploadBtn = document.getElementById('btnUploadCsv');
+  if (uploadBtn) uploadBtn.addEventListener('click', uploadCsv);
+}
+
 function wireActions() {
   wireNavigation();
   wireSidebarToggle();
+  wireSettings();
   document.getElementById('btnAdd').addEventListener('click', addNewRule);
   document.getElementById('modalClose').addEventListener('click', () => {
     document.getElementById('ruleModal').style.display = 'none';

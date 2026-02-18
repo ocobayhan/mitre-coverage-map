@@ -4,15 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Manager</title>
-  <link rel="stylesheet" href="/static/styles.css?v=12" />
+  <link rel="stylesheet" href="/static/styles.css?v=22" />
 </head>
 <body>
   <div class="app-shell">
     <nav class="sidebar">
       <div class="brand">SOC Coverage Manager</div>
       <button class="nav-toggle" id="sidebarToggle" title="Menüyü aç/kapat">Menu</button>
-      <button class="nav-item active" data-target="matrixPanel">Matrix</button>
-      <button class="nav-item" data-target="infoPanel">Bilgilendirme</button>
+      <button class="nav-item active" data-target="matrixPanel"><span class="nav-label">Matrix</span><span class="nav-short">M</span></button>
+      <button class="nav-item" data-target="infoPanel"><span class="nav-label">Bilgilendirme</span><span class="nav-short">B</span></button>
+      <button class="nav-item" data-target="settingsPanel"><span class="nav-label">Ayarlar</span><span class="nav-short">A</span></button>
       <div class="sidebar-note">Puanlama ve renklerin anlamı için Bilgilendirme sekmesini kullanın.</div>
     </nav>
 
@@ -21,19 +22,14 @@
         <div class="header-section">
           <h1>SOC Coverage Manager</h1>
           <div class="top-bar">
+            <div class="product-legend" id="productLegend"></div>
             <div class="stats">
               Toplam Kural: <span id="totalRules">0</span> | Kapsanan Teknik: <span id="coveredTechs">0</span>
             </div>
             <div class="admin-actions">
-              <button class="action-btn btn-reset" id="btnReset" title="Verileri sifirla ve seed dosyasindan yeniden yukle">Sifirla & Yeniden Yukle</button>
+              <button class="action-btn btn-reset" id="btnReset" title="Verileri sıfırla ve seed dosyasından yeniden yükle">Sıfırla & Yeniden Yükle</button>
             </div>
-            <div class="legend">
-              <div class="legend-item" title="Öncelik 1"><div class="legend-box" style="background:var(--color-qradar)"></div> QRadar</div>
-              <div class="legend-item" title="Öncelik 2"><div class="legend-box" style="background:var(--color-dfe)"></div> DFE</div>
-              <div class="legend-item" title="Öncelik 3"><div class="legend-box" style="background:var(--color-mdo)"></div> DefO365</div>
-              <div class="legend-item" title="Öncelik 4"><div class="legend-box" style="background:var(--color-mdi)"></div> DefIdentity</div>
-              <div class="legend-item" title="Öncelik 5"><div class="legend-box" style="background:var(--color-other)"></div> Diğer</div>
-            </div>
+            <div class="legend" id="legendContainer"></div>
           </div>
         </div>
 
@@ -58,14 +54,8 @@
                 <input type="text" id="newRuleTech" placeholder="Örn: T1059" />
               </div>
               <div class="input-wrapper">
-                <label>Kaynak</label>
-                <select id="newRuleSource">
-                  <option value="QRadar">QRadar</option>
-                  <option value="DFE">Def Endpoint</option>
-                  <option value="DefO365">Def Office365</option>
-                  <option value="DefIdentity">Def Identity</option>
-                  <option value="Other">Diğer</option>
-                </select>
+                <label>Ürün</label>
+                <select id="newRuleSource"></select>
               </div>
               <button class="action-btn btn-add" id="btnAdd">Ekle</button>
             </div>
@@ -91,15 +81,45 @@
             <p>Skor düşükse kutu koyu griye yakındır. Skor arttıkça renk yumuşak şekilde yeşile döner. Bu, kapsamanın arttığını gösterir.</p>
           </div>
           <div class="info-section">
-            <h3>Kaynak Öncelikleri</h3>
-            <p>Teknik kutusunun solundaki renkli çizgi, en yüksek Öncelikli kaynağı temsil eder.</p>
-            <div class="info-list">
-              <div>QRadar: Öncelik 1</div>
-              <div>DFE: Öncelik 2</div>
-              <div>DefO365: Öncelik 3</div>
-              <div>DefIdentity: Öncelik 4</div>
-              <div>Diğer: Öncelik 5</div>
+            <h3>Ürün Renkleri</h3>
+            <p>Teknik kutusunun solundaki renkli şerit, o teknik için kullanılan ürünlerin renklerini aynı şerit üzerinde parçalara bölerek gösterir.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="settingsPanel" class="panel">
+        <div class="info-card">
+          <h2>Ayarlar</h2>
+          <div class="info-section">
+            <h3>Ürün Yönetimi</h3>
+            <div class="settings-row">
+              <div class="input-wrapper">
+                <label>Ürün Adı</label>
+                <input type="text" id="productName" placeholder="Örn: QRadar" />
+              </div>
+              <div class="input-wrapper">
+                <label>Renk</label>
+                <input type="color" id="productColor" value="#2e7d32" />
+              </div>
+              <button class="action-btn btn-add" id="btnAddProduct">Ekle</button>
             </div>
+            <div class="settings-subtitle">Mevcut Ürünler</div>
+            <div class="product-list" id="productList"></div>
+          </div>
+
+          <div class="info-section">
+            <h3>Toplu Kural Yükleme (CSV)</h3>
+            <div class="settings-row">
+              <input type="file" id="csvFile" accept=".csv" />
+              <button class="action-btn btn-add" id="btnUploadCsv">Yükle</button>
+            </div>
+            <div class="csv-help">
+              <div>CSV dosyası başlık satırı içermelidir.</div>
+              <div>Gerekli sütunlar: <code>name,tactic,tech,source</code></div>
+              <div>Örnek satır: <code>Suspicious PowerShell,Execution,T1059,QRadar</code></div>
+              <div>Kaynak (source) alanı ürün adıyla birebir eşleşmelidir.</div>
+            </div>
+            <div class="upload-result" id="uploadResult"></div>
           </div>
         </div>
       </div>
@@ -116,6 +136,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=14"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>
