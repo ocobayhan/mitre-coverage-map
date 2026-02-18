@@ -114,6 +114,46 @@ h1 {
 .technique-name { font-weight: 500; font-size: 0.8rem; line-height: 1.1; }
 
 
+.detail-btn {
+  margin-top: 6px;
+  align-self: flex-start;
+  background: #263238;
+  color: #cfd8dc;
+  border: 1px solid #3a444a;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.detail-btn:hover { border-color: #7b8c96; color: #fff; }
+
+.subtech-container {
+  display: block;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+  margin-left: 10px;
+  border-left: 1px dashed #2c3438;
+  padding-left: 6px;
+}
+.subtech-container.open { max-height: 1200px; }
+
+.subtech-card {
+  background-color: #1a1f22;
+  border: 1px solid #2a2f33;
+  border-radius: 8px;
+  padding: 6px;
+  margin: 6px 0;
+  min-height: 38px;
+  opacity: 0.9;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  transition: all 0.2s;
+}
+.subtech-card:hover { border-color: #999; opacity: 1; }
+
 .mitigation-badge {
   position: absolute; top: -5px; right: 18px; background: #2e7d32; color: white;
   border-radius: 50%; width: 18px; height: 18px; font-size: 0.7rem; font-weight: bold;

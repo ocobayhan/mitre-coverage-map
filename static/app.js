@@ -221,6 +221,53 @@ function updateTechniqueCard(parentId) {
   }
 }
 
+function buildSubtechContainer(parentId, enrichedData) {
+  const container = document.createElement('div');
+  container.className = 'subtech-container';
+  const subTechs = subTechsByParent[parentId] || [];
+  if (subTechs.length == 0) return container;
+
+  subTechs.forEach(st => {
+    const subCard = document.createElement('div');
+    subCard.className = 'subtech-card';
+
+    const rulesForSub = enrichedData.filter(r => r.tid == st.id);
+    let winningSource = null;
+    if (rulesForSub.length > 0) {
+      let highestPriorityIndex = 999;
+      rulesForSub.forEach(r => {
+        const pIndex = PRIORITY_ORDER.indexOf(r.source);
+        if (pIndex != -1 && pIndex < highestPriorityIndex) {
+          highestPriorityIndex = pIndex;
+          winningSource = r.source;
+        }
+      });
+    }
+
+    const mitigationCount = getCheckedMitigationCountForTech(st.id);
+    applyTechniqueVisuals(subCard, rulesForSub.length, mitigationCount, winningSource);
+
+    const idEl = document.createElement('div');
+    idEl.className = 'technique-id';
+    idEl.textContent = st.id;
+    const nameEl = document.createElement('div');
+    nameEl.className = 'technique-name';
+    nameEl.textContent = st.name;
+    subCard.appendChild(idEl);
+    subCard.appendChild(nameEl);
+
+    subCard.style.cursor = 'pointer';
+    subCard.onclick = (e) => {
+      e.stopPropagation();
+      openModal(st.id, st.name, rulesForSub);
+    };
+
+    container.appendChild(subCard);
+  });
+
+  return container;
+}
+
 function renderMatrix() {
   const enrichedData = enrichRules();
   const container = document.getElementById('matrix');
@@ -238,7 +285,7 @@ function renderMatrix() {
     const techniques = (matrixStructure[tactic] || []).sort((a, b) => a.id.localeCompare(b.id));
 
     techniques.forEach(tech => {
-      const rulesForCell = enrichedData.filter(r => r.parentId === tech.id);
+      const rulesForCell = enrichedData.filter(r => r.parentId == tech.id);
       const card = document.createElement('div');
       card.className = 'technique-card';
       card.dataset.techId = tech.id;
@@ -249,7 +296,7 @@ function renderMatrix() {
         let highestPriorityIndex = 999;
         rulesForCell.forEach(r => {
           const pIndex = PRIORITY_ORDER.indexOf(r.source);
-          if (pIndex !== -1 && pIndex < highestPriorityIndex) {
+          if (pIndex != -1 && pIndex < highestPriorityIndex) {
             highestPriorityIndex = pIndex;
             winningSource = r.source;
           }
@@ -259,15 +306,40 @@ function renderMatrix() {
 
       const mitigationCount = getCheckedMitigationCountForParent(tech.id);
       applyTechniqueVisuals(card, rulesForCell.length, mitigationCount, winningSource);
+
+      const idEl = document.createElement('div');
+      idEl.className = 'technique-id';
+      idEl.textContent = tech.id;
+      const nameEl = document.createElement('div');
+      nameEl.className = 'technique-name';
+      nameEl.textContent = tech.name;
+
+      const detailBtn = document.createElement('button');
+      detailBtn.className = 'detail-btn';
+      detailBtn.textContent = 'Detay';
+      detailBtn.onclick = (e) => {
+        e.stopPropagation();
+        openModal(tech.id, tech.name, rulesForCell);
+      };
+
+      card.appendChild(idEl);
+      card.appendChild(nameEl);
+      card.appendChild(detailBtn);
+
+      const subContainer = buildSubtechContainer(tech.id, enrichedData);
       card.style.cursor = 'pointer';
-      card.onclick = () => openModal(tech.id, tech.name, rulesForCell);
-      card.innerHTML += `<div class="technique-id">${tech.id}</div><div class="technique-name">${tech.name}</div>`;
+      card.onclick = () => {
+        if (subContainer) subContainer.classList.toggle('open');
+      };
+
       col.appendChild(card);
+      col.appendChild(subContainer);
     });
 
     container.appendChild(col);
   });
 }
+
 
 async function addNewRule() {
   const name = document.getElementById('newRuleName').value.trim();
@@ -310,47 +382,16 @@ function openModal(parentId, parentName, rules) {
   const body = document.getElementById('modalBody');
   body.innerHTML = '';
 
-  const treeSection = document.createElement('div');
-  treeSection.className = 'tree-section';
-  const subTechs = subTechsByParent[parentId] || [];
-  treeSection.innerHTML = '<div class="tree-title">Alt Teknikler</div>';
-  const treeRoot = document.createElement('div');
-  treeRoot.className = 'tree-root';
-  treeRoot.innerHTML = `${parentId} - ${parentName}`;
-  const children = document.createElement('div');
-  children.className = 'tree-children open';
-
-  if (subTechs.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-item';
-    empty.innerHTML = '<span>Alt teknik yok</span>';
-    children.appendChild(empty);
-  } else {
-    const rulesBySub = {};
-    rules.filter(r => r.isSub).forEach(r => { rulesBySub[r.tid] = (rulesBySub[r.tid] || 0) + 1; });
-    subTechs.forEach(st => {
-      const item = document.createElement('div');
-      item.className = 'tree-item';
-      const count = rulesBySub[st.id] || 0;
-      item.innerHTML = `<div>${st.id} - ${st.name}</div><span>Kural: ${count}</span>`;
-      children.appendChild(item);
-    });
-  }
-
-  treeSection.appendChild(treeRoot);
-  treeSection.appendChild(children);
-  body.appendChild(treeSection);
-
   const mitigationSection = document.createElement('div');
   mitigationSection.className = 'mitigation-section';
   const mitigations = mitigationsByTechnique[parentId] || [];
   mitigationSection.innerHTML = `<div class="mitigation-title">Mitigations (${mitigations.length})</div>`;
 
-  if (mitigations.length === 0) {
+  if (mitigations.length == 0) {
     const emptyMit = document.createElement('div');
     emptyMit.style.color = '#aaa';
     emptyMit.style.fontSize = '0.85rem';
-    emptyMit.textContent = 'Bu teknik için Mitigation bulunamadı.';
+    emptyMit.textContent = 'Bu teknik i?in Mitigation bulunamad?.';
     mitigationSection.appendChild(emptyMit);
   } else {
     mitigations.forEach(m => {
@@ -379,8 +420,8 @@ function openModal(parentId, parentName, rules) {
 
   Object.keys(grouped).forEach(key => {
     const groupRules = grouped[key];
-    if (groupRules.length === 0) return;
-    const headerTitle = (key === 'Direct') ? 'Doğrudan Eşleşmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
+    if (groupRules.length == 0) return;
+    const headerTitle = (key == 'Direct') ? 'Do?rudan E?le?meler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
     const groupDiv = document.createElement('div');
     groupDiv.className = 'sub-tech-group';
     groupDiv.innerHTML = `<div class="sub-tech-header">${headerTitle}</div>`;
@@ -425,19 +466,21 @@ function openModal(parentId, parentName, rules) {
       await saveMitigationNote(techId, mitId, note);
     });
   });
-
   body.querySelectorAll('.mitigation-info').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const techId = e.target.dataset.tech;
-      const mitId = e.target.dataset.mit;
-      const pop = body.querySelector(`.mitigation-pop[data-tech="${techId}"][data-mit="${mitId}"]`);
-      if (pop) pop.classList.toggle('open');
+      const row = e.currentTarget.closest('.mitigation-row');
+      if (!row) return;
+      const pop = row.querySelector('.mitigation-pop');
+      if (!pop) return;
+      const isOpen = pop.classList.contains('open');
+      body.querySelectorAll('.mitigation-pop.open').forEach(p => p.classList.remove('open'));
+      if (!isOpen) pop.classList.add('open');
     });
   });
 
-
   document.getElementById('ruleModal').style.display = 'flex';
 }
+
 
 async function saveMitigationNote(techId, mitId, note) {
   await fetch('/api/mitigation-notes', {
