@@ -10,9 +10,10 @@ Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitiga
 - Frontend: Single HTML + JS + CSS served by Flask
 - MITRE data: loaded from `data/mitre.json` (manual updates)
 - Rules: stored in `soc.db`
-- Mitigation notes: stored in `soc.db`
+- Mitigation notes: stored in `soc.db` (includes `team` field)
 - Products: stored in `soc.db` (name + color)
 - Reset/reseed: available via `/api/admin/reset`
+- MITRE minified endpoint is cached in-memory on backend
 
 ## How To Run (Windows)
 1. `python -m venv .venv`
@@ -31,6 +32,7 @@ If PowerShell execution policy blocks activation:
 
 ## Key Endpoints
 - `GET /api/mitre`
+- `GET /api/mitre-min`
 - `GET/POST /api/rules`
 - `DELETE /api/rules/<id>`
 - `POST /api/rules/bulk` (CSV import)
@@ -78,6 +80,8 @@ If PowerShell execution policy blocks activation:
 - Modal "Onayla" now saves mitigations and closes modal
 - Fixed navigation switching between Matrix / Bilgilendirme / Ayarlar
 - Cleaned Turkish characters in templates and UI strings
+- Added MITRE minified API + in-memory cache (performance)
+- Added `team` field to mitigation notes (DB + API)
 
 ## Open Roadmap (Agreed)
 Milestone 1 (in progress):

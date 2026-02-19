@@ -20,6 +20,10 @@ app.config["JSON_AS_ASCII"] = False
 app.config["JSONIFY_MIMETYPE"] = "application/json; charset=utf-8"
 
 
+MITRE_CACHE = {"mtime": None, "data": None}
+
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
         conn = sqlite3.connect(DB_PATH)
@@ -33,6 +37,13 @@ def close_db(_: Exception | None) -> None:
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+def ensure_mitigation_team_column(db: sqlite3.Connection) -> None:
+    cols = [r[1] for r in db.execute("PRAGMA table_info(mitigation_notes)").fetchall()]
+    if "team" not in cols:
+        db.execute("ALTER TABLE mitigation_notes ADD COLUMN team TEXT NOT NULL DEFAULT ''")
+        db.commit()
 
 
 def init_db() -> None:
@@ -54,6 +65,7 @@ def init_db() -> None:
                 mitigation_id TEXT NOT NULL,
                 checked INTEGER NOT NULL DEFAULT 0,
                 comment TEXT NOT NULL DEFAULT "",
+                team TEXT NOT NULL DEFAULT "",
                 UNIQUE(technique_id, mitigation_id)
             );
 
@@ -65,10 +77,10 @@ def init_db() -> None:
             """
         )
         db.commit()
+        ensure_mitigation_team_column(db)
         ensure_products(db)
     finally:
         db.close()
-
 
 
 def ensure_products(db: sqlite3.Connection) -> None:
@@ -84,6 +96,56 @@ def ensure_products(db: sqlite3.Connection) -> None:
     ]
     db.executemany("INSERT INTO products (name, color) VALUES (?, ?)", defaults)
     db.commit()
+
+
+
+
+def _minify_mitre(raw: dict) -> dict:
+    objects = raw.get("objects", [])
+    out = {"objects": []}
+    for obj in objects:
+        t = obj.get("type")
+        if t == "attack-pattern":
+            out["objects"].append({
+                "type": "attack-pattern",
+                "id": obj.get("id"),
+                "name": obj.get("name"),
+                "description": obj.get("description"),
+                "kill_chain_phases": obj.get("kill_chain_phases", []),
+                "x_mitre_is_subtechnique": obj.get("x_mitre_is_subtechnique", False),
+                "external_references": obj.get("external_references", []),
+                "revoked": obj.get("revoked", False),
+                "x_mitre_deprecated": obj.get("x_mitre_deprecated", False),
+            })
+        elif t == "course-of-action":
+            out["objects"].append({
+                "type": "course-of-action",
+                "id": obj.get("id"),
+                "name": obj.get("name"),
+                "description": obj.get("description"),
+                "external_references": obj.get("external_references", []),
+                "revoked": obj.get("revoked", False),
+                "x_mitre_deprecated": obj.get("x_mitre_deprecated", False),
+            })
+        elif t == "relationship" and obj.get("relationship_type") == "mitigates":
+            out["objects"].append({
+                "type": "relationship",
+                "relationship_type": "mitigates",
+                "source_ref": obj.get("source_ref"),
+                "target_ref": obj.get("target_ref"),
+            })
+    return out
+
+
+def get_minified_mitre() -> dict:
+    if not MITRE_PATH.exists():
+        raise FileNotFoundError("MITRE data not found")
+    mtime = MITRE_PATH.stat().st_mtime
+    if MITRE_CACHE["data"] is None or MITRE_CACHE["mtime"] != mtime:
+        raw = json.loads(MITRE_PATH.read_text(encoding="utf-8"))
+        MITRE_CACHE["data"] = _minify_mitre(raw)
+        MITRE_CACHE["mtime"] = mtime
+    return MITRE_CACHE["data"]
 
 
 def _load_seed_rules() -> list[dict[str, Any]]:
@@ -120,7 +182,7 @@ def _reseed_rules(db: sqlite3.Connection) -> int:
             continue
         db.execute(
             "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
-            (name, tactic, tech, source),
+            (name, tactic, tech, source)
         )
         inserted += 1
     db.commit()
@@ -130,6 +192,18 @@ def _reseed_rules(db: sqlite3.Connection) -> int:
 @app.route("/")
 def index() -> str:
     return render_template("index.html")
+
+
+
+
+@app.route("/api/mitre-min")
+def mitre_min():
+    if not MITRE_PATH.exists():
+        return jsonify({"error": "MITRE data not found. Place mitre.json in data/mitre.json."}), 500
+    try:
+        return jsonify(get_minified_mitre())
+    except Exception as exc:
+        return jsonify({"error": f"MITRE data load failed: {exc}"}), 500
 
 
 @app.route("/api/mitre")
@@ -162,7 +236,7 @@ def rules():
 
     cur = db.execute(
         "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
-        (name, tactic, tech, source),
+        (name, tactic, tech, source)
     )
     db.commit()
     return jsonify({"id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech, "source": source}), 201
@@ -210,7 +284,7 @@ def rules_bulk():
             continue
         db.execute(
             "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
-            (name, tactic, tech, source),
+            (name, tactic, tech, source)
         )
         inserted += 1
     db.commit()
@@ -273,7 +347,7 @@ def mitigation_notes():
     db = get_db()
     if request.method == "GET":
         rows = db.execute(
-            "SELECT technique_id, mitigation_id, checked, comment FROM mitigation_notes"
+            "SELECT technique_id, mitigation_id, checked, comment, team FROM mitigation_notes"
         ).fetchall()
         result = []
         for r in rows:
@@ -283,6 +357,7 @@ def mitigation_notes():
                     "mitigation_id": r["mitigation_id"],
                     "checked": bool(r["checked"]),
                     "comment": r["comment"],
+                    "team": r["team"],
                 }
             )
         return jsonify(result)
@@ -292,18 +367,19 @@ def mitigation_notes():
     mitigation_id = (payload.get("mitigation_id") or "").strip()
     checked = 1 if payload.get("checked") else 0
     comment = (payload.get("comment") or "").strip()
+    team = (payload.get("team") or "").strip()
 
     if not technique_id or not mitigation_id:
         return jsonify({"error": "Missing fields: technique_id, mitigation_id"}), 400
 
     db.execute(
         """
-        INSERT INTO mitigation_notes (technique_id, mitigation_id, checked, comment)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO mitigation_notes (technique_id, mitigation_id, checked, comment, team)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(technique_id, mitigation_id)
-        DO UPDATE SET checked=excluded.checked, comment=excluded.comment
+        DO UPDATE SET checked=excluded.checked, comment=excluded.comment, team=excluded.team
         """,
-        (technique_id, mitigation_id, checked, comment),
+        (technique_id, mitigation_id, checked, comment, team),
     )
     db.commit()
     return jsonify({"ok": True})
