@@ -1,6 +1,6 @@
 # PROJECT STATE - MITRE Coverage Map
 
-Last updated: 2026-02-18
+Last updated: 2026-02-19
 
 ## Purpose
 Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, product-based coverage, and persistent storage.
@@ -50,13 +50,14 @@ If PowerShell execution policy blocks activation:
 - Technique card color gradient based on coverage score
 - Sub-techniques expand inline under technique card
 - Technique modal: rules + mitigations + notes
-- Mitigation info popover + checkbox + comment
+- Mitigation info popover + checkbox + team + comment + "Onayla" (saves + closes modal)
 - Left sidebar with Matrix / Bilgilendirme / Ayarlar
 - Product legend and multi-color stripe on technique cards
 - Product management in Settings (add/delete/update color)
 - CSV bulk upload in Settings
 - Search bar on Matrix (ID or name)
 - Product filtering via legend toggle (click product name to hide/show)
+- Matrix now fills the remaining page height (no resizer or bottom form)
 
 ## Filters & Validation
 - Search: only matching techniques remain visible
@@ -64,7 +65,7 @@ If PowerShell execution policy blocks activation:
 - Technique validation on add: checks `Txxxx` or `Txxxx.xxx` and existence in MITRE map
 
 ## Known Issues / Notes
-- Turkish encoding has been problematic before; files now written as UTF-8 with escapes in `index.html`.
+- Turkish encoding has been problematic before; `templates/index.html` and `static/app.js` were rewritten to clean UTF-8. If "?" appears, hard refresh and restart server.
 - If UI shows ? characters, hard refresh and ensure server restarts.
 
 ## Git / Repo Hygiene
@@ -72,11 +73,11 @@ If PowerShell execution policy blocks activation:
 - Untracked files often include `Error.jpg`, `Mitre.jpg` (do not commit)
 
 ## Recent Work (High Level)
-- Added products table + CRUD endpoints
-- Implemented product color editing and persistence
-- Implemented CSV bulk import
-- Added search + product filter behavior
-- Fixed sidebar markup issues
+- Removed bottom "Yeni Kural" form and draggable resizer (matrix is full-height now)
+- Removed slide-in rule panel (kept modal + existing add flow)
+- Modal "Onayla" now saves mitigations and closes modal
+- Fixed navigation switching between Matrix / Bilgilendirme / Ayarlar
+- Cleaned Turkish characters in templates and UI strings
 
 ## Open Roadmap (Agreed)
 Milestone 1 (in progress):
@@ -95,5 +96,19 @@ Deferred:
 - Audit log (later after user system)
 
 ## Commit Tracking
-- Latest commit: update after filters/legend toggle fixes (pending in working tree)
+- Latest commit: UI cleanup (removed resizer/bottom form), modal save flow, navigation fix, Turkish text fixes
 - User pushes to private GitHub repo manually
+
+
+## New Context Quick Start
+1. Read `PROJECT_STATE.md` (this file) for current state and roadmap.
+2. Check `git status -sb` for pending changes.
+3. Run app: `python app.py` and open `http://localhost:8000` for UI verification.
+
+## Last Verified Flows
+- Matrix renders with horizontal tactics
+- Legend click toggles product filter
+- Search input filters techniques by ID/name
+- Add rule validates technique ID/name
+- Product CRUD + color update applies to legend/stripe
+- CSV bulk import works and refreshes matrix

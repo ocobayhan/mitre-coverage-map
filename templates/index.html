@@ -4,13 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Manager</title>
-  <link rel="stylesheet" href="/static/styles.css?v=26" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=38" />
 </head>
 <body>
   <div class="app-shell">
     <nav class="sidebar">
       <div class="brand">SOC Coverage Manager</div>
-      <button class="nav-toggle" id="sidebarToggle" title="Menüyü aç/kapat">Menu</button>
+      <button class="nav-toggle" id="sidebarToggle" title="Menüyü aç/kapat">Menü</button>
       <button class="nav-item active" data-target="matrixPanel"><span class="nav-label">Matrix</span><span class="nav-short">M</span></button>
       <button class="nav-item" data-target="infoPanel"><span class="nav-label">Bilgilendirme</span><span class="nav-short">B</span></button>
       <button class="nav-item" data-target="settingsPanel"><span class="nav-label">Ayarlar</span><span class="nav-short">A</span></button>
@@ -28,6 +31,9 @@
             </div>
             <div class="admin-actions">
               <button class="action-btn btn-reset" id="btnReset" title="Verileri sıfırla ve seed dosyasından yeniden yükle">Sıfırla & Yeniden Yükle</button>
+              <button class="action-btn btn-add" id="btnExportCsv" title="CSV dışa aktar">CSV Export</button>
+              <button class="action-btn btn-add" id="btnExportPdf" title="PDF rapor">PDF Export</button>
+              <button class="action-btn btn-add" id="btnExportLayer" title="MITRE Layer JSON">Layer JSON</button>
             </div>
             <div class="legend" id="legendContainer"></div>
           </div>
@@ -35,38 +41,11 @@
         <div class="filter-bar">
           <div class="filter-group">
             <label for="techSearch">Arama</label>
-            <input type="text" id="techSearch" placeholder="Teknik ad? veya ID (T1059)" />
+            <input type="text" id="techSearch" placeholder="Teknik adı veya ID (T1059)" />
           </div>
         </div>
 
         <div class="matrix-container" id="matrix"></div>
-
-        <div class="resizer-bar" id="dragHandle"><div class="resizer-icon"></div></div>
-
-        <div class="form-section">
-          <div class="form-container">
-            <p class="form-title">Yeni Kural</p>
-            <div class="input-group">
-              <div class="input-wrapper">
-                <label>Kural Adı</label>
-                <input type="text" id="newRuleName" placeholder="Örn: Suspicious PowerShell" />
-              </div>
-              <div class="input-wrapper">
-                <label>Taktik</label>
-                <select id="newRuleTactic"></select>
-              </div>
-              <div class="input-wrapper">
-                <label>Teknik (ID veya İsim)</label>
-                <input type="text" id="newRuleTech" placeholder="Örn: T1059" />
-              </div>
-              <div class="input-wrapper">
-                <label>Ürün</label>
-                <select id="newRuleSource"></select>
-              </div>
-              <button class="action-btn btn-add" id="btnAdd">Ekle</button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div id="infoPanel" class="panel">
@@ -84,7 +63,7 @@
           </div>
           <div class="info-section">
             <h3>Renk Anlamı</h3>
-            <p>Skor düşükse kutu koyu griye yakındır. Skor arttıkça renk yumuşak şekilde yeşile döner. Bu, kapsamanın arttığını gösterir.</p>
+            <p>Skor düşükse kutu koyu griye yakındır. Skor arttıkça renk yumuşak şekilde yeşile döner. Bu, kapsamının arttığını gösterir.</p>
           </div>
           <div class="info-section">
             <h3>Ürün Renkleri</h3>
@@ -142,6 +121,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=28"></script>
+  <script src="/static/app.js?v=49"></script>
 </body>
 </html>
