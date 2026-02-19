@@ -1,6 +1,6 @@
 # PROJECT STATE - MITRE Coverage Map
 
-Last updated: 2026-02-20
+Last updated: 2026-02-19
 
 ## Purpose
 Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, product-based coverage, and persistent storage.
@@ -76,8 +76,9 @@ If PowerShell execution policy blocks activation:
 - Technique validation on add: checks `Txxxx` or `Txxxx.xxx` and existence in MITRE map
 
 ## Known Issues / Notes
-- Turkish encoding has been problematic before; `templates/index.html` and `static/app.js` were rewritten to clean UTF-8. If "?" appears, hard refresh and restart server.
-- If UI shows ? characters, hard refresh and ensure server restarts.
+- Turkish encoding in `templates/index.html` was fixed (2026-02-19); all UI strings now use proper UTF-8 characters.
+- `static/app.js` encoding is clean; if "?" appears elsewhere, hard refresh and restart server.
+- `soc.db` is excluded from git — on a fresh clone, run admin reset to reseed rules: `POST /api/admin/reset { "confirm": "RESET", "reseed": true }` (requires admin session). Default admin credentials on fresh DB: `admin` / `Admin123!`.
 
 ## Git / Repo Hygiene
 - `.gitignore` excludes: `.venv/`, `soc.db`, `__pycache__/`, `.env`
@@ -119,7 +120,7 @@ Deferred:
 - Audit log (later after user system)
 
 ## Commit Tracking
-- Latest commit: UI polish + contrast fixes + mitigation popover improvements (see git log)
+- Latest commit: `0b37b19` — Fix Turkish encoding in index.html and deduplicate styles.css (2026-02-19)
 - User pushes to private GitHub repo manually
 
 
@@ -153,8 +154,8 @@ Deferred:
 - [ ] Admin kullanıcı yönetimi ekranı
 - [ ] Basit audit log (kim-ne-zaman-ne yaptı)
 
-- [ ] Türkçe karakter/encoding temizliği (`templates/index.html`, `static/app.js`)
-- [ ] CSS çakışma/sadeleştirme (tekrarlı kuralların temizlenmesi)
+- [x] Türkçe karakter/encoding temizliği (`templates/index.html`) — 8 string düzeltildi
+- [x] CSS çakışma/sadeleştirme (tekrarlı kuralların temizlenmesi) — 18 duplicate kural temizlendi, 2 tanımsız CSS değişkeni düzeltildi
 - [ ] Mitigation Listesi responsive düzen (dar ekran)
 - [ ] UX final polish (spacing, tipografi, tutarlılık)
 
@@ -176,4 +177,28 @@ Deferred:
   - DB table: `audit_logs`
   - API: `GET /api/audit-logs` (admin)
   - Logged actions include login/logout and key create/update/delete/reset actions.
-- Settings page now includes Admin-only `Kullanici Yonetimi` and `Audit Log` sections.
+- Settings page now includes Admin-only `Kullanıcı Yönetimi` and `Audit Log` sections.
+
+## Encoding & CSS Cleanup (2026-02-19) — commit 0b37b19
+### templates/index.html — 8 Türkçe karakter düzeltmesi
+- `Cikis` → `Çıkış`
+- `Kullanici Yonetimi (Admin)` → `Kullanıcı Yönetimi (Admin)`
+- `Kullanici Adi` → `Kullanıcı Adı`
+- `orn: analyst1` → `Örn: analyst1`
+- `Sifre` / `sifre` → `Şifre` / `şifre`
+- `Kullanici Ekle` → `Kullanıcı Ekle`
+- `Mevcut Kullanicilar` → `Mevcut Kullanıcılar`
+
+### static/styles.css — 18 duplicate/hata temizliği
+- `body`: çift `background-color` ve tanımsız `--text-color` kaldırıldı
+- `input:focus`: tanımsız `--color-dfe` → `var(--accent-blue)` düzeltildi (aktif bug fix)
+- `.legend`, `.legend-item` (cursor: pointer'a güncellendi), `.legend-box`: tekrar eden bloklar kaldırıldı
+- `.detail-btn`, `.tactic-header`, `.technique-card`: iç duplicate özellikler temizlendi
+- `.tech-chip`: 2 blok → 1 blok birleştirildi
+- `.sidebar`, `.brand`: çift `background`/`color` kaldırıldı
+- `.nav-item`: 2 blok → 1 blok birleştirildi (flex layout eklendi)
+- `.content`: 3 blok → 1 blok birleştirildi (`padding: 20px` + `transition` korundu)
+- `.info-card`: 2 blok → 1 blok birleştirildi (`width: 100%; max-width: none`)
+- `.sidebar.collapsed` + `.sidebar.collapsed .nav-item`: tekrarlar kaldırıldı
+- `.mitigation-list-entries`, `.mitigation-entry`, `.mitigation-entry-form`: duplicate bloklar birleştirildi
+- Tüm değişiklikler 16/16 user POV testi ile doğrulandı.
