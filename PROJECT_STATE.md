@@ -82,6 +82,9 @@ If PowerShell execution policy blocks activation:
 - Cleaned Turkish characters in templates and UI strings
 - Added MITRE minified API + in-memory cache (performance)
 - Added `team` field to mitigation notes (DB + API)
+- Mitigation popover text shortened and labeled (summary + detail toggle)
+- UI polish pass: hover elevation, button transitions, modal typography
+- Color palette updated and all text forced to light colors (no black on dark)
 
 ## Open Roadmap (Agreed)
 Milestone 1 (in progress):

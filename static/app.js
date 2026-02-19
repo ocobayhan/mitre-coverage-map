@@ -265,7 +265,7 @@ function exportPdf() {
 }
 
 
-function summarizeText(text, maxLen = 180) {
+function summarizeText(text, maxLen = 120) {
   if (!text) return '';
   const clean = text.replace(/\s+/g, ' ').trim();
   if (clean.length <= maxLen) return clean;
@@ -490,8 +490,8 @@ function computeScore(rulesCount, mitigationCount) {
 }
 
 function scoreToColor(score) {
-  const start = { r: 22, g: 27, b: 34 };
-  const end = { r: 46, g: 204, b: 113 };
+  const start = { r: 20, g: 26, b: 34 };
+  const end = { r: 53, g: 196, b: 139 };
   const r = Math.round(start.r + (end.r - start.r) * score);
   const g = Math.round(start.g + (end.g - start.g) * score);
   const b = Math.round(start.b + (end.b - start.b) * score);
@@ -722,6 +722,7 @@ function openModal(parentId, parentName, rules) {
           <input class="mitigation-team" data-tech="${parentId}" data-mit="${m.id}" placeholder="Ekip" value="${note.team || ''}">
           <textarea class="mitigation-comment" data-tech="${parentId}" data-mit="${m.id}" placeholder="Yorum">${note.comment || ''}</textarea>
           <div class="mitigation-pop" data-tech="${parentId}" data-mit="${m.id}">
+            <div class="mitigation-meta">Kısa açıklama</div>
             <div class="mitigation-summary">${summarizeText(m.description || 'Açıklama bulunamadı.')}</div>
             <div class="mitigation-full">${m.description || 'Açıklama bulunamadı.'}</div>
             <button class="mitigation-more">Detay</button>
