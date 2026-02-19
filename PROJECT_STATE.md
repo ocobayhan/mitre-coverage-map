@@ -1,6 +1,6 @@
 # PROJECT STATE - MITRE Coverage Map
 
-Last updated: 2026-02-19
+Last updated: 2026-02-20
 
 ## Purpose
 Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, product-based coverage, and persistent storage.
@@ -11,6 +11,7 @@ Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitiga
 - MITRE data: loaded from `data/mitre.json` (manual updates)
 - Rules: stored in `soc.db`
 - Mitigation notes: stored in `soc.db` (includes `team` field)
+- Mitigation entries: stored in `soc.db` (per mitigation, multiple teams/comments)
 - Products: stored in `soc.db` (name + color)
 - Reset/reseed: available via `/api/admin/reset`
 - MITRE minified endpoint is cached in-memory on backend
@@ -37,6 +38,8 @@ If PowerShell execution policy blocks activation:
 - `DELETE /api/rules/<id>`
 - `POST /api/rules/bulk` (CSV import)
 - `GET/POST /api/mitigation-notes`
+- `GET/POST /api/mitigation-entries`
+- `DELETE /api/mitigation-entries/<id>`
 - `GET/POST /api/products`
 - `PUT /api/products/<id>`
 - `DELETE /api/products/<id>`
@@ -44,6 +47,7 @@ If PowerShell execution policy blocks activation:
 
 ## Admin Reset Behavior
 - Clears `rules` and `mitigation_notes`
+- Clears `mitigation_global` and `mitigation_entries`
 - Reseeds from `data/rules_seed.json`
 - If seed missing, fallback to parsing `SOC.html` (legacy)
 
@@ -52,7 +56,12 @@ If PowerShell execution policy blocks activation:
 - Technique card color gradient based on coverage score
 - Sub-techniques expand inline under technique card
 - Technique modal: rules + mitigations + notes
-- Mitigation info popover + checkbox + team + comment + "Onayla" (saves + closes modal)
+- Mitigation info popover + checkbox + entries list (team + comment) + "Onayla" (checkbox save + closes modal)
+- Mitigations are global across techniques (same entries appear everywhere)
+- Modal has tabs: Mitigations / Kurallar
+- New panel: Mitigation Listesi (mitigation -> techniques list)
+- Mitigation Listesi now includes global team/comment entries with add/remove actions
+- Technique IDs in Mitigation Listesi are interactive chips (hover state + click popover with full technique name)
 - Left sidebar with Matrix / Bilgilendirme / Ayarlar
 - Product legend and multi-color stripe on technique cards
 - Product management in Settings (add/delete/update color)
@@ -85,6 +94,13 @@ If PowerShell execution policy blocks activation:
 - Mitigation popover text shortened and labeled (summary + detail toggle)
 - UI polish pass: hover elevation, button transitions, modal typography
 - Color palette updated and all text forced to light colors (no black on dark)
+- Mitigation entries now global per mitigation (same entry appears across all techniques)
+- Mitigation modal now uses tabs (Mitigations / Kurallar)
+- Added `mitigation_global` backend storage and migration/seed logic for global mitigation state
+- Added `mitigation_entries` API + persistence for multi-team implementation notes per mitigation
+- Synced Matrix modal and Mitigation Listesi page so add/remove entries reflect both views
+- Reworked Mitigation Listesi layout: wider Ekip/Yorum column, compact technique chips, toggle for full list
+- Added technique chip hover/tooltip popover with full `Txxxx - name` text
 
 ## Open Roadmap (Agreed)
 Milestone 1 (in progress):
@@ -103,7 +119,7 @@ Deferred:
 - Audit log (later after user system)
 
 ## Commit Tracking
-- Latest commit: UI cleanup (removed resizer/bottom form), modal save flow, navigation fix, Turkish text fixes
+- Latest commit: UI polish + contrast fixes + mitigation popover improvements (see git log)
 - User pushes to private GitHub repo manually
 
 
@@ -119,3 +135,6 @@ Deferred:
 - Add rule validates technique ID/name
 - Product CRUD + color update applies to legend/stripe
 - CSV bulk import works and refreshes matrix
+- Mitigation entries added in Matrix are visible in Mitigation Listesi
+- Mitigation entries added/removed in Mitigation Listesi are visible in Matrix
+- Shared mitigation checkbox/comment/team state is global by mitigation ID

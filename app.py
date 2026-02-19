@@ -46,8 +46,55 @@ def ensure_mitigation_team_column(db: sqlite3.Connection) -> None:
         db.commit()
 
 
+def ensure_mitigation_global_table(db: sqlite3.Connection) -> None:
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mitigation_global (
+            mitigation_id TEXT PRIMARY KEY,
+            checked INTEGER NOT NULL DEFAULT 0,
+            comment TEXT NOT NULL DEFAULT "",
+            team TEXT NOT NULL DEFAULT ""
+        )
+        """
+    )
+    db.commit()
+
+
+def ensure_mitigation_global_seed(db: sqlite3.Connection) -> None:
+    existing = db.execute("SELECT COUNT(*) AS cnt FROM mitigation_global").fetchone()[0]
+    if existing:
+        return
+    rows = db.execute(
+        "SELECT mitigation_id, checked, comment, team FROM mitigation_notes"
+    ).fetchall()
+    if not rows:
+        return
+    merged: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        mid = r["mitigation_id"]
+        checked = 1 if r["checked"] else 0
+        comment = r["comment"] or ""
+        team = r["team"] or ""
+        if mid not in merged:
+            merged[mid] = {"checked": checked, "comment": comment, "team": team}
+            continue
+        # prefer checked if any row checked
+        merged[mid]["checked"] = max(merged[mid]["checked"], checked)
+        # prefer longer comment/team if present
+        if len(comment) > len(merged[mid]["comment"]):
+            merged[mid]["comment"] = comment
+        if len(team) > len(merged[mid]["team"]):
+            merged[mid]["team"] = team
+    db.executemany(
+        "INSERT INTO mitigation_global (mitigation_id, checked, comment, team) VALUES (?, ?, ?, ?)",
+        [(k, v["checked"], v["comment"], v["team"]) for k, v in merged.items()],
+    )
+    db.commit()
+
+
 def init_db() -> None:
     db = sqlite3.connect(DB_PATH)
+    db.row_factory = sqlite3.Row
     try:
         db.executescript(
             """
@@ -74,10 +121,19 @@ def init_db() -> None:
                 name TEXT NOT NULL UNIQUE,
                 color TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS mitigation_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mitigation_id TEXT NOT NULL,
+                team TEXT NOT NULL DEFAULT "",
+                comment TEXT NOT NULL DEFAULT ""
+            );
             """
         )
         db.commit()
         ensure_mitigation_team_column(db)
+        ensure_mitigation_global_table(db)
+        ensure_mitigation_global_seed(db)
         ensure_products(db)
     finally:
         db.close()
@@ -346,14 +402,15 @@ def update_product(product_id: int):
 def mitigation_notes():
     db = get_db()
     if request.method == "GET":
+        ensure_mitigation_global_table(db)
+        ensure_mitigation_global_seed(db)
         rows = db.execute(
-            "SELECT technique_id, mitigation_id, checked, comment, team FROM mitigation_notes"
+            "SELECT mitigation_id, checked, comment, team FROM mitigation_global"
         ).fetchall()
         result = []
         for r in rows:
             result.append(
                 {
-                    "technique_id": r["technique_id"],
                     "mitigation_id": r["mitigation_id"],
                     "checked": bool(r["checked"]),
                     "comment": r["comment"],
@@ -363,24 +420,66 @@ def mitigation_notes():
         return jsonify(result)
 
     payload = request.get_json(silent=True) or {}
-    technique_id = (payload.get("technique_id") or "").strip()
     mitigation_id = (payload.get("mitigation_id") or "").strip()
     checked = 1 if payload.get("checked") else 0
     comment = (payload.get("comment") or "").strip()
     team = (payload.get("team") or "").strip()
 
-    if not technique_id or not mitigation_id:
-        return jsonify({"error": "Missing fields: technique_id, mitigation_id"}), 400
+    if not mitigation_id:
+        return jsonify({"error": "Missing fields: mitigation_id"}), 400
 
+    ensure_mitigation_global_table(db)
     db.execute(
         """
-        INSERT INTO mitigation_notes (technique_id, mitigation_id, checked, comment, team)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(technique_id, mitigation_id)
+        INSERT INTO mitigation_global (mitigation_id, checked, comment, team)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(mitigation_id)
         DO UPDATE SET checked=excluded.checked, comment=excluded.comment, team=excluded.team
         """,
-        (technique_id, mitigation_id, checked, comment, team),
+        (mitigation_id, checked, comment, team),
     )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mitigation-entries", methods=["GET", "POST"])
+def mitigation_entries():
+    db = get_db()
+    if request.method == "GET":
+        rows = db.execute(
+            "SELECT id, mitigation_id, team, comment FROM mitigation_entries ORDER BY id ASC"
+        ).fetchall()
+        result = []
+        for r in rows:
+            result.append(
+                {
+                    "id": r["id"],
+                    "mitigation_id": r["mitigation_id"],
+                    "team": r["team"],
+                    "comment": r["comment"],
+                }
+            )
+        return jsonify(result)
+
+    payload = request.get_json(silent=True) or {}
+    mitigation_id = (payload.get("mitigation_id") or "").strip()
+    team = (payload.get("team") or "").strip()
+    comment = (payload.get("comment") or "").strip()
+    if not mitigation_id or not team or not comment:
+        return jsonify({"error": "Missing fields: mitigation_id, team, comment"}), 400
+
+    cur = db.execute(
+        "INSERT INTO mitigation_entries (mitigation_id, team, comment) VALUES (?, ?, ?)",
+        (mitigation_id, team, comment),
+    )
+    db.commit()
+    return jsonify({"id": cur.lastrowid, "mitigation_id": mitigation_id, "team": team, "comment": comment}), 201
+
+
+@app.route("/api/mitigation-entries/<int:entry_id>", methods=["DELETE"])
+def delete_mitigation_entry(entry_id: int):
+    db = get_db()
+    db.execute("DELETE FROM mitigation_entries WHERE id = ?", (entry_id,))
     db.commit()
     return jsonify({"ok": True})
 
@@ -394,6 +493,8 @@ def admin_reset():
 
     db = get_db()
     db.execute("DELETE FROM mitigation_notes")
+    db.execute("DELETE FROM mitigation_global")
+    db.execute("DELETE FROM mitigation_entries")
     db.execute("DELETE FROM rules")
     db.commit()
 

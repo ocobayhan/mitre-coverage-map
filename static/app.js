@@ -20,20 +20,24 @@ let userRules = [];
 let mitigationNotes = {};
 let techTactics = {};
 let pendingMitigationEdits = {};
+let mitigationEntries = {};
 let products = [];
 let filterSearch = '';
 let filterProducts = new Set();
 let filterAllProducts = true;
 let visibleExportRows = [];
+let techsByMitigation = {};
+let techChipPopoverEl = null;
 
 async function init() {
   wireActions();
   try {
-    const [mitreRes, productsRes, rulesRes, notesRes] = await Promise.all([
+    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes] = await Promise.all([
       fetch('/api/mitre-min'),
       fetch('/api/products'),
       fetch('/api/rules'),
-      fetch('/api/mitigation-notes')
+      fetch('/api/mitigation-notes'),
+      fetch('/api/mitigation-entries')
     ]);
 
     if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
@@ -42,36 +46,42 @@ async function init() {
     userRules = rulesRes.ok ? await rulesRes.json() : [];
     const notes = notesRes.ok ? await notesRes.json() : [];
     mitigationNotes = normalizeNotes(notes);
+    const entries = entriesRes.ok ? await entriesRes.json() : [];
+    mitigationEntries = normalizeEntries(entries);
 
     prepareMitreLookup();
     await loadProducts();
     populateTacticSelect();
+    renderMitigationList();
     renderMatrix();
   } catch (e) {
     document.getElementById('matrix').innerHTML = `Veri Hatası: ${e.message}`;
   }
 }
 async function reloadData() {
-  const [productsRes, rulesRes, notesRes] = await Promise.all([
+  const [productsRes, rulesRes, notesRes, entriesRes] = await Promise.all([
     fetch('/api/products'),
     fetch('/api/rules'),
-    fetch('/api/mitigation-notes')
+    fetch('/api/mitigation-notes'),
+    fetch('/api/mitigation-entries')
   ]);
   products = productsRes.ok ? await productsRes.json() : [];
   userRules = rulesRes.ok ? await rulesRes.json() : [];
   const notes = notesRes.ok ? await notesRes.json() : [];
   mitigationNotes = normalizeNotes(notes);
+  const entries = entriesRes.ok ? await entriesRes.json() : [];
+  mitigationEntries = normalizeEntries(entries);
   renderLegend();
   renderProductLegend();
   populateSourceSelect();
   renderProductsList();
+  renderMitigationList();
 }
 
 function normalizeNotes(list) {
   const out = {};
   list.forEach(n => {
-    if (!out[n.technique_id]) out[n.technique_id] = {};
-    out[n.technique_id][n.mitigation_id] = {
+    out[n.mitigation_id] = {
       checked: !!n.checked,
       comment: n.comment || '',
       team: n.team || ''
@@ -80,12 +90,28 @@ function normalizeNotes(list) {
   return out;
 }
 
+function normalizeEntries(list) {
+  const out = {};
+  list.forEach(e => {
+    if (!out[e.mitigation_id]) out[e.mitigation_id] = [];
+    out[e.mitigation_id].push(e);
+  });
+  return out;
+}
+
+async function reloadMitigationEntries() {
+  const res = await fetch('/api/mitigation-entries');
+  const entries = res.ok ? await res.json() : [];
+  mitigationEntries = normalizeEntries(entries);
+}
+
 function prepareMitreLookup() {
   tacticOrder.forEach(t => matrixStructure[t] = []);
   subTechsByParent = {};
   attackIdToTid = {};
   mitigationById = {};
   mitigationsByTechnique = {};
+  techsByMitigation = {};
   techDetailsMap = {};
   nameToIdMap = {};
   techTactics = {};
@@ -134,6 +160,8 @@ function prepareMitreLookup() {
       if (tid && mitigation) {
         if (!mitigationsByTechnique[tid]) mitigationsByTechnique[tid] = [];
         mitigationsByTechnique[tid].push(mitigation);
+        if (!techsByMitigation[mitigation.id]) techsByMitigation[mitigation.id] = new Set();
+        techsByMitigation[mitigation.id].add(tid);
       }
     }
   });
@@ -306,6 +334,148 @@ function renderProductLegend() {
   });
 }
 
+function renderMitigationList() {
+  const container = document.getElementById('mitigationList');
+  if (!container) return;
+  const map = {};
+  Object.keys(mitigationsByTechnique).forEach(tid => {
+    const list = mitigationsByTechnique[tid] || [];
+    list.forEach(m => {
+      if (!map[m.id]) map[m.id] = { id: m.id, name: m.name, techniques: [] };
+      map[m.id].techniques.push(tid);
+    });
+  });
+  const mitigations = Object.values(map).sort((a, b) => a.id.localeCompare(b.id));
+  if (mitigations.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-title">Kayıt yok</div><div class="empty-sub">Mitigation verisi bulunamadı.</div></div>';
+    return;
+  }
+  const rows = mitigations.map(m => {
+    const techLabels = m.techniques.map(tid => {
+      const name = techDetailsMap[tid]?.name || tid;
+      return { id: tid, label: `${tid} - ${name}` };
+    });
+    const preview = techLabels.slice(0, 4);
+    const extra = techLabels.length - preview.length;
+    const chips = techLabels.map(t => `<button class="tech-chip" type="button" data-tech-label="${t.label}">${t.id}</button>`).join('');
+    const moreBtn = extra > 0 ? `<button class="tech-more" data-mit="${m.id}">Tümünü Göster</button>` : '';
+    const entries = mitigationEntries[m.id] || [];
+    const desc = mitigationById[m.id]?.description || '';
+    const entryHtml = entries.length
+      ? entries.map(e => `
+          <div class="mitigation-entry">
+            <div class="entry-team">${e.team}</div>
+            <div class="entry-comment">${e.comment}</div>
+            <button class="entry-delete" data-entry-id="${e.id}" data-mit="${m.id}">Sil</button>
+          </div>
+        `).join('')
+      : '<div class="mitigation-empty">Kayıt yok.</div>';
+    return `
+      <div class="mitigation-list-row">
+        <div class="mitigation-list-id">${m.id}</div>
+          <div class="mitigation-list-name">
+          ${m.name}
+          <div class="mitigation-list-desc">${summarizeText(desc, 90)}</div>
+        </div>
+        <div class="mitigation-list-tech">
+          <div class="tech-chip-row" data-mit="${m.id}">${chips}</div>
+          ${moreBtn}
+        </div>
+        <div class="mitigation-list-entries" data-mit="${m.id}">
+          ${entryHtml}
+          <div class="mitigation-entry-form">
+            <input class="mitigation-entry-team" data-mit="${m.id}" placeholder="Ekip">
+            <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Yorum"></textarea>
+            <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  container.innerHTML = `
+    <div class="mitigation-list-header">
+      <div>ID</div>
+      <div>Mitigation</div>
+      <div>Teknikler</div>
+      <div>Ekip / Yorum</div>
+    </div>
+    ${rows}
+  `;
+
+  container.querySelectorAll('.tech-more').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const mitId = e.currentTarget.dataset.mit;
+      const row = container.querySelector(`.tech-chip-row[data-mit="${mitId}"]`);
+      if (!row) return;
+      const open = row.classList.toggle('expanded');
+      e.currentTarget.textContent = open ? 'Gizle' : 'Tümünü Göster';
+    });
+  });
+
+  container.querySelectorAll('.tech-chip').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      const label = e.currentTarget.dataset.techLabel || '';
+      if (!label) return;
+      showTechChipPopover(e.currentTarget, label);
+    });
+  });
+
+  container.querySelectorAll('.mitigation-entry-add').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const mitId = e.currentTarget.dataset.mit;
+      const row = e.currentTarget.closest('.mitigation-list-entries');
+      if (!mitId || !row) return;
+      const teamInput = row.querySelector('.mitigation-entry-team');
+      const commentInput = row.querySelector('.mitigation-entry-comment');
+      const team = (teamInput?.value || '').trim();
+      const comment = (commentInput?.value || '').trim();
+      if (!team || !comment) {
+        alert('Ekip ve yorum gerekli.');
+        return;
+      }
+      const created = await addMitigationEntry(mitId, team, comment);
+      if (!created) return;
+      await reloadMitigationEntries();
+      if (teamInput) teamInput.value = '';
+      if (commentInput) commentInput.value = '';
+      renderMitigationList();
+    });
+  });
+
+  container.querySelectorAll('.entry-delete').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.dataset.entryId;
+      if (!id) return;
+      const ok = await deleteMitigationEntry(id);
+      if (!ok) return;
+      await reloadMitigationEntries();
+      renderMitigationList();
+    });
+  });
+}
+
+function showTechChipPopover(anchorEl, text) {
+  if (techChipPopoverEl) techChipPopoverEl.remove();
+  const rect = anchorEl.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'tech-chip-popover';
+  pop.textContent = text;
+  pop.style.left = `${rect.left + window.scrollX}px`;
+  pop.style.top = `${rect.bottom + window.scrollY + 6}px`;
+  document.body.appendChild(pop);
+  techChipPopoverEl = pop;
+
+  const close = (evt) => {
+    if (!techChipPopoverEl) return;
+    if (evt.target === anchorEl || anchorEl.contains(evt.target)) return;
+    if (techChipPopoverEl.contains(evt.target)) return;
+    techChipPopoverEl.remove();
+    techChipPopoverEl = null;
+    document.removeEventListener('click', close, true);
+  };
+  setTimeout(() => document.addEventListener('click', close, true), 0);
+}
+
 function renderLegend() {
   const container = document.getElementById('legendContainer');
   if (!container) return;
@@ -462,18 +632,21 @@ function enrichRules() {
   }).filter(Boolean);
 }
 
-function getMitigationNote(techId, mitigationId) {
-  if (!mitigationNotes[techId]) mitigationNotes[techId] = {};
-  if (!mitigationNotes[techId][mitigationId]) {
-    mitigationNotes[techId][mitigationId] = { checked: false, comment: '', team: '' };
+function getMitigationNote(mitigationId) {
+  if (!mitigationNotes[mitigationId]) {
+    mitigationNotes[mitigationId] = { checked: false, comment: '', team: '' };
   }
-  return mitigationNotes[techId][mitigationId];
+  return mitigationNotes[mitigationId];
 }
 
 function getCheckedMitigationCountForTech(techId) {
-  const notes = mitigationNotes[techId];
-  if (!notes) return 0;
-  return Object.values(notes).filter(n => n.checked).length;
+  const mitigations = mitigationsByTechnique[techId] || [];
+  let count = 0;
+  mitigations.forEach(m => {
+    const note = getMitigationNote(m.id);
+    if (note.checked) count += 1;
+  });
+  return count;
 }
 
 function getCheckedMitigationCountForParent(parentId) {
@@ -563,6 +736,42 @@ function updateTechniqueCard(parentId) {
   }
 }
 
+function updateSubtechCard(techId) {
+  const card = document.querySelector(`.subtech-card[data-tech-id="${techId}"]`);
+  if (!card) return;
+  const rulesCount = enrichRules().filter(r => r.tid === techId).length;
+  const mitigationCount = getCheckedMitigationCountForTech(techId);
+  const score = computeScore(rulesCount, mitigationCount);
+  card.style.backgroundColor = scoreToColor(score);
+  card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
+  const badge = card.querySelector('.mitigation-badge');
+  if (mitigationCount > 0) {
+    if (badge) {
+      badge.textContent = `OK${mitigationCount}`;
+    } else {
+      const newBadge = document.createElement('div');
+      newBadge.className = 'mitigation-badge';
+      newBadge.textContent = `OK${mitigationCount}`;
+      card.appendChild(newBadge);
+    }
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function refreshTechniqueCardsForMitigation(mitId) {
+  const techSet = techsByMitigation[mitId];
+  if (!techSet) return;
+  const parents = new Set();
+  techSet.forEach(tid => {
+    const details = techDetailsMap[tid];
+    if (details && details.parentId) parents.add(details.parentId);
+    else parents.add(tid);
+    updateSubtechCard(tid);
+  });
+  parents.forEach(pid => updateTechniqueCard(pid));
+}
+
 function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
   const container = document.createElement('div');
   container.className = 'subtech-container';
@@ -572,6 +781,7 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
   subTechs.forEach(st => {
     const subCard = document.createElement('div');
     subCard.className = 'subtech-card';
+    subCard.dataset.techId = st.id;
 
     const rulesForSub = enrichedData.filter(r => r.tid == st.id);
     const mitigationCount = getCheckedMitigationCountForTech(st.id);
@@ -668,17 +878,46 @@ async function deleteRule(ruleId) {
   document.getElementById('ruleModal').style.display = 'none';
 }
 
-function openModal(parentId, parentName, rules) {
+async function openModal(parentId, parentName, rules) {
   document.getElementById('modalTitle').innerText = `${parentId} - ${parentName}`;
   const body = document.getElementById('modalBody');
   const colorMap = productColorMap();
   body.innerHTML = '';
-  pendingMitigationEdits[parentId] = { ...(mitigationNotes[parentId] || {}) };
+  pendingMitigationEdits = {};
+  await reloadMitigationEntries();
+
+  const tabBar = document.createElement('div');
+  tabBar.className = 'modal-tabs';
+  tabBar.innerHTML = `
+    <button class="tab-btn active" data-tab="mitigationsTab">Mitigations</button>
+    <button class="tab-btn" data-tab="rulesTab">Kurallar</button>
+  `;
+  body.appendChild(tabBar);
+
+  const mitigationsTab = document.createElement('div');
+  mitigationsTab.className = 'tab-panel active';
+  mitigationsTab.id = 'mitigationsTab';
+  const rulesTab = document.createElement('div');
+  rulesTab.className = 'tab-panel';
+  rulesTab.id = 'rulesTab';
+  body.appendChild(mitigationsTab);
+  body.appendChild(rulesTab);
+
+  tabBar.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.tab;
+      tabBar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      body.querySelectorAll('.tab-panel').forEach(p => {
+        p.classList.toggle('active', p.id === target);
+      });
+    });
+  });
 
   const ruleSearchWrap = document.createElement('div');
   ruleSearchWrap.className = 'rule-search';
   ruleSearchWrap.innerHTML = `<label>Rule Search</label><input type="text" id="ruleSearchInput" placeholder="Kural adı ara" />`;
-  body.appendChild(ruleSearchWrap);
+  rulesTab.appendChild(ruleSearchWrap);
 
   const modalRuleAdd = document.createElement('div');
   modalRuleAdd.className = 'modal-rule-add';
@@ -708,7 +947,7 @@ function openModal(parentId, parentName, rules) {
     mitigationSection.appendChild(emptyMit);
   } else {
     mitigations.forEach(m => {
-      const note = getMitigationNote(parentId, m.id);
+      const note = getMitigationNote(m.id);
       const row = document.createElement('div');
       row.className = 'mitigation-row';
       if (note.checked) row.classList.add('checked');
@@ -719,8 +958,12 @@ function openModal(parentId, parentName, rules) {
           <span class="mitigation-info" data-tech="${parentId}" data-mit="${m.id}">i</span>
         </label>
         <div class="mitigation-fields">
-          <input class="mitigation-team" data-tech="${parentId}" data-mit="${m.id}" placeholder="Ekip" value="${note.team || ''}">
-          <textarea class="mitigation-comment" data-tech="${parentId}" data-mit="${m.id}" placeholder="Yorum">${note.comment || ''}</textarea>
+          <div class="mitigation-entries" data-mit="${m.id}"></div>
+          <div class="mitigation-entry-form">
+            <input class="mitigation-entry-team" data-mit="${m.id}" placeholder="Ekip">
+            <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Yorum"></textarea>
+            <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
+          </div>
           <div class="mitigation-pop" data-tech="${parentId}" data-mit="${m.id}">
             <div class="mitigation-meta">Kısa açıklama</div>
             <div class="mitigation-summary">${summarizeText(m.description || 'Açıklama bulunamadı.')}</div>
@@ -729,11 +972,12 @@ function openModal(parentId, parentName, rules) {
           </div>
         </div>
       `;
+      renderMitigationEntries(row, m.id);
       mitigationSection.appendChild(row);
     });
   }
 
-  body.appendChild(mitigationSection);
+  mitigationsTab.appendChild(mitigationSection);
 
   const grouped = {};
   grouped['Direct'] = rules.filter(r => !r.isSub);
@@ -763,56 +1007,77 @@ function openModal(parentId, parentName, rules) {
     table.innerHTML = tbody;
 
     groupDiv.appendChild(table);
-    body.appendChild(groupDiv);
+    rulesTab.appendChild(groupDiv);
   });
 
-  body.querySelectorAll('.mitigation-row input[type="checkbox"]').forEach(cb => {
+  const mitigationSummary = document.createElement('div');
+  mitigationSummary.className = 'mitigation-summary-section';
+  const mitList = mitigationsByTechnique[parentId] || [];
+  mitigationSummary.innerHTML = `<div class="mitigation-summary-title">Mitigations (Ekip/Yorum)</div>`;
+  if (mitList.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'mitigation-empty';
+    empty.textContent = 'Kayıt yok.';
+    mitigationSummary.appendChild(empty);
+  } else {
+    mitList.forEach(m => {
+      const entries = mitigationEntries[m.id] || [];
+      const block = document.createElement('div');
+      block.className = 'mitigation-summary-row';
+      const entriesHtml = entries.length
+        ? entries.map(e => `<div class="mitigation-entry-line"><span>${e.team}</span> ${e.comment}</div>`).join('')
+        : '<div class="mitigation-empty">Kayıt yok.</div>';
+      block.innerHTML = `<div class="mitigation-summary-name">${m.id} - ${m.name}</div>${entriesHtml}`;
+      mitigationSummary.appendChild(block);
+    });
+  }
+  rulesTab.appendChild(mitigationSummary);
+
+  mitigationsTab.querySelectorAll('.mitigation-row input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', async (e) => {
-      const techId = e.target.dataset.tech;
       const mitId = e.target.dataset.mit;
-      const note = getMitigationNote(techId, mitId);
+      const note = getMitigationNote(mitId);
       note.checked = e.target.checked;
       const row = e.target.closest('.mitigation-row');
       if (row) row.classList.toggle('checked', e.target.checked);
-      updateTechniqueCard(techId);
-      pendingMitigationEdits[techId] = pendingMitigationEdits[techId] || {};
-      pendingMitigationEdits[techId][mitId] = { ...note };
-      updateTechniqueCard(techId);
+      pendingMitigationEdits[mitId] = { ...note };
+      refreshTechniqueCardsForMitigation(mitId);
     });
   });
-  body.querySelectorAll('.mitigation-team').forEach(inp => {
-    inp.addEventListener('input', (e) => {
-      const techId = e.target.dataset.tech;
-      const mitId = e.target.dataset.mit;
-      const note = getMitigationNote(techId, mitId);
-      note.team = e.target.value;
-      pendingMitigationEdits[techId] = pendingMitigationEdits[techId] || {};
-      pendingMitigationEdits[techId][mitId] = { ...note };
+  mitigationsTab.querySelectorAll('.mitigation-entry-add').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const mitId = e.currentTarget.dataset.mit;
+      const row = e.currentTarget.closest('.mitigation-row');
+      if (!mitId || !row) return;
+      const teamInput = row.querySelector('.mitigation-entry-team');
+      const commentInput = row.querySelector('.mitigation-entry-comment');
+      const team = (teamInput?.value || '').trim();
+      const comment = (commentInput?.value || '').trim();
+      if (!team || !comment) {
+        alert('Ekip ve yorum gerekli.');
+        return;
+      }
+      const created = await addMitigationEntry(mitId, team, comment);
+      if (!created) return;
+      await reloadMitigationEntries();
+      if (teamInput) teamInput.value = '';
+      if (commentInput) commentInput.value = '';
+      refreshMitigationEntriesInModal(mitId, mitigationsTab);
     });
   });
 
-  body.querySelectorAll('.mitigation-row textarea').forEach(ta => {
-    ta.addEventListener('input', (e) => {
-      const techId = e.target.dataset.tech;
-      const mitId = e.target.dataset.mit;
-      const note = getMitigationNote(techId, mitId);
-      note.comment = e.target.value;
-      pendingMitigationEdits[techId] = pendingMitigationEdits[techId] || {};
-      pendingMitigationEdits[techId][mitId] = { ...note };
-    });
-  });
-  body.querySelectorAll('.mitigation-info').forEach(btn => {
+  mitigationsTab.querySelectorAll('.mitigation-info').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const row = e.currentTarget.closest('.mitigation-row');
       if (!row) return;
       const pop = row.querySelector('.mitigation-pop');
       if (!pop) return;
       const isOpen = pop.classList.contains('open');
-      body.querySelectorAll('.mitigation-pop.open').forEach(p => p.classList.remove('open'));
+      mitigationsTab.querySelectorAll('.mitigation-pop.open').forEach(p => p.classList.remove('open'));
       if (!isOpen) pop.classList.add('open');
     });
   });
-  body.querySelectorAll('.mitigation-more').forEach(btn => {
+  mitigationsTab.querySelectorAll('.mitigation-more').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const pop = e.currentTarget.closest('.mitigation-pop');
       if (!pop) return;
@@ -840,7 +1105,7 @@ function openModal(parentId, parentName, rules) {
   if (ruleInput) {
     ruleInput.addEventListener('input', (e) => {
       const term = (e.target.value || '').toLowerCase();
-      body.querySelectorAll('tr[data-rule-name]').forEach(tr => {
+      rulesTab.querySelectorAll('tr[data-rule-name]').forEach(tr => {
         const name = tr.getAttribute('data-rule-name') || '';
         tr.style.display = name.includes(term) ? '' : 'none';
       });
@@ -850,20 +1115,22 @@ function openModal(parentId, parentName, rules) {
   const confirmWrap = document.createElement('div');
   confirmWrap.className = 'mitigation-confirm';
   confirmWrap.innerHTML = `<button class="action-btn btn-add" id="btnMitigationConfirm">Onayla</button>`;
-  body.appendChild(confirmWrap);
+  mitigationsTab.appendChild(confirmWrap);
 
   const confirmBtn = document.getElementById('btnMitigationConfirm');
   if (confirmBtn) {
     confirmBtn.addEventListener('click', async () => {
-      const pending = pendingMitigationEdits[parentId] || {};
+      const pending = { ...pendingMitigationEdits };
       for (const mitId of Object.keys(pending)) {
         const note = pending[mitId];
-        await saveMitigationNote(parentId, mitId, note);
+        await saveMitigationNote(mitId, note);
       }
       // refresh in-memory notes
-      mitigationNotes[parentId] = { ...(mitigationNotes[parentId] || {}), ...pending };
-      pendingMitigationEdits[parentId] = {};
-      updateTechniqueCard(parentId);
+      Object.keys(pending).forEach(mid => {
+        mitigationNotes[mid] = { ...mitigationNotes[mid], ...pending[mid] };
+      });
+      pendingMitigationEdits = {};
+      renderMatrix();
       document.getElementById('ruleModal').style.display = 'none';
       alert('Kaydedildi');
     });
@@ -873,17 +1140,74 @@ function openModal(parentId, parentName, rules) {
 }
 
 
-async function saveMitigationNote(techId, mitId, note) {
+async function saveMitigationNote(mitId, note) {
   await fetch('/api/mitigation-notes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      technique_id: techId,
       mitigation_id: mitId,
       checked: !!note.checked,
       comment: note.comment || '',
       team: note.team || ''
     })
+  });
+}
+
+async function addMitigationEntry(mitId, team, comment) {
+  const res = await fetch('/api/mitigation-entries', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mitigation_id: mitId, team, comment })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'Mitigation kaydı eklenemedi');
+    return null;
+  }
+  return await res.json();
+}
+
+async function deleteMitigationEntry(entryId) {
+  const res = await fetch(`/api/mitigation-entries/${entryId}`, { method: 'DELETE' });
+  if (!res.ok) return false;
+  return true;
+}
+
+function renderMitigationEntries(row, mitId) {
+  const list = row.querySelector('.mitigation-entries');
+  if (!list) return;
+  const entries = mitigationEntries[mitId] || [];
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="mitigation-empty">Kayıt yok.</div>';
+    return;
+  }
+  list.innerHTML = entries.map(e => `
+    <div class="mitigation-entry">
+      <div class="entry-team">${e.team}</div>
+      <div class="entry-comment">${e.comment}</div>
+      <button class="entry-delete" data-entry-id="${e.id}">Sil</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.entry-delete').forEach(btn => {
+    btn.addEventListener('click', async (evt) => {
+      const id = evt.currentTarget.dataset.entryId;
+      if (!id) return;
+      const ok = await deleteMitigationEntry(id);
+      if (!ok) return;
+      await reloadMitigationEntries();
+      renderMitigationEntries(row, mitId);
+    });
+  });
+}
+
+function refreshMitigationEntriesInModal(mitId, root) {
+  if (!root) return;
+  root.querySelectorAll(`.mitigation-row`).forEach(r => {
+    const entryList = r.querySelector('.mitigation-entries');
+    if (!entryList) return;
+    const rowMit = r.querySelector('.mitigation-entry-add')?.dataset?.mit;
+    if (rowMit === mitId) renderMitigationEntries(r, mitId);
   });
 }
 

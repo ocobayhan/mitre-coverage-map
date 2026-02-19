@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=44" />
+  <link rel="stylesheet" href="/static/styles.css?v=55" />
 </head>
 <body>
   <div class="app-shell">
@@ -17,6 +17,7 @@
       <button class="nav-item active" data-target="matrixPanel"><span class="nav-label">Matrix</span><span class="nav-short">M</span></button>
       <button class="nav-item" data-target="infoPanel"><span class="nav-label">Bilgilendirme</span><span class="nav-short">B</span></button>
       <button class="nav-item" data-target="settingsPanel"><span class="nav-label">Ayarlar</span><span class="nav-short">A</span></button>
+      <button class="nav-item" data-target="mitigationPanel"><span class="nav-label">Mitigation Listesi</span><span class="nav-short">L</span></button>
       <div class="sidebar-note">Puanlama ve renklerin anlamı için Bilgilendirme sekmesini kullanın.</div>
     </nav>
 
@@ -108,6 +109,13 @@
           </div>
         </div>
       </div>
+      <div id="mitigationPanel" class="panel">
+        <div class="info-card">
+          <h2>Mitigation Listesi</h2>
+          <p>Her mitigationın hangi tekniklerde yer aldığını ve ilişkili kayıtları buradan kontrol edebilirsiniz.</p>
+          <div id="mitigationList" class="mitigation-list"></div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -121,6 +129,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=51"></script>
+  <script src="/static/app.js?v=59"></script>
 </body>
 </html>
