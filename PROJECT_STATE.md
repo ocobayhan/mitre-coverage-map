@@ -138,3 +138,29 @@ Deferred:
 - Mitigation entries added in Matrix are visible in Mitigation Listesi
 - Mitigation entries added/removed in Mitigation Listesi are visible in Matrix
 - Shared mitigation checkbox/comment/team state is global by mitigation ID
+
+## Action Checklist
+- [x] Matrix + Mitigation Listesi global mitigation senkronu
+- [x] Mitigation ekip/yorum ekle-sil (iki tarafta da)
+- [x] Teknik chip hover + tıklama popover (tam teknik adı)
+- [x] Mitigation Listesi genişlik/UI düzeni
+- [x] Modal sekmeler (Mitigations / Kurallar)
+
+- [ ] RBAC altyapısı (`users` tablosu + `viewer/editor/admin`)
+- [ ] Login/logout ve session yönetimi
+- [ ] Endpoint bazlı yetki kontrolü (role guard)
+- [ ] UI role bazlı buton görünürlüğü/kısıtlama
+- [ ] Admin kullanıcı yönetimi ekranı
+- [ ] Basit audit log (kim-ne-zaman-ne yaptı)
+
+- [ ] Türkçe karakter/encoding temizliği (`templates/index.html`, `static/app.js`)
+- [ ] CSS çakışma/sadeleştirme (tekrarlı kuralların temizlenmesi)
+- [ ] Mitigation Listesi responsive düzen (dar ekran)
+- [ ] UX final polish (spacing, tipografi, tutarlılık)
+
+## Suggested Order
+1. RBAC backend (tablo + login + endpoint guard)
+2. RBAC frontend (role bazlı görünürlük/kısıtlama)
+3. Audit log (kritik işlemler)
+4. Encoding + CSS refactor
+5. Responsive/UX polish
