@@ -30,6 +30,10 @@
             <div class="stats">
               Toplam Kural: <span id="totalRules">0</span> | Kapsanan Teknik: <span id="coveredTechs">0</span>
             </div>
+            <div class="session-box">
+              <span id="userBadge" class="user-badge"></span>
+              <button class="action-btn btn-reset" id="btnLogout" title="Oturumu kapat">Cikis</button>
+            </div>
             <div class="admin-actions">
               <button class="action-btn btn-reset" id="btnReset" title="Verileri sıfırla ve seed dosyasından yeniden yükle">Sıfırla & Yeniden Yükle</button>
               <button class="action-btn btn-add" id="btnExportCsv" title="CSV dışa aktar">CSV Export</button>
@@ -106,6 +110,37 @@
               <div>Kaynak (source) alanı ürün adıyla birebir eşleşmelidir.</div>
             </div>
             <div class="upload-result" id="uploadResult"></div>
+          </div>
+          <div class="info-section" id="usersSection">
+            <h3>Kullanici Yonetimi (Admin)</h3>
+            <div class="settings-row">
+              <div class="input-wrapper">
+                <label>Kullanici Adi</label>
+                <input type="text" id="newUsername" placeholder="orn: analyst1" />
+              </div>
+              <div class="input-wrapper">
+                <label>Sifre</label>
+                <input type="password" id="newUserPassword" placeholder="sifre" />
+              </div>
+              <div class="input-wrapper">
+                <label>Rol</label>
+                <select id="newUserRole">
+                  <option value="viewer">viewer</option>
+                  <option value="editor">editor</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <button class="action-btn btn-add" id="btnAddUser">Kullanici Ekle</button>
+            </div>
+            <div class="settings-subtitle">Mevcut Kullanicilar</div>
+            <div class="user-list" id="userList"></div>
+          </div>
+          <div class="info-section" id="auditSection">
+            <h3>Audit Log (Admin)</h3>
+            <div class="settings-row">
+              <button class="action-btn btn-add" id="btnRefreshAudit">Yenile</button>
+            </div>
+            <div class="audit-list" id="auditList"></div>
           </div>
         </div>
       </div>

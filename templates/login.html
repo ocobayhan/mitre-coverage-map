@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Giris - SOC Coverage Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=56" />
+</head>
+<body>
+  <div class="login-shell">
+    <div class="login-card">
+      <h1>SOC Coverage Manager</h1>
+      <p class="login-subtitle">Hesabinizla giris yapin.</p>
+      <form id="loginForm" class="login-form">
+        <label for="username">Kullanici Adi</label>
+        <input id="username" type="text" autocomplete="username" required />
+        <label for="password">Sifre</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button class="action-btn btn-add" type="submit">Giris Yap</button>
+        <div id="loginError" class="login-error"></div>
+      </form>
+    </div>
+  </div>
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorEl = document.getElementById('loginError');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.textContent = '';
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        errorEl.textContent = payload.error || 'Giris basarisiz.';
+        return;
+      }
+      window.location.href = '/';
+    });
+  </script>
+</body>
+</html>

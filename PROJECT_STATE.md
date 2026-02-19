@@ -164,3 +164,16 @@ Deferred:
 3. Audit log (kritik işlemler)
 4. Encoding + CSS refactor
 5. Responsive/UX polish
+
+
+## RBAC & Audit Update (2026-02-20)
+- RBAC guards are now active across API endpoints.
+- Login/session endpoints active: `/login`, `/api/login`, `/api/logout`, `/api/me`.
+- Admin user management added:
+  - `GET/POST /api/users`
+  - `PUT /api/users/<id>`
+- Audit logging added:
+  - DB table: `audit_logs`
+  - API: `GET /api/audit-logs` (admin)
+  - Logged actions include login/logout and key create/update/delete/reset actions.
+- Settings page now includes Admin-only `Kullanici Yonetimi` and `Audit Log` sections.

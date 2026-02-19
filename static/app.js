@@ -1,4 +1,4 @@
-const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
+﻿const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
 const tacticOrder = Object.values(tacticMap);
 
 const SCORE_RULE_MAX = 10;
@@ -28,19 +28,73 @@ let filterAllProducts = true;
 let visibleExportRows = [];
 let techsByMitigation = {};
 let techChipPopoverEl = null;
+let currentUser = null;
+let currentRole = 'viewer';
+let users = [];
+let auditLogs = [];
+
+function hasRole(role) {
+  const level = { viewer: 1, editor: 2, admin: 3 };
+  return (level[currentRole] || 0) >= (level[role] || 0);
+}
+
+async function apiFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Oturum sona erdi');
+  }
+  return res;
+}
+
+function applyRoleUI() {
+  const userBadge = document.getElementById('userBadge');
+  if (userBadge && currentUser) {
+    userBadge.textContent = `${currentUser.username} (${currentUser.role})`;
+  }
+
+  const resetBtn = document.getElementById('btnReset');
+  if (resetBtn) resetBtn.classList.toggle('hidden', !hasRole('admin'));
+
+  const settingsNav = document.querySelector('.nav-item[data-target="settingsPanel"]');
+  if (settingsNav) settingsNav.classList.toggle('hidden', !hasRole('editor'));
+
+  const productSection = document.querySelector('#settingsPanel .info-section');
+  if (productSection) productSection.classList.toggle('hidden', !hasRole('admin'));
+
+  const csvUploadBtn = document.getElementById('btnUploadCsv');
+  if (csvUploadBtn) csvUploadBtn.classList.toggle('hidden', !hasRole('editor'));
+  const csvFileInput = document.getElementById('csvFile');
+  if (csvFileInput) csvFileInput.disabled = !hasRole('editor');
+
+  const usersSection = document.getElementById('usersSection');
+  if (usersSection) usersSection.classList.toggle('hidden', !hasRole('admin'));
+  const auditSection = document.getElementById('auditSection');
+  if (auditSection) auditSection.classList.toggle('hidden', !hasRole('admin'));
+}
 
 async function init() {
   wireActions();
   try {
+    const meRes = await apiFetch('/api/me');
+    if (!meRes.ok) throw new Error('Kullanici bilgisi alinamadi');
+    currentUser = await meRes.json();
+    currentRole = currentUser.role || 'viewer';
+    applyRoleUI();
+    if (hasRole('admin')) {
+      await loadUsers();
+      await loadAuditLogs();
+    }
+
     const [mitreRes, productsRes, rulesRes, notesRes, entriesRes] = await Promise.all([
-      fetch('/api/mitre-min'),
-      fetch('/api/products'),
-      fetch('/api/rules'),
-      fetch('/api/mitigation-notes'),
-      fetch('/api/mitigation-entries')
+      apiFetch('/api/mitre-min'),
+      apiFetch('/api/products'),
+      apiFetch('/api/rules'),
+      apiFetch('/api/mitigation-notes'),
+      apiFetch('/api/mitigation-entries')
     ]);
 
-    if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
+    if (!mitreRes.ok) throw new Error('MITRE verisi yÃ¼klenemedi');
     mitreObjects = (await mitreRes.json()).objects || [];
     products = productsRes.ok ? await productsRes.json() : [];
     userRules = rulesRes.ok ? await rulesRes.json() : [];
@@ -55,15 +109,15 @@ async function init() {
     renderMitigationList();
     renderMatrix();
   } catch (e) {
-    document.getElementById('matrix').innerHTML = `Veri Hatası: ${e.message}`;
+    document.getElementById('matrix').innerHTML = `Veri HatasÄ±: ${e.message}`;
   }
 }
 async function reloadData() {
   const [productsRes, rulesRes, notesRes, entriesRes] = await Promise.all([
-    fetch('/api/products'),
-    fetch('/api/rules'),
-    fetch('/api/mitigation-notes'),
-    fetch('/api/mitigation-entries')
+    apiFetch('/api/products'),
+    apiFetch('/api/rules'),
+    apiFetch('/api/mitigation-notes'),
+    apiFetch('/api/mitigation-entries')
   ]);
   products = productsRes.ok ? await productsRes.json() : [];
   userRules = rulesRes.ok ? await rulesRes.json() : [];
@@ -76,6 +130,10 @@ async function reloadData() {
   populateSourceSelect();
   renderProductsList();
   renderMitigationList();
+  if (hasRole('admin')) {
+    await loadUsers();
+    await loadAuditLogs();
+  }
 }
 
 function normalizeNotes(list) {
@@ -100,7 +158,7 @@ function normalizeEntries(list) {
 }
 
 async function reloadMitigationEntries() {
-  const res = await fetch('/api/mitigation-entries');
+  const res = await apiFetch('/api/mitigation-entries');
   const entries = res.ok ? await res.json() : [];
   mitigationEntries = normalizeEntries(entries);
 }
@@ -185,7 +243,7 @@ function buildExportRows() {
 function buildFilterSummary() {
   const search = (filterSearch || '').trim();
   const productsSelected = (filterAllProducts || filterProducts.size === 0)
-    ? 'Tümü'
+    ? 'TÃ¼mÃ¼'
     : Array.from(filterProducts).join(', ');
   return { search, productsSelected };
 }
@@ -347,7 +405,7 @@ function renderMitigationList() {
   });
   const mitigations = Object.values(map).sort((a, b) => a.id.localeCompare(b.id));
   if (mitigations.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-title">Kayıt yok</div><div class="empty-sub">Mitigation verisi bulunamadı.</div></div>';
+    container.innerHTML = '<div class="empty-state"><div class="empty-title">KayÄ±t yok</div><div class="empty-sub">Mitigation verisi bulunamadÄ±.</div></div>';
     return;
   }
   const rows = mitigations.map(m => {
@@ -358,7 +416,7 @@ function renderMitigationList() {
     const preview = techLabels.slice(0, 4);
     const extra = techLabels.length - preview.length;
     const chips = techLabels.map(t => `<button class="tech-chip" type="button" data-tech-label="${t.label}">${t.id}</button>`).join('');
-    const moreBtn = extra > 0 ? `<button class="tech-more" data-mit="${m.id}">Tümünü Göster</button>` : '';
+    const moreBtn = extra > 0 ? `<button class="tech-more" data-mit="${m.id}">TÃ¼mÃ¼nÃ¼ GÃ¶ster</button>` : '';
     const entries = mitigationEntries[m.id] || [];
     const desc = mitigationById[m.id]?.description || '';
     const entryHtml = entries.length
@@ -369,7 +427,7 @@ function renderMitigationList() {
             <button class="entry-delete" data-entry-id="${e.id}" data-mit="${m.id}">Sil</button>
           </div>
         `).join('')
-      : '<div class="mitigation-empty">Kayıt yok.</div>';
+      : '<div class="mitigation-empty">KayÄ±t yok.</div>';
     return `
       <div class="mitigation-list-row">
         <div class="mitigation-list-id">${m.id}</div>
@@ -408,7 +466,7 @@ function renderMitigationList() {
       const row = container.querySelector(`.tech-chip-row[data-mit="${mitId}"]`);
       if (!row) return;
       const open = row.classList.toggle('expanded');
-      e.currentTarget.textContent = open ? 'Gizle' : 'Tümünü Göster';
+      e.currentTarget.textContent = open ? 'Gizle' : 'TÃ¼mÃ¼nÃ¼ GÃ¶ster';
     });
   });
 
@@ -561,7 +619,7 @@ function renderProductsList() {
       const picker = list.querySelector(`.product-color[data-id=\"${id}\"]`);
       const color = picker ? picker.value : null;
       if (!color) return;
-      await fetch(`/api/products/${id}`, {
+      await apiFetch(`/api/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ color })
@@ -574,7 +632,7 @@ function renderProductsList() {
   list.querySelectorAll('.product-delete').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       const id = e.currentTarget.dataset.id;
-      await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/products/${id}`, { method: 'DELETE' });
       await loadProducts();
       renderMatrix();
     });
@@ -582,12 +640,95 @@ function renderProductsList() {
 }
 
 async function loadProducts() {
-  const res = await fetch('/api/products');
+  const res = await apiFetch('/api/products');
   products = res.ok ? await res.json() : [];
   renderLegend();
   renderProductLegend();
   populateSourceSelect();
   renderProductsList();
+}
+
+function renderUsersList() {
+  const list = document.getElementById('userList');
+  if (!list) return;
+  list.innerHTML = '';
+  users.forEach(u => {
+    const row = document.createElement('div');
+    row.className = 'user-item';
+    row.innerHTML = `
+      <div class="user-name">${u.username}</div>
+      <select class="user-role" data-id="${u.id}">
+        <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>viewer</option>
+        <option value="editor" ${u.role === 'editor' ? 'selected' : ''}>editor</option>
+        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+      </select>
+      <label><input type="checkbox" class="user-active" data-id="${u.id}" ${u.is_active ? 'checked' : ''}/> aktif</label>
+      <div style="display:flex; gap:8px;">
+        <input type="password" class="user-password" data-id="${u.id}" placeholder="yeni sifre (opsiyonel)" />
+        <button class="action-btn btn-add user-apply" data-id="${u.id}">Uygula</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+
+  list.querySelectorAll('.user-apply').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.dataset.id;
+      const roleEl = list.querySelector(`.user-role[data-id="${id}"]`);
+      const activeEl = list.querySelector(`.user-active[data-id="${id}"]`);
+      const passwordEl = list.querySelector(`.user-password[data-id="${id}"]`);
+      const payload = {
+        role: roleEl ? roleEl.value : 'viewer',
+        is_active: !!(activeEl && activeEl.checked)
+      };
+      const pwd = passwordEl ? passwordEl.value.trim() : '';
+      if (pwd) payload.password = pwd;
+      const res = await apiFetch(`/api/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Kullanici guncellenemedi');
+        return;
+      }
+      if (passwordEl) passwordEl.value = '';
+      await loadUsers();
+      await loadAuditLogs();
+    });
+  });
+}
+
+async function loadUsers() {
+  if (!hasRole('admin')) return;
+  const res = await apiFetch('/api/users');
+  users = res.ok ? await res.json() : [];
+  renderUsersList();
+}
+
+function renderAuditLogs() {
+  const list = document.getElementById('auditList');
+  if (!list) return;
+  list.innerHTML = '';
+  auditLogs.forEach(l => {
+    const row = document.createElement('div');
+    row.className = 'audit-item';
+    row.innerHTML = `
+      <div>${l.created_at || ''}</div>
+      <div>${l.username || '-'}</div>
+      <div>${l.action}:${l.target_type}</div>
+      <div>${l.target_id || ''} ${l.detail || ''}</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function loadAuditLogs() {
+  if (!hasRole('admin')) return;
+  const res = await apiFetch('/api/audit-logs?limit=200');
+  auditLogs = res.ok ? await res.json() : [];
+  renderAuditLogs();
 }
 
 function populateTacticSelect() {
@@ -813,19 +954,23 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
 
 function validateTechniqueInput(inputValue) {
   const val = (inputValue || '').trim();
-  if (!val) return { ok: false, message: 'Teknik alanı boş.' };
+  if (!val) return { ok: false, message: 'Teknik alanÄ± boÅŸ.' };
   const isId = /^T\d{4}(\.\d{3})?$/i.test(val);
   if (isId) {
     const tid = val.toUpperCase();
-    if (!techDetailsMap[tid]) return { ok: false, message: 'Teknik ID bulunamadı.' };
+    if (!techDetailsMap[tid]) return { ok: false, message: 'Teknik ID bulunamadÄ±.' };
     return { ok: true, tid };
   }
   const lookup = nameToIdMap[val.toLowerCase()];
-  if (!lookup) return { ok: false, message: 'Teknik adı bulunamadı.' };
+  if (!lookup) return { ok: false, message: 'Teknik adÄ± bulunamadÄ±.' };
   return { ok: true, tid: lookup };
 }
 
 async function addRuleDirect(name, tactic, tech, source) {
+  if (!hasRole('editor')) {
+    alert('Bu islem icin editor yetkisi gerekir.');
+    return;
+  }
   const validation = validateTechniqueInput(tech);
   if (!validation.ok) {
     alert(validation.message);
@@ -834,7 +979,7 @@ async function addRuleDirect(name, tactic, tech, source) {
   const tid = validation.tid;
   const finalTactic = (tactic && tactic !== 'Unknown') ? tactic : getTacticForTech(tid);
 
-  const res = await fetch('/api/rules', {
+  const res = await apiFetch('/api/rules', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, tactic: finalTactic, tech: tid, source })
@@ -864,14 +1009,15 @@ async function addNewRule() {
   const source = sourceEl.value.trim();
 
   if (!name || !tactic || !tech || !source) {
-    alert('Lütfen alanları doldurun.');
+    alert('LÃ¼tfen alanlarÄ± doldurun.');
     return;
   }
   await addRuleDirect(name, tactic, tech, source);
 }
 
 async function deleteRule(ruleId) {
-  const res = await fetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
+  if (!hasRole('editor')) return;
+  const res = await apiFetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
   if (!res.ok) return;
   userRules = userRules.filter(r => r.id !== ruleId);
   renderMatrix();
@@ -916,7 +1062,7 @@ async function openModal(parentId, parentName, rules) {
 
   const ruleSearchWrap = document.createElement('div');
   ruleSearchWrap.className = 'rule-search';
-  ruleSearchWrap.innerHTML = `<label>Rule Search</label><input type="text" id="ruleSearchInput" placeholder="Kural adı ara" />`;
+  ruleSearchWrap.innerHTML = `<label>Rule Search</label><input type="text" id="ruleSearchInput" placeholder="Kural adÄ± ara" />`;
   rulesTab.appendChild(ruleSearchWrap);
 
   const modalRuleAdd = document.createElement('div');
@@ -925,13 +1071,15 @@ async function openModal(parentId, parentName, rules) {
   modalRuleAdd.innerHTML = `
     <div class="modal-rule-title">Kural Ekle</div>
     <div class="modal-rule-row">
-      <input type="text" id="modalRuleName" placeholder="Kural adı" />
+      <input type="text" id="modalRuleName" placeholder="Kural adÄ±" />
       <select id="modalRuleSource"></select>
       <button class="action-btn btn-add" id="btnModalAddRule">Ekle</button>
     </div>
     <div class="modal-rule-hint">Taktik: ${tacticHint} | Teknik: ${parentId}</div>
   `;
-  body.appendChild(modalRuleAdd);
+  if (hasRole('editor')) {
+    body.appendChild(modalRuleAdd);
+  }
   populateSourceSelect();
 
   const mitigationSection = document.createElement('div');
@@ -943,7 +1091,7 @@ async function openModal(parentId, parentName, rules) {
     const emptyMit = document.createElement('div');
     emptyMit.style.color = '#aaa';
     emptyMit.style.fontSize = '0.85rem';
-    emptyMit.textContent = 'Bu teknik için Mitigation bulunamadı.';
+    emptyMit.textContent = 'Bu teknik iÃ§in Mitigation bulunamadÄ±.';
     mitigationSection.appendChild(emptyMit);
   } else {
     mitigations.forEach(m => {
@@ -953,21 +1101,21 @@ async function openModal(parentId, parentName, rules) {
       if (note.checked) row.classList.add('checked');
       row.innerHTML = `
         <label class="mitigation-name">
-          <input type="checkbox" data-tech="${parentId}" data-mit="${m.id}" ${note.checked ? 'checked' : ''}>
+          <input type="checkbox" data-tech="${parentId}" data-mit="${m.id}" ${note.checked ? 'checked' : ''} ${hasRole('editor') ? '' : 'disabled'}>
           ${m.id} - ${m.name}
           <span class="mitigation-info" data-tech="${parentId}" data-mit="${m.id}">i</span>
         </label>
         <div class="mitigation-fields">
           <div class="mitigation-entries" data-mit="${m.id}"></div>
-          <div class="mitigation-entry-form">
+          <div class="mitigation-entry-form ${hasRole('editor') ? '' : 'hidden'}">
             <input class="mitigation-entry-team" data-mit="${m.id}" placeholder="Ekip">
             <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Yorum"></textarea>
             <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
           </div>
           <div class="mitigation-pop" data-tech="${parentId}" data-mit="${m.id}">
-            <div class="mitigation-meta">Kısa açıklama</div>
-            <div class="mitigation-summary">${summarizeText(m.description || 'Açıklama bulunamadı.')}</div>
-            <div class="mitigation-full">${m.description || 'Açıklama bulunamadı.'}</div>
+            <div class="mitigation-meta">KÄ±sa aÃ§Ä±klama</div>
+            <div class="mitigation-summary">${summarizeText(m.description || 'AÃ§Ä±klama bulunamadÄ±.')}</div>
+            <div class="mitigation-full">${m.description || 'AÃ§Ä±klama bulunamadÄ±.'}</div>
             <button class="mitigation-more">Detay</button>
           </div>
         </div>
@@ -986,7 +1134,7 @@ async function openModal(parentId, parentName, rules) {
   Object.keys(grouped).forEach(key => {
     const groupRules = grouped[key];
     if (groupRules.length == 0) return;
-    const headerTitle = (key == 'Direct') ? 'Doğrudan Eşleşmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
+    const headerTitle = (key == 'Direct') ? 'DoÄŸrudan EÅŸleÅŸmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
     const groupDiv = document.createElement('div');
     groupDiv.className = 'sub-tech-group';
     groupDiv.innerHTML = `<div class="sub-tech-header">${headerTitle}</div>`;
@@ -999,7 +1147,7 @@ async function openModal(parentId, parentName, rules) {
         <td>${r.name}</td>
         <td style="text-align:right">
           <span class="source-tag" style="background:${colorMap[r.source] || "#546e7a"}">${r.source}</span>
-          <button class="delete-btn" onclick="deleteRule(${r.id})">Sil</button>
+          ${hasRole('editor') ? `<button class="delete-btn" onclick="deleteRule(${r.id})">Sil</button>` : ''}
         </td>
       </tr>`;
     });
@@ -1017,7 +1165,7 @@ async function openModal(parentId, parentName, rules) {
   if (mitList.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'mitigation-empty';
-    empty.textContent = 'Kayıt yok.';
+    empty.textContent = 'KayÄ±t yok.';
     mitigationSummary.appendChild(empty);
   } else {
     mitList.forEach(m => {
@@ -1026,7 +1174,7 @@ async function openModal(parentId, parentName, rules) {
       block.className = 'mitigation-summary-row';
       const entriesHtml = entries.length
         ? entries.map(e => `<div class="mitigation-entry-line"><span>${e.team}</span> ${e.comment}</div>`).join('')
-        : '<div class="mitigation-empty">Kayıt yok.</div>';
+        : '<div class="mitigation-empty">KayÄ±t yok.</div>';
       block.innerHTML = `<div class="mitigation-summary-name">${m.id} - ${m.name}</div>${entriesHtml}`;
       mitigationSummary.appendChild(block);
     });
@@ -1035,6 +1183,7 @@ async function openModal(parentId, parentName, rules) {
 
   mitigationsTab.querySelectorAll('.mitigation-row input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', async (e) => {
+      if (!hasRole('editor')) return;
       const mitId = e.target.dataset.mit;
       const note = getMitigationNote(mitId);
       note.checked = e.target.checked;
@@ -1084,7 +1233,7 @@ async function openModal(parentId, parentName, rules) {
       const full = pop.querySelector('.mitigation-full');
       if (!full) return;
       const isOpen = full.classList.toggle('open');
-      e.currentTarget.textContent = isOpen ? 'Kısa' : 'Detay';
+      e.currentTarget.textContent = isOpen ? 'KÄ±sa' : 'Detay';
     });
   });
 
@@ -1094,7 +1243,7 @@ async function openModal(parentId, parentName, rules) {
       const name = (document.getElementById('modalRuleName').value || '').trim();
       const source = (document.getElementById('modalRuleSource').value || '').trim();
       if (!name || !source) {
-        alert('Lütfen alanları doldurun.');
+        alert('LÃ¼tfen alanlarÄ± doldurun.');
         return;
       }
       await addRuleDirect(name, tacticHint, parentId, source);
@@ -1112,10 +1261,12 @@ async function openModal(parentId, parentName, rules) {
     });
   }
 
-  const confirmWrap = document.createElement('div');
-  confirmWrap.className = 'mitigation-confirm';
-  confirmWrap.innerHTML = `<button class="action-btn btn-add" id="btnMitigationConfirm">Onayla</button>`;
-  mitigationsTab.appendChild(confirmWrap);
+  if (hasRole('editor')) {
+    const confirmWrap = document.createElement('div');
+    confirmWrap.className = 'mitigation-confirm';
+    confirmWrap.innerHTML = `<button class="action-btn btn-add" id="btnMitigationConfirm">Onayla</button>`;
+    mitigationsTab.appendChild(confirmWrap);
+  }
 
   const confirmBtn = document.getElementById('btnMitigationConfirm');
   if (confirmBtn) {
@@ -1141,7 +1292,8 @@ async function openModal(parentId, parentName, rules) {
 
 
 async function saveMitigationNote(mitId, note) {
-  await fetch('/api/mitigation-notes', {
+  if (!hasRole('editor')) return;
+  await apiFetch('/api/mitigation-notes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1154,21 +1306,23 @@ async function saveMitigationNote(mitId, note) {
 }
 
 async function addMitigationEntry(mitId, team, comment) {
-  const res = await fetch('/api/mitigation-entries', {
+  if (!hasRole('editor')) return null;
+  const res = await apiFetch('/api/mitigation-entries', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mitigation_id: mitId, team, comment })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || 'Mitigation kaydı eklenemedi');
+    alert(err.error || 'Mitigation kaydÄ± eklenemedi');
     return null;
   }
   return await res.json();
 }
 
 async function deleteMitigationEntry(entryId) {
-  const res = await fetch(`/api/mitigation-entries/${entryId}`, { method: 'DELETE' });
+  if (!hasRole('editor')) return false;
+  const res = await apiFetch(`/api/mitigation-entries/${entryId}`, { method: 'DELETE' });
   if (!res.ok) return false;
   return true;
 }
@@ -1178,14 +1332,14 @@ function renderMitigationEntries(row, mitId) {
   if (!list) return;
   const entries = mitigationEntries[mitId] || [];
   if (entries.length === 0) {
-    list.innerHTML = '<div class="mitigation-empty">Kayıt yok.</div>';
+    list.innerHTML = '<div class="mitigation-empty">KayÄ±t yok.</div>';
     return;
   }
   list.innerHTML = entries.map(e => `
     <div class="mitigation-entry">
       <div class="entry-team">${e.team}</div>
       <div class="entry-comment">${e.comment}</div>
-      <button class="entry-delete" data-entry-id="${e.id}">Sil</button>
+      ${hasRole('editor') ? `<button class="entry-delete" data-entry-id="${e.id}">Sil</button>` : ''}
     </div>
   `).join('');
 
@@ -1206,7 +1360,7 @@ function refreshMitigationEntriesInModal(mitId, root) {
   root.querySelectorAll(`.mitigation-row`).forEach(r => {
     const entryList = r.querySelector('.mitigation-entries');
     if (!entryList) return;
-    const rowMit = r.querySelector('.mitigation-entry-add')?.dataset?.mit;
+    const rowMit = r.querySelector('[data-mit]')?.dataset?.mit;
     if (rowMit === mitId) renderMitigationEntries(r, mitId);
   });
 }
@@ -1237,20 +1391,24 @@ function wireNavigation() {
 
 
 async function addProduct() {
+  if (!hasRole('admin')) {
+    alert('Bu islem icin admin yetkisi gerekir.');
+    return;
+  }
   const name = document.getElementById('productName').value.trim();
   const color = document.getElementById('productColor').value.trim();
   if (!name || !color) {
-    alert('Ürün adı ve renk gerekli.');
+    alert('ÃœrÃ¼n adÄ± ve renk gerekli.');
     return;
   }
-  const res = await fetch('/api/products', {
+  const res = await apiFetch('/api/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, color })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || 'Ürün eklenemedi');
+    alert(err.error || 'ÃœrÃ¼n eklenemedi');
     return;
   }
   document.getElementById('productName').value = '';
@@ -1259,25 +1417,55 @@ async function addProduct() {
 }
 
 async function uploadCsv() {
+  if (!hasRole('editor')) {
+    alert('Bu islem icin editor yetkisi gerekir.');
+    return;
+  }
   const fileInput = document.getElementById('csvFile');
   const result = document.getElementById('uploadResult');
   result.textContent = '';
   if (!fileInput.files || fileInput.files.length === 0) {
-    result.textContent = 'Lütfen bir CSV dosyası seçin.';
+    result.textContent = 'LÃ¼tfen bir CSV dosyasÄ± seÃ§in.';
     return;
   }
   const form = new FormData();
   form.append('file', fileInput.files[0]);
-  const res = await fetch('/api/rules/bulk', { method: 'POST', body: form });
+  const res = await apiFetch('/api/rules/bulk', { method: 'POST', body: form });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    result.textContent = payload.error || 'Yükleme başarısız.';
+    result.textContent = payload.error || 'YÃ¼kleme baÅŸarÄ±sÄ±z.';
     return;
   }
   await reloadData();
   renderMatrix();
   const errors = (payload.errors || []).slice(0, 10).join(' | ');
-  result.textContent = `Yüklendi: ${payload.inserted}. Hata: ${payload.errors.length}` + (errors ? ` (${errors})` : '');
+  result.textContent = `YÃ¼klendi: ${payload.inserted}. Hata: ${payload.errors.length}` + (errors ? ` (${errors})` : '');
+}
+
+async function addUser() {
+  if (!hasRole('admin')) return;
+  const username = (document.getElementById('newUsername')?.value || '').trim();
+  const password = (document.getElementById('newUserPassword')?.value || '').trim();
+  const role = (document.getElementById('newUserRole')?.value || '').trim();
+  if (!username || !password || !role) {
+    alert('Kullanici adi, sifre ve rol gerekli.');
+    return;
+  }
+  const res = await apiFetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, role })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'Kullanici eklenemedi');
+    return;
+  }
+  document.getElementById('newUsername').value = '';
+  document.getElementById('newUserPassword').value = '';
+  document.getElementById('newUserRole').value = 'viewer';
+  await loadUsers();
+  await loadAuditLogs();
 }
 
 function wireSettings() {
@@ -1285,6 +1473,10 @@ function wireSettings() {
   if (addBtn) addBtn.addEventListener('click', addProduct);
   const uploadBtn = document.getElementById('btnUploadCsv');
   if (uploadBtn) uploadBtn.addEventListener('click', uploadCsv);
+  const addUserBtn = document.getElementById('btnAddUser');
+  if (addUserBtn) addUserBtn.addEventListener('click', addUser);
+  const refreshAuditBtn = document.getElementById('btnRefreshAudit');
+  if (refreshAuditBtn) refreshAuditBtn.addEventListener('click', loadAuditLogs);
 }
 
 function wireSearch() {
@@ -1315,14 +1507,14 @@ function wireValidation() {
   techInput.addEventListener('input', () => {
     const val = techInput.value.trim();
     if (!val) {
-      setFieldError(techInput, 'Teknik alanı boş.');
+      setFieldError(techInput, 'Teknik alanÄ± boÅŸ.');
       return;
     }
     const isId = /^T\d{4}(\.\d{3})?$/i.test(val);
     if (isId) {
       const tid = val.toUpperCase();
       if (!techDetailsMap[tid]) {
-        setFieldError(techInput, 'Teknik ID bulunamadı.');
+        setFieldError(techInput, 'Teknik ID bulunamadÄ±.');
       } else {
         setFieldError(techInput, '');
       }
@@ -1330,7 +1522,7 @@ function wireValidation() {
     }
     const lookup = nameToIdMap[val.toLowerCase()];
     if (!lookup) {
-      setFieldError(techInput, 'Teknik adı bulunamadı.');
+      setFieldError(techInput, 'Teknik adÄ± bulunamadÄ±.');
       return;
     }
     setFieldError(techInput, '');
@@ -1363,21 +1555,29 @@ function wireActions() {
   const resetBtn = document.getElementById('btnReset');
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
-      const confirmText = prompt('İşlemi onaylamak için RESET yazın:');
+      const confirmText = prompt('Ä°ÅŸlemi onaylamak iÃ§in RESET yazÄ±n:');
       if (confirmText !== 'RESET') return;
-      const res = await fetch('/api/admin/reset', {
+      const res = await apiFetch('/api/admin/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirm: 'RESET', reseed: true })
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Sıfırlama başarısız');
+        alert(err.error || 'SÄ±fÄ±rlama baÅŸarÄ±sÄ±z');
         return;
       }
       await reloadData();
       renderMatrix();
-      alert('Veriler sıfırlandı ve yeniden yüklendi.');
+      alert('Veriler sÄ±fÄ±rlandÄ± ve yeniden yÃ¼klendi.');
+    });
+  }
+
+  const logoutBtn = document.getElementById('btnLogout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      await apiFetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login';
     });
   }
 }
@@ -1507,9 +1707,10 @@ function renderMatrix() {
             <line x1="16.65" y1="16.65" x2="21" y2="21"></line>
           </svg>
         </div>
-        <div class="empty-title">Sonuç bulunamadı</div>
-        <div class="empty-sub">Arama veya ürün filtrelerini temizleyip tekrar deneyin.</div>
+        <div class="empty-title">SonuÃ§ bulunamadÄ±</div>
+        <div class="empty-sub">Arama veya Ã¼rÃ¼n filtrelerini temizleyip tekrar deneyin.</div>
       </div>
     `;
   }
 }
+
