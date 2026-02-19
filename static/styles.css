@@ -641,10 +641,12 @@ button.action-btn {
 /* Final override: make mitigation page use full width and larger entries area */
 #mitigationPanel {
   width: 100%;
+  padding: 0;
 }
 #mitigationPanel .info-card {
   width: 100%;
   max-width: none;
+  padding: 16px 16px 20px 16px;
 }
 #mitigationPanel .mitigation-list {
   width: 100%;
@@ -652,7 +654,7 @@ button.action-btn {
 #mitigationPanel .mitigation-list-header,
 #mitigationPanel .mitigation-list-row {
   display: grid;
-  grid-template-columns: 110px minmax(220px, 0.9fr) minmax(220px, 0.9fr) minmax(620px, 3.2fr);
+  grid-template-columns: 110px minmax(200px, 0.8fr) minmax(200px, 0.8fr) minmax(860px, 4fr);
   gap: 14px;
 }
 #mitigationPanel .mitigation-list-header {
@@ -665,6 +667,7 @@ button.action-btn {
 #mitigationPanel .mitigation-list-entries {
   gap: 12px;
   padding: 10px;
+  min-width: 0;
 }
 #mitigationPanel .mitigation-list-entries .mitigation-entry {
   grid-template-columns: 170px 1fr auto;
