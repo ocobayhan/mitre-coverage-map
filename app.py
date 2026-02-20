@@ -534,32 +534,35 @@ def rules():
 
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
-    tactic = (payload.get("tactic") or "").strip()
+    # tactic ve tech opsiyonel: Kurallar sayfasından tekniksiz kural oluşturulabilir,
+    # teknikler sonradan rule_techniques üzerinden eklenir.
+    tactic = (payload.get("tactic") or "none").strip() or "none"
     tech = (payload.get("tech") or "").strip()
     source = (payload.get("source") or "").strip()
 
-    if not name or not tactic or not tech or not source:
-        return jsonify({"error": "Missing fields: name, tactic, tech, source"}), 400
+    if not name or not source:
+        return jsonify({"error": "Missing fields: name, source"}), 400
 
     try:
         cur = db.execute(
             "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
-            (name, tactic, tech, source)
+            (name, tactic, tech or "none", source)
         )
     except sqlite3.IntegrityError:
         # idx_rules_name_source UNIQUE index ihlali → aynı (name, source) zaten var.
         return jsonify({"error": "Bu isim ve kaynak için kural zaten mevcut. Teknik eklemek için mevcut kuralı kullanın."}), 409
-    db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
-               (cur.lastrowid, tech))
+    if tech:
+        db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
+                   (cur.lastrowid, tech))
     write_audit_log(
         db,
         action="create",
         target_type="rule",
         target_id=str(cur.lastrowid),
-        detail=f"name={name};tech={tech};source={source}",
+        detail=f"name={name};tech={tech or '-'};source={source}",
     )
     db.commit()
-    return jsonify({"id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech, "source": source, "techniques": [tech]}), 201
+    return jsonify({"id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech, "source": source, "techniques": [tech] if tech else []}), 201
 
 
 

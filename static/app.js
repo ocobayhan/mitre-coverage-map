@@ -535,6 +535,35 @@ function renderRulesList() {
 
   const colorMap = productColorMap();
 
+  // Yeni Kural formu (sadece editor+)
+  const sourceOptions = products.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+  const addFormHtml = hasRole('editor') ? `
+    <div class="rule-add-form">
+      <div class="filter-group">
+        <label>Kural Adı</label>
+        <input id="newRuleNameInline" type="text" placeholder="Kural adı" />
+      </div>
+      <div class="filter-group">
+        <label>Kaynak (Ürün)</label>
+        <select id="newRuleSourceInline">
+          <option value="">Kaynak seç</option>
+          ${sourceOptions}
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Teknik (isteğe bağlı)</label>
+        <div class="tech-autocomplete-wrapper" id="newRuleTechWrapper">
+          <input class="rule-tech-input" type="text" id="newRuleTechInline" placeholder="T1059 veya teknik adı" />
+          <div class="tech-autocomplete-dropdown hidden"></div>
+        </div>
+      </div>
+      <div class="filter-group">
+        <label style="visibility:hidden">_</label>
+        <button class="action-btn btn-add" id="btnAddRuleInline">+ Kural Ekle</button>
+      </div>
+    </div>
+  ` : '';
+
   // Filter bar HTML
   const productOptions = products.map(p =>
     `<option value="${p.name}" ${rulesFilterProduct === p.name ? 'selected' : ''}>${p.name}</option>`
@@ -560,8 +589,10 @@ function renderRulesList() {
   `;
 
   if (userRules.length === 0) {
-    container.innerHTML = filterBarHtml + '<div class="empty-state"><div class="empty-title">Kural yok</div><div class="empty-sub">Henüz kural eklenmemiş.</div></div>';
+    container.innerHTML = addFormHtml + filterBarHtml + '<div class="empty-state"><div class="empty-title">Kural yok</div><div class="empty-sub">Henüz kural eklenmemiş.</div></div>';
     wireRulesFilterEvents(container);
+    wireAddRuleInline(container);
+    container.querySelectorAll('.tech-autocomplete-wrapper').forEach(wireAutocomplete);
     return;
   }
 
@@ -612,6 +643,7 @@ function renderRulesList() {
     : '';
 
   container.innerHTML = `
+    ${addFormHtml}
     ${filterBarHtml}
     <div class="mitigation-list-header rule-list-header">
       <div>Kural Adı</div>
@@ -624,6 +656,7 @@ function renderRulesList() {
   `;
 
   wireRulesFilterEvents(container);
+  wireAddRuleInline(container);
 
   container.querySelectorAll('.tech-autocomplete-wrapper').forEach(wireAutocomplete);
 
@@ -721,6 +754,49 @@ function wireRulesFilterEvents(container) {
       renderRulesList();
     });
   }
+}
+
+// Kurallar sayfası üstündeki "Yeni Kural Ekle" formunu bağlar.
+// name + source zorunlu; teknik isteğe bağlı (sonradan eklenebilir).
+function wireAddRuleInline(container) {
+  const btn = container.querySelector('#btnAddRuleInline');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const nameInput = container.querySelector('#newRuleNameInline');
+    const sourceSelect = container.querySelector('#newRuleSourceInline');
+    const techInput = container.querySelector('#newRuleTechInline');
+
+    const name = (nameInput?.value || '').trim();
+    const source = (sourceSelect?.value || '').trim();
+    const tech = (techInput?.value || '').trim();
+
+    if (!name) { alert('Kural adı gerekli'); return; }
+    if (!source) { alert('Kaynak (ürün) seçmelisiniz'); return; }
+
+    let techId = '';
+    if (tech) {
+      const validation = validateTechniqueInput(tech);
+      if (!validation.ok) { alert(validation.message); return; }
+      techId = validation.tid;
+    }
+
+    const res = await apiFetch('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, tactic: 'none', tech: techId, source })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Kural eklenemedi');
+      return;
+    }
+
+    const newRule = await res.json();
+    userRules.push(newRule);
+    renderRulesList();
+    renderMatrix();
+  });
 }
 
 // ── Teknik Autocomplete ───────────────────────────────────────────────────────

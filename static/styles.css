@@ -813,6 +813,19 @@ button.action-btn {
 .settings-tab-panel { display: none; }
 .settings-tab-panel.active { display: block; }
 
+/* ── New Rule Add Form ─────────────────────────────────────── */
+.rule-add-form {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: #0d1a14;
+  border: 1px solid #1a3028;
+  border-radius: 8px;
+}
+
 /* ── Rules Filter Bar ──────────────────────────────────────── */
 .rules-filter-bar {
   display: flex;
