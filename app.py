@@ -157,6 +157,83 @@ def migrate_rule_techniques(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+def build_technique_config(db: sqlite3.Connection) -> None:
+    """Parse mitre.json to compute per-technique importance and rule_threshold.
+
+    Importance is derived from how many threat groups (intrusion-sets) and
+    tools/malware use each technique (via 'uses' relationships).
+      importance = clamp(0.3 + 0.7 * (group_count*2 + tool_count) / 60, 0.3, 1.0)
+      rule_threshold = clamp(1 + group_count // 8, 1, 5)
+
+    Idempotent: skips if any 'auto' rows already exist.
+    """
+    if db.execute("SELECT 1 FROM technique_config WHERE source='auto' LIMIT 1").fetchone():
+        return  # already built
+    if not MITRE_PATH.exists():
+        return  # no mitre data available yet
+
+    data = json.loads(MITRE_PATH.read_text(encoding="utf-8"))
+    objects = data.get("objects", [])
+
+    # Map STIX id → T-code for non-deprecated attack-patterns
+    tech_stix: dict[str, str] = {}
+    group_stix: set[str] = set()
+    tool_stix: set[str] = set()
+
+    for obj in objects:
+        t = obj.get("type", "")
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        if t == "attack-pattern":
+            for ref in obj.get("external_references", []):
+                if ref.get("source_name") == "mitre-attack":
+                    eid = ref.get("external_id", "")
+                    if eid.startswith("T"):
+                        tech_stix[obj["id"]] = eid
+        elif t == "intrusion-set":
+            group_stix.add(obj["id"])
+        elif t in ("malware", "tool"):
+            tool_stix.add(obj["id"])
+
+    # Count "uses" relationships per technique
+    group_counts: dict[str, set[str]] = {}
+    tool_counts: dict[str, set[str]] = {}
+
+    for obj in objects:
+        if obj.get("type") != "relationship":
+            continue
+        if obj.get("relationship_type") != "uses":
+            continue
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        src = obj.get("source_ref", "")
+        tgt = obj.get("target_ref", "")
+        tid = tech_stix.get(tgt)
+        if not tid:
+            continue
+        if src in group_stix:
+            group_counts.setdefault(tid, set()).add(src)
+        elif src in tool_stix:
+            tool_counts.setdefault(tid, set()).add(src)
+
+    # Compute importance and rule_threshold for each technique
+    rows = []
+    for _stix_id, tid in tech_stix.items():
+        g = len(group_counts.get(tid, set()))
+        t = len(tool_counts.get(tid, set()))
+        raw = g * 2 + t
+        importance = round(min(0.3 + 0.7 * (raw / 60.0), 1.0), 3)
+        rule_threshold = max(1, min(5, 1 + g // 8))
+        rows.append((tid, importance, rule_threshold, "auto", g, t))
+
+    db.executemany(
+        "INSERT OR IGNORE INTO technique_config "
+        "(tech_id, importance, rule_threshold, source, group_count, tool_count) VALUES (?,?,?,?,?,?)",
+        rows,
+    )
+    db.commit()
+
+
 def init_db() -> None:
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
@@ -221,6 +298,19 @@ def init_db() -> None:
                 tech_id TEXT NOT NULL,
                 PRIMARY KEY (rule_id, tech_id)
             );
+
+            -- technique_config: her MITRE tekniği için data-driven önem skoru ve kural eşiği.
+            -- importance (0.3–1.0): tehdit grubu/araç kullanım sıklığından hesaplanır.
+            -- rule_threshold (1–10): "yeterli kapsama" sayılacak minimum kural sayısı.
+            -- source: 'auto' (mitre.json parse) | 'admin' (el ile override).
+            CREATE TABLE IF NOT EXISTS technique_config (
+                tech_id          TEXT PRIMARY KEY,
+                importance       REAL NOT NULL DEFAULT 0.5,
+                rule_threshold   INTEGER NOT NULL DEFAULT 3,
+                source           TEXT NOT NULL DEFAULT 'auto',
+                group_count      INTEGER NOT NULL DEFAULT 0,
+                tool_count       INTEGER NOT NULL DEFAULT 0
+            );
             """
         )
         db.commit()
@@ -231,6 +321,7 @@ def init_db() -> None:
         ensure_users(db)
         migrate_rule_techniques(db)
         migrate_consolidate_rules(db)
+        build_technique_config(db)
     finally:
         db.close()
 
@@ -973,6 +1064,50 @@ def admin_reset():
     db.commit()
 
     return jsonify({"ok": True, "reseeded": reseed, "inserted": inserted})
+
+
+@app.route("/api/technique-config", methods=["GET"])
+@login_required
+def get_technique_config():
+    """Tüm teknikler için importance + rule_threshold değerlerini döner.
+    Viewer dahil tüm giriş yapmış kullanıcılar okuyabilir."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT tech_id, importance, rule_threshold, source, group_count, tool_count "
+        "FROM technique_config"
+    ).fetchall()
+    return jsonify({r["tech_id"]: dict(r) for r in rows})
+
+
+@app.route("/api/technique-config/<tech_id>", methods=["PUT"])
+@role_required("admin")
+def update_technique_config(tech_id: str):
+    """Admin'in bir teknik için importance ve rule_threshold'u el ile ayarlamasına izin verir."""
+    payload = request.get_json(silent=True) or {}
+    importance = float(payload.get("importance", 0.5))
+    rule_threshold = int(payload.get("rule_threshold", 3))
+    importance = max(0.1, min(1.0, importance))
+    rule_threshold = max(1, min(10, rule_threshold))
+    db = get_db()
+    db.execute(
+        "UPDATE technique_config SET importance=?, rule_threshold=?, source='admin' WHERE tech_id=?",
+        (importance, rule_threshold, tech_id.upper()),
+    )
+    # teknik henüz tabloda yoksa INSERT
+    db.execute(
+        "INSERT OR IGNORE INTO technique_config "
+        "(tech_id, importance, rule_threshold, source) VALUES (?,?,?,'admin')",
+        (tech_id.upper(), importance, rule_threshold),
+    )
+    write_audit_log(
+        db,
+        action="update",
+        target_type="technique_config",
+        target_id=tech_id.upper(),
+        detail=f"importance={importance};rule_threshold={rule_threshold}",
+    )
+    db.commit()
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

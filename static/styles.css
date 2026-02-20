@@ -881,3 +881,63 @@ button.action-btn {
 .info-card h2 { font-size: 1.1rem; margin: 0 0 14px 0; }
 .info-section h3 { font-size: 0.95rem; }
 .input-wrapper label { font-size: 0.78rem; }
+
+/* ── Critical Gap: yüksek öneme sahip ama az kapsanmış teknik ─── */
+.technique-card.critical-gap,
+.subtech-card.critical-gap {
+  border-color: #e05c5c !important;
+  box-shadow: 0 0 0 1px rgba(224,92,92,0.4), 0 2px 8px rgba(224,92,92,0.2);
+}
+.technique-card.critical-gap::after {
+  content: '!';
+  position: absolute; top: 3px; right: 6px;
+  font-size: 0.6rem; font-weight: 700; color: #e05c5c; opacity: 0.9;
+  line-height: 1;
+}
+
+/* ── Score Hover Tooltip ────────────────────────────────────── */
+.score-tooltip {
+  position: fixed; z-index: 2100;
+  min-width: 190px;
+  background: #111821; border: 1px solid #2a3a46;
+  border-radius: 8px; padding: 8px 10px;
+  font-size: 0.75rem; color: #cbd5e1;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+.score-tooltip-row {
+  display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px;
+}
+.score-tooltip-label { color: #9fb1bd; }
+.score-tooltip-val   { color: #e6edf3; font-weight: 600; }
+.score-tooltip-bar {
+  height: 4px; background: #1f2a33; border-radius: 2px; margin-bottom: 6px;
+}
+.score-tooltip-fill  { height: 100%; border-radius: 2px; }
+.score-tooltip-divider { border-top: 1px solid #1f2a33; margin: 6px 0; }
+
+/* ── Teknik Yapılandırma (Admin Modal) ─────────────────────── */
+.tech-config-admin {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: #0d1521; border: 1px solid #1e2e3e; border-radius: 8px;
+  font-size: 0.82rem;
+}
+.tech-config-title {
+  font-size: 0.85rem; font-weight: 600; color: #9fb1bd;
+  margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+}
+.cfg-source-tag {
+  font-size: 0.7rem; font-weight: 400; color: #4f86c6;
+  background: rgba(79,134,198,0.12); padding: 1px 6px; border-radius: 4px;
+}
+.tech-config-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
+}
+.tech-config-row label { color: #9fb1bd; min-width: 100px; }
+.tech-config-row input[type="number"],
+.tech-config-row select {
+  background: #1a2636; border: 1px solid #2a3a46; color: #e6edf3;
+  border-radius: 4px; padding: 4px 8px; font-size: 0.82rem; width: 80px;
+}
+.tech-config-row small { color: #5e7a8a; font-size: 0.72rem; }

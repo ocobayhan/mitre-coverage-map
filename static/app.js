@@ -36,6 +36,9 @@ let auditLogs = [];
 // kullanır; seçim re-render sonrasında da korunur (input value / select selected).
 let rulesFilterSearch = '';
 let rulesFilterProduct = '';
+// Teknik bazlı puanlama konfigürasyonu — /api/technique-config'den yüklenir.
+// { "T1059": { importance, rule_threshold, group_count, tool_count }, ... }
+let techniqueConfig = {};
 
 function hasRole(role) {
   const level = { viewer: 1, editor: 2, admin: 3 };
@@ -87,12 +90,13 @@ async function init() {
       await loadAuditLogs();
     }
 
-    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes] = await Promise.all([
+    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes] = await Promise.all([
       apiFetch('/api/mitre-min'),
       apiFetch('/api/products'),
       apiFetch('/api/rules'),
       apiFetch('/api/mitigation-notes'),
-      apiFetch('/api/mitigation-entries')
+      apiFetch('/api/mitigation-entries'),
+      apiFetch('/api/technique-config')
     ]);
 
     if (!mitreRes.ok) throw new Error('MITRE verisi yÃ¼klenemedi');
@@ -103,6 +107,7 @@ async function init() {
     mitigationNotes = normalizeNotes(notes);
     const entries = entriesRes.ok ? await entriesRes.json() : [];
     mitigationEntries = normalizeEntries(entries);
+    techniqueConfig = configRes.ok ? await configRes.json() : {};
 
     prepareMitreLookup();
     await loadProducts();
@@ -1155,19 +1160,48 @@ function getCheckedMitigationCountForParent(parentId) {
   return count;
 }
 
-function computeScore(rulesCount, mitigationCount) {
-  const ruleScore = Math.min(rulesCount, SCORE_RULE_MAX) / SCORE_RULE_MAX;
-  const mitScore = Math.min(mitigationCount, SCORE_MITIGATION_MAX) / SCORE_MITIGATION_MAX;
-  return Math.min(1, (ruleScore * SCORE_RULE_WEIGHT) + (mitScore * SCORE_MITIGATION_WEIGHT));
+// Bir teknik için kaç mitigasyon olduğunu döner (subteknik ise parent'a düşer).
+function getMitigationTotal(techId) {
+  const direct = (mitigationsByTechnique[techId] || []).length;
+  if (direct > 0) return direct;
+  const parentId = techDetailsMap[techId]?.parentId;
+  if (parentId && parentId !== techId)
+    return (mitigationsByTechnique[parentId] || []).length;
+  return 0;
 }
 
+// Teknik bazlı ağırlıklı skor hesabı:
+//   kural skoru  (50%) = min(kuralSayısı / rule_threshold, 1)
+//   mitigation   (30%) = min(checkedMit / mitTotal, 1)
+//   çeşitlilik   (20%) = min(productCount / 2, 1)
+// techniqueConfig'ten rule_threshold ve importance alınır; yoksa sabit fallback kullanılır.
+function computeScore(techId, rulesCount, mitigationCount, sources) {
+  const cfg = techniqueConfig[techId] || {};
+  const threshold = cfg.rule_threshold || SCORE_RULE_MAX;
+  const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
+  const sourceSet = new Set(Array.isArray(sources) ? sources : []);
+  const ruleScore = Math.min(rulesCount / threshold, 1.0);
+  const mitScore  = Math.min(mitigationCount / mitTotal, 1.0);
+  const divScore  = Math.min(sourceSet.size / 2, 1.0);
+  return Math.min(ruleScore * 0.50 + mitScore * 0.30 + divScore * 0.20, 1.0);
+}
+
+// 3 bölgeli renk geçişi: koyu gri → amber → yeşil
+//   0.0–0.40  → gri'den amber'e (kapsanmamış / kısmi)
+//   0.40–1.0  → amber'den yeşile (iyi kapsama)
 function scoreToColor(score) {
-  const start = { r: 20, g: 26, b: 34 };
-  const end = { r: 53, g: 196, b: 139 };
-  const r = Math.round(start.r + (end.r - start.r) * score);
-  const g = Math.round(start.g + (end.g - start.g) * score);
-  const b = Math.round(start.b + (end.b - start.b) * score);
-  return `rgb(${r}, ${g}, ${b})`;
+  function lerp(a, b, t) {
+    return { r: Math.round(a.r + (b.r - a.r) * t),
+             g: Math.round(a.g + (b.g - a.g) * t),
+             b: Math.round(a.b + (b.b - a.b) * t) };
+  }
+  const dark  = { r: 20,  g: 26,  b: 34  };
+  const amber = { r: 176, g: 124, b: 30  };
+  const green = { r: 53,  g: 196, b: 139 };
+  const c = score < 0.40
+    ? lerp(dark, amber, score / 0.40)
+    : lerp(amber, green, (score - 0.40) / 0.60);
+  return `rgb(${c.r},${c.g},${c.b})`;
 }
 
 
@@ -1199,14 +1233,32 @@ function applySourceDots(card, sources) {
   card.appendChild(dots);
 }
 
-function applyTechniqueVisuals(card, rulesCount, mitigationCount, sources) {
-  const score = computeScore(rulesCount, mitigationCount);
+function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources) {
+  const score = computeScore(techId, rulesCount, mitigationCount, sources);
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
+
+  // Önemli ama az kapsanmış teknikler kırmızı kenarlıkla işaretlenir
+  const importance = techniqueConfig[techId]?.importance || 0.5;
+  card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
 
   if (mitigationCount > 0) {
     card.innerHTML += `<div class="mitigation-badge">OK${mitigationCount}</div>`;
   }
+
+  // Hover tooltip için skor verisi
+  const cfg = techniqueConfig[techId] || {};
+  const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
+  card.dataset.scoreData = JSON.stringify({
+    techId, rulesCount, mitigationCount,
+    sources: [...new Set(Array.isArray(sources) ? sources : [])],
+    score: Math.round(score * 100),
+    importance: Math.round(importance * 100),
+    threshold: cfg.rule_threshold || SCORE_RULE_MAX,
+    mitTotal,
+    groupCount: cfg.group_count || 0
+  });
+
   applySourceDots(card, sources);
 }
 
@@ -1215,10 +1267,13 @@ function updateTechniqueCard(parentId) {
   if (!card) return;
   const rulesCount = currentRulesByParent[parentId] || 0;
   const mitigationCount = getCheckedMitigationCountForParent(parentId);
-  const score = computeScore(rulesCount, mitigationCount);
+  const sources = enrichRules().filter(r => r.parentId === parentId).map(r => r.source);
+  const score = computeScore(parentId, rulesCount, mitigationCount, sources);
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
   card.style.borderColor = (rulesCount > 0 || mitigationCount > 0) ? '#fff' : 'var(--card-border)';
+  const importance = techniqueConfig[parentId]?.importance || 0.5;
+  card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
 
   const badge = card.querySelector('.mitigation-badge');
   if (mitigationCount > 0) {
@@ -1238,11 +1293,16 @@ function updateTechniqueCard(parentId) {
 function updateSubtechCard(techId) {
   const card = document.querySelector(`.subtech-card[data-tech-id="${techId}"]`);
   if (!card) return;
-  const rulesCount = enrichRules().filter(r => r.tid === techId).length;
+  const enriched = enrichRules().filter(r => r.tid === techId);
+  const rulesCount = enriched.length;
   const mitigationCount = getCheckedMitigationCountForTech(techId);
-  const score = computeScore(rulesCount, mitigationCount);
+  const sources = enriched.map(r => r.source);
+  const score = computeScore(techId, rulesCount, mitigationCount, sources);
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
+  const importance = techniqueConfig[techId]?.importance || 0.5;
+  card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
+
   const badge = card.querySelector('.mitigation-badge');
   if (mitigationCount > 0) {
     if (badge) {
@@ -1285,7 +1345,7 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
     const rulesForSub = enrichedData.filter(r => r.tid == st.id);
     const mitigationCount = getCheckedMitigationCountForTech(st.id);
     const sources = rulesForSub.map(r => r.source);
-    applyTechniqueVisuals(subCard, rulesForSub.length, mitigationCount, sources);
+    applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources);
 
     const idEl = document.createElement('div');
     idEl.className = 'technique-id';
@@ -1644,6 +1704,53 @@ async function openModal(parentId, parentName, rules) {
       renderMatrix();
       document.getElementById('ruleModal').style.display = 'none';
       alert('Kaydedildi');
+    });
+  }
+
+  // Admin: teknik bazlı önem ve kural eşiği override bölümü
+  if (hasRole('admin')) {
+    const cfg = techniqueConfig[parentId] || {};
+    const cfgDiv = document.createElement('div');
+    cfgDiv.className = 'tech-config-admin';
+    const srcLabel = cfg.source === 'admin' ? 'admin override' : `auto (${cfg.group_count || 0} grup)`;
+    cfgDiv.innerHTML = `
+      <div class="tech-config-title">Teknik Yap\u0131land\u0131rmas\u0131 <span class="cfg-source-tag">${srcLabel}</span></div>
+      <div class="tech-config-row">
+        <label>\xd6nem (0.1\u20131.0)</label>
+        <input type="number" id="cfgImportance" min="0.1" max="1.0" step="0.05" value="${(cfg.importance || 0.5).toFixed(2)}" />
+        <small>Mevcut: ${cfg.group_count || 0} tehdit grubu, ${cfg.tool_count || 0} ara\xe7</small>
+      </div>
+      <div class="tech-config-row">
+        <label>Kural E\u015fi\u011fi</label>
+        <select id="cfgThreshold">${[1,2,3,4,5,6,7,8,9,10].map(n =>
+          `<option value="${n}"${(cfg.rule_threshold || 3) === n ? ' selected' : ''}>${n}</option>`
+        ).join('')}</select>
+        <small>\u201cYeterli kapsama\u201d i\xe7in gereken minimum kural say\u0131s\u0131</small>
+      </div>
+      <button class="action-btn btn-add" id="btnSaveTechConfig">Kaydet</button>
+    `;
+    body.appendChild(cfgDiv);
+
+    document.getElementById('btnSaveTechConfig').addEventListener('click', async () => {
+      const importance     = parseFloat(document.getElementById('cfgImportance').value);
+      const rule_threshold = parseInt(document.getElementById('cfgThreshold').value, 10);
+      if (isNaN(importance) || isNaN(rule_threshold)) return;
+      const res = await apiFetch(`/api/technique-config/${parentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ importance, rule_threshold })
+      });
+      if (res.ok) {
+        techniqueConfig[parentId] = {
+          ...techniqueConfig[parentId],
+          importance,
+          rule_threshold,
+          source: 'admin'
+        };
+        alert('Kaydedildi. Matris bir sonraki render\'da g\xfcncellenecek.');
+      } else {
+        alert('Kaydetme ba\u015far\u0131s\u0131z.');
+      }
     });
   }
 
@@ -2014,7 +2121,7 @@ function renderMatrix() {
         rule_count: parentRuleCount,
         mitigation_checked: parentMitCount,
         products: Array.from(new Set(parentSources)),
-        score: computeScore(parentRuleCount, parentMitCount)
+        score: computeScore(tech.id, parentRuleCount, parentMitCount, parentSources)
       });
       subMatches.forEach(st => {
         const subRules = enrichedData.filter(r => r.tid == st.id);
@@ -2029,7 +2136,7 @@ function renderMatrix() {
           rule_count: subRuleCount,
           mitigation_checked: subMitCount,
           products: Array.from(new Set(subSources)),
-          score: computeScore(subRuleCount, subMitCount)
+          score: computeScore(st.id, subRuleCount, subMitCount, subSources)
         });
       });
 
@@ -2045,7 +2152,7 @@ function renderMatrix() {
 
       const mitigationCount = getCheckedMitigationCountForParent(tech.id);
       const sources = rulesForCell.map(r => r.source);
-      applyTechniqueVisuals(card, rulesForCell.length, mitigationCount, sources);
+      applyTechniqueVisuals(card, tech.id, rulesForCell.length, mitigationCount, sources);
 
       const idEl = document.createElement('div');
       idEl.className = 'technique-id';
@@ -2094,5 +2201,55 @@ function renderMatrix() {
       </div>
     `;
   }
+
+  wireScoreTooltip();
+}
+
+// Teknik kartları üzerine gelinince kural/mitigation/önem/skor breakdown tooltip'i gösterir.
+function wireScoreTooltip() {
+  let tip = null;
+  document.querySelectorAll('.technique-card[data-score-data], .subtech-card[data-score-data]')
+    .forEach(card => {
+      card.addEventListener('mouseenter', () => {
+        if (tip) tip.remove();
+        let d;
+        try { d = JSON.parse(card.dataset.scoreData || '{}'); } catch { return; }
+        if (!d.techId) return;
+        const ruleBar  = Math.min(d.rulesCount / Math.max(d.threshold, 1), 1) * 100;
+        const mitBar   = d.mitTotal > 0 ? Math.min(d.mitigationCount / d.mitTotal, 1) * 100 : 0;
+        tip = document.createElement('div');
+        tip.className = 'score-tooltip';
+        tip.innerHTML = `
+          <div class="score-tooltip-row">
+            <span class="score-tooltip-label">Kural</span>
+            <span class="score-tooltip-val">${d.rulesCount}/${d.threshold}</span>
+          </div>
+          <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${ruleBar.toFixed(0)}%;background:#4f86c6"></div></div>
+          <div class="score-tooltip-row">
+            <span class="score-tooltip-label">Mitigation</span>
+            <span class="score-tooltip-val">${d.mitigationCount}/${d.mitTotal}</span>
+          </div>
+          <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${mitBar.toFixed(0)}%;background:#35c48b"></div></div>
+          <div class="score-tooltip-row">
+            <span class="score-tooltip-label">\xc7e\u015fitlilik</span>
+            <span class="score-tooltip-val">${d.sources.length} \xfcr\xfcn</span>
+          </div>
+          <div class="score-tooltip-divider"></div>
+          <div class="score-tooltip-row">
+            <span class="score-tooltip-label">\xd6nem</span>
+            <span class="score-tooltip-val">${d.importance}% \xb7 ${d.groupCount} grup</span>
+          </div>
+          <div class="score-tooltip-row">
+            <span class="score-tooltip-label">Toplam Skor</span>
+            <span class="score-tooltip-val" style="color:#35c48b">${d.score}%</span>
+          </div>
+        `;
+        const rect = card.getBoundingClientRect();
+        tip.style.left = `${Math.min(rect.left, window.innerWidth - 210)}px`;
+        tip.style.top  = `${rect.bottom + 4}px`;
+        document.body.appendChild(tip);
+      });
+      card.addEventListener('mouseleave', () => { if (tip) { tip.remove(); tip = null; } });
+    });
 }
 
