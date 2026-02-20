@@ -755,3 +755,116 @@ button.action-btn {
   line-height: 1.35;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
+
+/* Rules Panel */
+#rulesPanel { width: 100%; padding: 0; }
+#rulesPanel .info-card { width: 100%; max-width: none; padding: 16px 16px 20px 16px; }
+#rulesPanel .mitigation-list { width: 100%; }
+#rulesPanel .rule-list-header,
+#rulesPanel .rule-list-row {
+  display: grid;
+  grid-template-columns: 1.5fr 140px 3fr 100px;
+  gap: 14px;
+}
+#rulesPanel .rule-list-header {
+  font-size: 0.75rem;
+  color: #9fb1bd;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #22303a;
+}
+#rulesPanel .rule-list-row {
+  padding: 10px 0;
+  border-bottom: 1px solid #1f2a33;
+  align-items: start;
+}
+#rulesPanel .rule-list-row:last-child { border-bottom: none; }
+
+.rule-tech-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.rule-tech-chip { display: inline-flex; align-items: center; gap: 2px; }
+.rule-tech-remove { background: none; border: none; color: #9fb1bd; cursor: pointer; font-size: 0.75rem; padding: 0 2px; line-height: 1; }
+.rule-tech-remove:hover { color: #ff8a80; }
+.rule-tech-add { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; }
+.rule-tech-input { min-width: 140px; height: 24px; font-size: 0.75rem; padding: 2px 6px; }
+.rule-actions { display: flex; align-items: flex-start; }
+
+/* ── Settings Tabs ─────────────────────────────────────────── */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #1f2a33;
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+}
+.settings-tab-btn {
+  background: #0f151d;
+  border: 1px solid #202830;
+  border-radius: 6px;
+  color: #9fb1bd;
+  padding: 9px 16px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s;
+}
+.settings-tab-btn:hover { border-color: #41505a; color: #e6edf3; }
+.settings-tab-btn.active { background: #1f2a30; border-color: #6b7d88; color: #fff; font-weight: 600; }
+.settings-tab-panel { display: none; }
+.settings-tab-panel.active { display: block; }
+
+/* ── Rules Filter Bar ──────────────────────────────────────── */
+.rules-filter-bar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #0f1418;
+  border: 1px solid #1f262b;
+  border-radius: 8px;
+}
+
+/* ── Technique Autocomplete ────────────────────────────────── */
+.tech-autocomplete-wrapper {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+}
+.tech-autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 1500;
+  min-width: 300px;
+  background: #111821;
+  border: 1px solid #2a3a46;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.tech-autocomplete-item {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  border-bottom: 1px solid #1a2430;
+}
+.tech-autocomplete-item:last-child { border-bottom: none; }
+.tech-autocomplete-item:hover,
+.tech-autocomplete-item.active { background: #1a2a38; color: #fff; }
+.tac-id {
+  font-family: 'JetBrains Mono', monospace;
+  color: #4f86c6;
+  white-space: nowrap;
+  min-width: 72px;
+}
+.tac-name { color: #cbd5e1; }
+
+/* ── UI Typography tweaks ──────────────────────────────────── */
+.info-card h2 { font-size: 1.1rem; margin: 0 0 14px 0; }
+.info-section h3 { font-size: 0.95rem; }
+.input-wrapper label { font-size: 0.78rem; }

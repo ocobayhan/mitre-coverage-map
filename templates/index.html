@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=56" />
+  <link rel="stylesheet" href="/static/styles.css?v=58" />
 </head>
 <body>
   <div class="app-shell">
@@ -18,6 +18,7 @@
       <button class="nav-item" data-target="infoPanel"><span class="nav-label">Bilgilendirme</span><span class="nav-short">B</span></button>
       <button class="nav-item" data-target="settingsPanel"><span class="nav-label">Ayarlar</span><span class="nav-short">A</span></button>
       <button class="nav-item" data-target="mitigationPanel"><span class="nav-label">Mitigation Listesi</span><span class="nav-short">L</span></button>
+      <button class="nav-item" data-target="rulesPanel"><span class="nav-label">Kurallar</span><span class="nav-short">K</span></button>
       <div class="sidebar-note">Puanlama ve renklerin anlamı için Bilgilendirme sekmesini kullanın.</div>
     </nav>
 
@@ -80,8 +81,14 @@
       <div id="settingsPanel" class="panel">
         <div class="info-card">
           <h2>Ayarlar</h2>
-          <div class="info-section">
-            <h3>Ürün Yönetimi</h3>
+          <div class="settings-tabs" id="settingsTabBar">
+            <button class="settings-tab-btn active" data-tab="stab-product">Ürün Yönetimi</button>
+            <button class="settings-tab-btn" data-tab="stab-csv" id="settingsCsvTab">CSV Yükleme</button>
+            <button class="settings-tab-btn" data-tab="stab-users" id="settingsUsersTab">Kullanıcılar</button>
+            <button class="settings-tab-btn" data-tab="stab-audit" id="settingsAuditTab">Audit Log</button>
+          </div>
+
+          <div id="stab-product" class="settings-tab-panel active">
             <div class="settings-row">
               <div class="input-wrapper">
                 <label>Ürün Adı</label>
@@ -97,8 +104,7 @@
             <div class="product-list" id="productList"></div>
           </div>
 
-          <div class="info-section">
-            <h3>Toplu Kural Yükleme (CSV)</h3>
+          <div id="stab-csv" class="settings-tab-panel">
             <div class="settings-row">
               <input type="file" id="csvFile" accept=".csv" />
               <button class="action-btn btn-add" id="btnUploadCsv">Yükle</button>
@@ -111,8 +117,8 @@
             </div>
             <div class="upload-result" id="uploadResult"></div>
           </div>
-          <div class="info-section" id="usersSection">
-            <h3>Kullanıcı Yönetimi (Admin)</h3>
+
+          <div id="stab-users" class="settings-tab-panel">
             <div class="settings-row">
               <div class="input-wrapper">
                 <label>Kullanıcı Adı</label>
@@ -135,8 +141,8 @@
             <div class="settings-subtitle">Mevcut Kullanıcılar</div>
             <div class="user-list" id="userList"></div>
           </div>
-          <div class="info-section" id="auditSection">
-            <h3>Audit Log (Admin)</h3>
+
+          <div id="stab-audit" class="settings-tab-panel">
             <div class="settings-row">
               <button class="action-btn btn-add" id="btnRefreshAudit">Yenile</button>
             </div>
@@ -149,6 +155,13 @@
           <h2>Mitigation Listesi</h2>
           <p>Her mitigationın hangi tekniklerde yer aldığını ve ilişkili kayıtları buradan kontrol edebilirsiniz.</p>
           <div id="mitigationList" class="mitigation-list"></div>
+        </div>
+      </div>
+      <div id="rulesPanel" class="panel">
+        <div class="info-card">
+          <h2>Kurallar</h2>
+          <p>Her kuralın hangi MITRE tekniklerinde yer aldığını görün ve yeni teknik ilişkilendirmeleri ekleyin.</p>
+          <div id="rulesList" class="mitigation-list"></div>
         </div>
       </div>
     </main>
@@ -164,6 +177,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=59"></script>
+  <script src="/static/app.js?v=61"></script>
 </body>
 </html>

@@ -32,6 +32,10 @@ let currentUser = null;
 let currentRole = 'viewer';
 let users = [];
 let auditLogs = [];
+// Kurallar sayfası filtre state'i — renderRulesList() her re-render'da bu değerleri
+// kullanır; seçim re-render sonrasında da korunur (input value / select selected).
+let rulesFilterSearch = '';
+let rulesFilterProduct = '';
 
 function hasRole(role) {
   const level = { viewer: 1, editor: 2, admin: 3 };
@@ -59,18 +63,15 @@ function applyRoleUI() {
   const settingsNav = document.querySelector('.nav-item[data-target="settingsPanel"]');
   if (settingsNav) settingsNav.classList.toggle('hidden', !hasRole('editor'));
 
-  const productSection = document.querySelector('#settingsPanel .info-section');
-  if (productSection) productSection.classList.toggle('hidden', !hasRole('admin'));
-
-  const csvUploadBtn = document.getElementById('btnUploadCsv');
-  if (csvUploadBtn) csvUploadBtn.classList.toggle('hidden', !hasRole('editor'));
   const csvFileInput = document.getElementById('csvFile');
   if (csvFileInput) csvFileInput.disabled = !hasRole('editor');
 
-  const usersSection = document.getElementById('usersSection');
-  if (usersSection) usersSection.classList.toggle('hidden', !hasRole('admin'));
-  const auditSection = document.getElementById('auditSection');
-  if (auditSection) auditSection.classList.toggle('hidden', !hasRole('admin'));
+  // Ayarlar sekmelerini role göre gizle:
+  //   CSV Yükleme → editor veya üstü
+  //   Kullanıcılar + Audit Log → sadece admin
+  document.getElementById('settingsCsvTab')?.classList.toggle('hidden', !hasRole('editor'));
+  document.getElementById('settingsUsersTab')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('settingsAuditTab')?.classList.toggle('hidden', !hasRole('admin'));
 }
 
 async function init() {
@@ -107,6 +108,7 @@ async function init() {
     await loadProducts();
     populateTacticSelect();
     renderMitigationList();
+    renderRulesList();
     renderMatrix();
   } catch (e) {
     document.getElementById('matrix').innerHTML = `Veri HatasÄ±: ${e.message}`;
@@ -130,6 +132,7 @@ async function reloadData() {
   populateSourceSelect();
   renderProductsList();
   renderMitigationList();
+  renderRulesList();
   if (hasRole('admin')) {
     await loadUsers();
     await loadAuditLogs();
@@ -512,6 +515,278 @@ function renderMitigationList() {
   });
 }
 
+// ── Kurallar Sayfası ──────────────────────────────────────────────────────────
+// Tüm kuralları listeler. Her kural satırı:
+//   • Kural adı  • Kaynak (ürün rengi ile)
+//   • Teknik chipler (tıklanabilir popover, × ile kaldır)
+//   • Teknik ekle input'u (autocomplete destekli) + + butonu
+//   • Sil butonu (editor+)
+//
+// Sayfa üstünde filtre bar bulunur:
+//   • Kural adı metin araması (rulesFilterSearch)
+//   • Ürün dropdown filtresi (rulesFilterProduct)
+//   • Temizle butonu
+//
+// State: userRules (global) + rulesFilterSearch/rulesFilterProduct (sayfa-local).
+// Her re-render'da filtre değerleri input/select'e geri yazılır (state kaybolmaz).
+function renderRulesList() {
+  const container = document.getElementById('rulesList');
+  if (!container) return;
+
+  const colorMap = productColorMap();
+
+  // Filter bar HTML
+  const productOptions = products.map(p =>
+    `<option value="${p.name}" ${rulesFilterProduct === p.name ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+  const filterBarHtml = `
+    <div class="rules-filter-bar">
+      <div class="filter-group">
+        <label>Kural Adı</label>
+        <input id="rulesSearch" type="text" placeholder="Kural adı ara..." value="${rulesFilterSearch.replace(/"/g, '&quot;')}" />
+      </div>
+      <div class="filter-group">
+        <label>Ürün</label>
+        <select id="rulesProductFilter">
+          <option value="">Tümü</option>
+          ${productOptions}
+        </select>
+      </div>
+      <div class="filter-group">
+        <label style="visibility:hidden">_</label>
+        <button class="action-btn btn-reset" id="rulesClearFilter">Temizle</button>
+      </div>
+    </div>
+  `;
+
+  if (userRules.length === 0) {
+    container.innerHTML = filterBarHtml + '<div class="empty-state"><div class="empty-title">Kural yok</div><div class="empty-sub">Henüz kural eklenmemiş.</div></div>';
+    wireRulesFilterEvents(container);
+    return;
+  }
+
+  // Apply filters
+  const visible = userRules.filter(r =>
+    (!rulesFilterSearch || r.name.toLowerCase().includes(rulesFilterSearch.toLowerCase())) &&
+    (!rulesFilterProduct || r.source === rulesFilterProduct)
+  );
+
+  const rows = visible.map(r => {
+    const techs = (r.techniques && r.techniques.length > 0)
+      ? r.techniques
+      : (r.tech && r.tech !== 'None' ? [r.tech] : []);
+    const techChips = techs.map(t => {
+      const details = techDetailsMap[t];
+      const techLabel = details ? `${t} - ${details.name}` : t;
+      return `<span class="rule-tech-chip">
+        <button class="tech-chip" type="button" data-tech-label="${techLabel}">${t}</button>
+        ${hasRole('editor') ? `<button class="rule-tech-remove" data-rule-id="${r.id}" data-tech-id="${t}" title="Tekniği kaldır">×</button>` : ''}
+      </span>`;
+    }).join('');
+    const sourceColor = colorMap[r.source] || '#546e7a';
+    return `
+      <div class="mitigation-list-row rule-list-row">
+        <div class="mitigation-list-name">${r.name}</div>
+        <div class="mitigation-list-tech">
+          <span class="source-tag" style="background:${sourceColor}">${r.source}</span>
+        </div>
+        <div class="rule-tech-list">
+          ${techChips}
+          ${hasRole('editor') ? `<span class="rule-tech-add">
+            <div class="tech-autocomplete-wrapper" data-rule-id="${r.id}">
+              <input class="rule-tech-input" type="text" placeholder="T1059 veya teknik adı" data-rule-id="${r.id}" />
+              <div class="tech-autocomplete-dropdown hidden"></div>
+            </div>
+            <button class="action-btn btn-add rule-tech-add-btn" data-rule-id="${r.id}">+</button>
+          </span>` : ''}
+        </div>
+        <div class="rule-actions">
+          ${hasRole('editor') ? `<button class="action-btn btn-reset rule-delete" data-rule-id="${r.id}">Sil</button>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const emptyNote = visible.length === 0
+    ? '<div class="empty-state"><div class="empty-title">Sonuç yok</div><div class="empty-sub">Filtre kriterlerine uyan kural bulunamadı.</div></div>'
+    : '';
+
+  container.innerHTML = `
+    ${filterBarHtml}
+    <div class="mitigation-list-header rule-list-header">
+      <div>Kural Adı</div>
+      <div>Kaynak</div>
+      <div>Teknikler</div>
+      <div>İşlemler</div>
+    </div>
+    ${rows}
+    ${emptyNote}
+  `;
+
+  wireRulesFilterEvents(container);
+
+  container.querySelectorAll('.tech-autocomplete-wrapper').forEach(wireAutocomplete);
+
+  container.querySelectorAll('.tech-chip[data-tech-label]').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      const label = e.currentTarget.dataset.techLabel || '';
+      if (!label) return;
+      showTechChipPopover(e.currentTarget, label);
+    });
+  });
+
+  container.querySelectorAll('.rule-tech-remove').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      if (!hasRole('editor')) return;
+      const ruleId = e.currentTarget.dataset.ruleId;
+      const techId = e.currentTarget.dataset.techId;
+      const res = await apiFetch(`/api/rules/${ruleId}/techniques/${techId}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      const rule = userRules.find(r => r.id == ruleId);
+      if (rule && rule.techniques) {
+        rule.techniques = rule.techniques.filter(t => t !== techId);
+      }
+      renderRulesList();
+      renderMatrix();
+    });
+  });
+
+  container.querySelectorAll('.rule-tech-add-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      if (!hasRole('editor')) return;
+      const ruleId = e.currentTarget.dataset.ruleId;
+      const input = container.querySelector(`.rule-tech-input[data-rule-id="${ruleId}"]`);
+      if (!input) return;
+      const val = (input.value || '').trim();
+      if (!val) return;
+      const validation = validateTechniqueInput(val);
+      if (!validation.ok) {
+        alert(validation.message);
+        return;
+      }
+      const techId = validation.tid;
+      const res = await apiFetch(`/api/rules/${ruleId}/techniques`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tech_id: techId })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Teknik eklenemedi');
+        return;
+      }
+      const rule = userRules.find(r => r.id == ruleId);
+      if (rule) {
+        if (!rule.techniques) rule.techniques = [];
+        if (!rule.techniques.includes(techId)) rule.techniques.push(techId);
+        rule.techniques.sort();
+      }
+      input.value = '';
+      renderRulesList();
+      renderMatrix();
+    });
+  });
+
+  container.querySelectorAll('.rule-delete').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const ruleId = parseInt(e.currentTarget.dataset.ruleId);
+      if (!ruleId || !hasRole('editor')) return;
+      await deleteRule(ruleId);
+    });
+  });
+}
+
+// Filtre bar event'lerini bağlar. renderRulesList() her çağrısında çalışır;
+// event'ler container'a bağlı olduğundan innerHTML değişince otomatik temizlenir.
+function wireRulesFilterEvents(container) {
+  const searchInput = container.querySelector('#rulesSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      rulesFilterSearch = e.target.value || '';
+      renderRulesList();
+    });
+  }
+  const productSelect = container.querySelector('#rulesProductFilter');
+  if (productSelect) {
+    productSelect.addEventListener('change', (e) => {
+      rulesFilterProduct = e.target.value || '';
+      renderRulesList();
+    });
+  }
+  const clearBtn = container.querySelector('#rulesClearFilter');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      rulesFilterSearch = '';
+      rulesFilterProduct = '';
+      renderRulesList();
+    });
+  }
+}
+
+// ── Teknik Autocomplete ───────────────────────────────────────────────────────
+// .tech-autocomplete-wrapper içindeki input'a bağlanır.
+// Davranış:
+//   • 2+ karakter → techDetailsMap üzerinde filtre → max 12 sonuç dropdown'da
+//   • T-kod ile başlama (t1059) veya isim içermesi (powershell) desteklenir
+//   • Tıklama veya Enter → T-kodu input'a yazar, dropdown kapanır
+//   • ArrowDown/ArrowUp → active item değişir
+//   • Escape → dropdown kapanır
+//   • Dışarı tıklama → dropdown kapanır (capture listener)
+// + butonu validation için hâlâ validateTechniqueInput() kullanır.
+function wireAutocomplete(wrapper) {
+  const input = wrapper.querySelector('.rule-tech-input');
+  const dropdown = wrapper.querySelector('.tech-autocomplete-dropdown');
+  if (!input || !dropdown) return;
+
+  input.addEventListener('input', () => {
+    const q = (input.value || '').trim().toLowerCase();
+    if (q.length < 2) { dropdown.classList.add('hidden'); return; }
+    const matches = Object.values(techDetailsMap)
+      .filter(t => t.id.toLowerCase().startsWith(q) || t.name.toLowerCase().includes(q))
+      .slice(0, 12);
+    if (!matches.length) { dropdown.classList.add('hidden'); return; }
+    dropdown.innerHTML = matches.map(t =>
+      `<div class="tech-autocomplete-item" data-tid="${t.id}">
+         <span class="tac-id">${t.id}</span>
+         <span class="tac-name">${t.name}</span>
+       </div>`
+    ).join('');
+    dropdown.classList.remove('hidden');
+  });
+
+  dropdown.addEventListener('click', e => {
+    const item = e.target.closest('.tech-autocomplete-item');
+    if (!item) return;
+    input.value = item.dataset.tid;
+    dropdown.classList.add('hidden');
+    input.focus();
+  });
+
+  input.addEventListener('keydown', e => {
+    if (dropdown.classList.contains('hidden')) return;
+    const items = [...dropdown.querySelectorAll('.tech-autocomplete-item')];
+    const idx = items.findIndex(i => i.classList.contains('active'));
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (idx >= 0) items[idx].classList.remove('active');
+      items[Math.min(idx + 1, items.length - 1)].classList.add('active');
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (idx >= 0) items[idx].classList.remove('active');
+      items[Math.max(idx - 1, 0)].classList.add('active');
+    } else if (e.key === 'Enter') {
+      const active = dropdown.querySelector('.tech-autocomplete-item.active');
+      if (active) { e.preventDefault(); input.value = active.dataset.tid; dropdown.classList.add('hidden'); }
+    } else if (e.key === 'Escape') {
+      dropdown.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('click', e => {
+    if (!wrapper.contains(e.target)) dropdown.classList.add('hidden');
+  }, true);
+}
+
 function showTechChipPopover(anchorEl, text) {
   if (techChipPopoverEl) techChipPopoverEl.remove();
   const rect = anchorEl.getBoundingClientRect();
@@ -761,16 +1036,23 @@ function getTacticForTech(tid) {
 }
 
 function enrichRules() {
-  return userRules.map((r) => {
-    if (r.tech === 'None') return null;
-    const searchKey = (r.tech || '').toLowerCase().trim();
-    let tid = nameToIdMap[searchKey];
-    if (!tid && /^t\d{4}/.test(searchKey)) tid = r.tech.toUpperCase();
-    if (!tid) return null;
-    const details = techDetailsMap[tid];
-    const parentId = details ? details.parentId : tid.split('.')[0];
-    return { ...r, tid: tid, parentId: parentId, isSub: details ? details.isSub : tid.includes('.') };
-  }).filter(Boolean);
+  const out = [];
+  userRules.forEach(r => {
+    const techs = (r.techniques && r.techniques.length > 0)
+      ? r.techniques
+      : [r.tech];
+    techs.forEach(rawTech => {
+      if (!rawTech || rawTech === 'None') return;
+      const key = rawTech.toLowerCase().trim();
+      let tid = nameToIdMap[key];
+      if (!tid && /^t\d{4}/i.test(key)) tid = rawTech.toUpperCase();
+      if (!tid) return;
+      const details = techDetailsMap[tid];
+      const parentId = details ? details.parentId : tid.split('.')[0];
+      out.push({ ...r, tid, parentId, isSub: details ? details.isSub : tid.includes('.') });
+    });
+  });
+  return out;
 }
 
 function getMitigationNote(mitigationId) {
@@ -993,6 +1275,7 @@ async function addRuleDirect(name, tactic, tech, source) {
 
   const created = await res.json();
   userRules.push(created);
+  renderRulesList();
   renderMatrix();
   alert('Kural eklendi');
 }
@@ -1020,6 +1303,7 @@ async function deleteRule(ruleId) {
   const res = await apiFetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
   if (!res.ok) return;
   userRules = userRules.filter(r => r.id !== ruleId);
+  renderRulesList();
   renderMatrix();
   document.getElementById('ruleModal').style.display = 'none';
 }
@@ -1477,6 +1761,28 @@ function wireSettings() {
   if (addUserBtn) addUserBtn.addEventListener('click', addUser);
   const refreshAuditBtn = document.getElementById('btnRefreshAudit');
   if (refreshAuditBtn) refreshAuditBtn.addEventListener('click', loadAuditLogs);
+  wireSettingsTabs();
+}
+
+// Ayarlar panelindeki 4 sekme butonuna click event'i bağlar.
+// Aktif sekme: .settings-tab-btn.active + .settings-tab-panel.active (CSS ile görünür).
+// Sekme yapısı (index.html):
+//   stab-product  → Ürün Yönetimi (editor+)
+//   stab-csv      → CSV Yükleme (editor+, applyRoleUI ile gizlenir)
+//   stab-users    → Kullanıcılar (admin, applyRoleUI ile gizlenir)
+//   stab-audit    → Audit Log (admin, applyRoleUI ile gizlenir)
+function wireSettingsTabs() {
+  const tabBar = document.getElementById('settingsTabBar');
+  if (!tabBar) return;
+  tabBar.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabBar.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.settings-tab-panel').forEach(p =>
+        p.classList.toggle('active', p.id === btn.dataset.tab)
+      );
+    });
+  });
 }
 
 function wireSearch() {

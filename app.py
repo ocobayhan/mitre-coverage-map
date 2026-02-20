@@ -96,6 +96,67 @@ def ensure_mitigation_global_seed(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+# ── Migration: Kural Birleştirme ─────────────────────────────────────────────
+# CSV import veya bulk add sırasında aynı (name, source) çiftine sahip birden
+# fazla satır oluşabilir. Bu fonksiyon ilk çalıştığında:
+#   1. Aynı (name, source) olan satırları tespit eder.
+#   2. En küçük id'yi "canonical" kural olarak tutar; diğerlerini siler.
+#   3. Silinen kuralların rule_techniques kayıtlarını canonical kurala taşır.
+#   4. idx_rules_name_source UNIQUE index ekler → gelecekte çift kural oluşmaz.
+# Idempotent: index zaten varsa hiçbir şey yapmaz.
+def migrate_consolidate_rules(db: sqlite3.Connection) -> None:
+    """Merge duplicate (name, source) rules into one row, combining techniques."""
+    indexes = [r[1] for r in db.execute("PRAGMA index_list(rules)").fetchall()]
+    if "idx_rules_name_source" in indexes:
+        return
+    groups = db.execute(
+        "SELECT name, source FROM rules GROUP BY name, source HAVING COUNT(*) > 1"
+    ).fetchall()
+    for g in groups:
+        rows = db.execute(
+            "SELECT id, tech FROM rules WHERE name=? AND source=? ORDER BY id ASC",
+            (g["name"], g["source"])
+        ).fetchall()
+        keep_id = rows[0]["id"]
+        for dup in rows[1:]:
+            if dup["tech"]:
+                db.execute(
+                    "INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?,?)",
+                    (keep_id, dup["tech"])
+                )
+            for t in db.execute(
+                "SELECT tech_id FROM rule_techniques WHERE rule_id=?", (dup["id"],)
+            ).fetchall():
+                db.execute(
+                    "INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?,?)",
+                    (keep_id, t["tech_id"])
+                )
+            db.execute("DELETE FROM rule_techniques WHERE rule_id=?", (dup["id"],))
+            db.execute("DELETE FROM rules WHERE id=?", (dup["id"],))
+    db.commit()
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_name_source ON rules(name, source)"
+    )
+    db.commit()
+
+
+# ── Migration: rules.tech → rule_techniques ──────────────────────────────────
+# Eski şema rules.tech TEXT sütunuyla tek teknik tutuyordu. Bu migration
+# mevcut rules satırlarından rule_techniques join tablosuna veri kopyalar.
+# Idempotent: tabloda kayıt varsa atlanır.
+def migrate_rule_techniques(db: sqlite3.Connection) -> None:
+    existing = db.execute("SELECT rule_id FROM rule_techniques LIMIT 1").fetchone()
+    if existing:
+        return  # already migrated
+    rows = db.execute("SELECT id, tech FROM rules").fetchall()
+    for r in rows:
+        db.execute(
+            "INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
+            (r["id"], r["tech"])
+        )
+    db.commit()
+
+
 def init_db() -> None:
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
@@ -151,6 +212,15 @@ def init_db() -> None:
                 detail TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            -- rule_techniques: bir kural birden fazla MITRE tekniğine bağlanabilir.
+            -- tech_id alanı T1059 veya teknik adı (eski seed) olabilir; frontend
+            -- her ikisini de nameToIdMap ile çözümler.
+            CREATE TABLE IF NOT EXISTS rule_techniques (
+                rule_id INTEGER NOT NULL,
+                tech_id TEXT NOT NULL,
+                PRIMARY KEY (rule_id, tech_id)
+            );
             """
         )
         db.commit()
@@ -159,6 +229,8 @@ def init_db() -> None:
         ensure_mitigation_global_seed(db)
         ensure_products(db)
         ensure_users(db)
+        migrate_rule_techniques(db)
+        migrate_consolidate_rules(db)
     finally:
         db.close()
 
@@ -442,8 +514,20 @@ def mitre_json():
 def rules():
     db = get_db()
     if request.method == "GET":
-        rows = db.execute("SELECT id, name, tactic, tech, source FROM rules ORDER BY id ASC").fetchall()
-        return jsonify([dict(r) for r in rows])
+        rows = db.execute("""
+            SELECT r.id, r.name, r.tactic, r.tech, r.source,
+                   GROUP_CONCAT(rt.tech_id) as techs
+            FROM rules r
+            LEFT JOIN rule_techniques rt ON rt.rule_id = r.id
+            GROUP BY r.id ORDER BY r.id ASC
+        """).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            techs_raw = d.pop("techs", None)
+            d["techniques"] = sorted(set(techs_raw.split(","))) if techs_raw else []
+            result.append(d)
+        return jsonify(result)
 
     if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
         return jsonify({"error": "Forbidden"}), 403
@@ -457,10 +541,16 @@ def rules():
     if not name or not tactic or not tech or not source:
         return jsonify({"error": "Missing fields: name, tactic, tech, source"}), 400
 
-    cur = db.execute(
-        "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
-        (name, tactic, tech, source)
-    )
+    try:
+        cur = db.execute(
+            "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
+            (name, tactic, tech, source)
+        )
+    except sqlite3.IntegrityError:
+        # idx_rules_name_source UNIQUE index ihlali → aynı (name, source) zaten var.
+        return jsonify({"error": "Bu isim ve kaynak için kural zaten mevcut. Teknik eklemek için mevcut kuralı kullanın."}), 409
+    db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
+               (cur.lastrowid, tech))
     write_audit_log(
         db,
         action="create",
@@ -469,7 +559,7 @@ def rules():
         detail=f"name={name};tech={tech};source={source}",
     )
     db.commit()
-    return jsonify({"id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech, "source": source}), 201
+    return jsonify({"id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech, "source": source, "techniques": [tech]}), 201
 
 
 
@@ -513,10 +603,12 @@ def rules_bulk():
         if source not in products:
             errors.append(f"Satir {i}: kaynak bulunamadi ({source})")
             continue
-        db.execute(
+        row_id = db.execute(
             "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
             (name, tactic, tech, source)
-        )
+        ).lastrowid
+        db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
+                   (row_id, tech))
         inserted += 1
     write_audit_log(
         db,
@@ -532,12 +624,44 @@ def rules_bulk():
 @role_required("editor")
 def delete_rule(rule_id: int):
     db = get_db()
+    db.execute("DELETE FROM rule_techniques WHERE rule_id = ?", (rule_id,))
     db.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
     write_audit_log(db, action="delete", target_type="rule", target_id=str(rule_id))
     db.commit()
     return jsonify({"ok": True})
 
 
+
+
+# ── Kural Teknik Yönetimi ─────────────────────────────────────────────────────
+# Bir kurala yeni MITRE tekniği ekler veya mevcut tekniği kaldırır.
+# Frontend: Kurallar sayfasında her kural satırındaki + input + × buton.
+@app.route("/api/rules/<int:rule_id>/techniques", methods=["POST"])
+@role_required("editor")
+def add_rule_technique(rule_id: int):
+    payload = request.get_json(silent=True) or {}
+    tech_id = (payload.get("tech_id") or "").strip().upper()
+    if not tech_id:
+        return jsonify({"error": "tech_id gerekli"}), 400
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
+               (rule_id, tech_id))
+    write_audit_log(db, action="create", target_type="rule_technique",
+                    target_id=str(rule_id), detail=f"tech_id={tech_id}")
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/rules/<int:rule_id>/techniques/<tech_id>", methods=["DELETE"])
+@role_required("editor")
+def delete_rule_technique(rule_id: int, tech_id: str):
+    db = get_db()
+    db.execute("DELETE FROM rule_techniques WHERE rule_id = ? AND tech_id = ?",
+               (rule_id, tech_id.upper()))
+    write_audit_log(db, action="delete", target_type="rule_technique",
+                    target_id=str(rule_id), detail=f"tech_id={tech_id}")
+    db.commit()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/products", methods=["GET", "POST"])
@@ -829,6 +953,7 @@ def admin_reset():
     db.execute("DELETE FROM mitigation_notes")
     db.execute("DELETE FROM mitigation_global")
     db.execute("DELETE FROM mitigation_entries")
+    db.execute("DELETE FROM rule_techniques")
     db.execute("DELETE FROM rules")
     db.commit()
 

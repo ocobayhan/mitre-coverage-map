@@ -1,6 +1,6 @@
 # PROJECT STATE - MITRE Coverage Map
 
-Last updated: 2026-02-19
+Last updated: 2026-02-20
 
 ## Purpose
 Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, product-based coverage, and persistent storage.
@@ -34,9 +34,11 @@ If PowerShell execution policy blocks activation:
 ## Key Endpoints
 - `GET /api/mitre`
 - `GET /api/mitre-min`
-- `GET/POST /api/rules`
+- `GET/POST /api/rules`                          — GET: rules + techniques[]; POST: 409 if duplicate (name,source)
 - `DELETE /api/rules/<id>`
 - `POST /api/rules/bulk` (CSV import)
+- `POST /api/rules/<id>/techniques`              — bir kurala yeni MITRE tekniği ekler
+- `DELETE /api/rules/<id>/techniques/<tech_id>`  — bir kuraldan teknik kaldırır
 - `GET/POST /api/mitigation-notes`
 - `GET/POST /api/mitigation-entries`
 - `DELETE /api/mitigation-entries/<id>`
@@ -62,13 +64,17 @@ If PowerShell execution policy blocks activation:
 - New panel: Mitigation Listesi (mitigation -> techniques list)
 - Mitigation Listesi now includes global team/comment entries with add/remove actions
 - Technique IDs in Mitigation Listesi are interactive chips (hover state + click popover with full technique name)
-- Left sidebar with Matrix / Bilgilendirme / Ayarlar
+- Left sidebar with Matrix / Bilgilendirme / Ayarlar / Mitigation Listesi / Kurallar
 - Product legend and multi-color stripe on technique cards
 - Product management in Settings (add/delete/update color)
 - CSV bulk upload in Settings
 - Search bar on Matrix (ID or name)
 - Product filtering via legend toggle (click product name to hide/show)
 - Matrix now fills the remaining page height (no resizer or bottom form)
+- **Kurallar sayfası** (Rules panel): her kural için technique chip listesi, × kaldır, + ekle (autocomplete)
+- **Kurallar filtre bar**: ad araması + ürün dropdown + temizle butonu
+- **Teknik autocomplete**: 2+ char'da dark-theme dropdown (T-kod+isim), arrow/enter/escape navigasyonu
+- **Ayarlar sekme yapısı**: 4 sekme (Ürün/CSV/Kullanıcılar/Audit); CSV editor+, Kullanıcılar/Audit admin-only
 
 ## Filters & Validation
 - Search: only matching techniques remain visible
@@ -103,24 +109,20 @@ If PowerShell execution policy blocks activation:
 - Reworked Mitigation Listesi layout: wider Ekip/Yorum column, compact technique chips, toggle for full list
 - Added technique chip hover/tooltip popover with full `Txxxx - name` text
 
-## Open Roadmap (Agreed)
-Milestone 1 (in progress):
-- Search + product filtering + validation (nearly done)
-
+## Open Roadmap
 Milestone 2:
-- Export: CSV and PDF (should respect active filters)
+- Export: CSV and PDF (active filtrelere göre)
 
 Milestone 3:
 - MITRE Navigator Layer JSON export (score-based)
 
-Milestone 4:
-- Performance: backend cached/minified MITRE API
-
 Deferred:
-- Audit log (later after user system)
+- Kurallar sayfası responsive düzen (dar ekran)
+- UX final polish (spacing, tipografi, tutarlılık)
 
 ## Commit Tracking
-- Latest commit: `0b37b19` — Fix Turkish encoding in index.html and deduplicate styles.css (2026-02-19)
+- Latest commit: (this session) — Rules page + 4 improvements (2026-02-20)
+- Previous: `ad47748` — PROJECT_STATE RBAC/audit update (2026-02-19)
 - User pushes to private GitHub repo manually
 
 
@@ -147,17 +149,25 @@ Deferred:
 - [x] Mitigation Listesi genişlik/UI düzeni
 - [x] Modal sekmeler (Mitigations / Kurallar)
 
-- [ ] RBAC altyapısı (`users` tablosu + `viewer/editor/admin`)
-- [ ] Login/logout ve session yönetimi
-- [ ] Endpoint bazlı yetki kontrolü (role guard)
-- [ ] UI role bazlı buton görünürlüğü/kısıtlama
-- [ ] Admin kullanıcı yönetimi ekranı
-- [ ] Basit audit log (kim-ne-zaman-ne yaptı)
+- [x] RBAC altyapısı (`users` tablosu + `viewer/editor/admin`)
+- [x] Login/logout ve session yönetimi
+- [x] Endpoint bazlı yetki kontrolü (role guard)
+- [x] UI role bazlı buton görünürlüğü/kısıtlama
+- [x] Admin kullanıcı yönetimi ekranı
+- [x] Basit audit log (kim-ne-zaman-ne yaptı)
 
 - [x] Türkçe karakter/encoding temizliği (`templates/index.html`) — 8 string düzeltildi
 - [x] CSS çakışma/sadeleştirme (tekrarlı kuralların temizlenmesi) — 18 duplicate kural temizlendi, 2 tanımsız CSS değişkeni düzeltildi
+
+- [x] Kurallar sayfası (rule_techniques join tablosu + çoklu teknik desteği)
+- [x] Kurallar DB birleştirme (duplicate name+source → tek kural, UNIQUE index)
+- [x] Kurallar filtre bar (ad araması + ürün dropdown)
+- [x] Teknik autocomplete (dark-theme dropdown, klavye navigasyonu)
+- [x] Ayarlar sekme yapısı (4 sekme + role bazlı gizleme)
+
 - [ ] Mitigation Listesi responsive düzen (dar ekran)
 - [ ] UX final polish (spacing, tipografi, tutarlılık)
+- [ ] Export: CSV / PDF / MITRE Layer JSON
 
 ## Suggested Order
 1. RBAC backend (tablo + login + endpoint guard)
