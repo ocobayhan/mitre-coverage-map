@@ -2,5 +2,6 @@
 __pycache__/
 *.pyc
 soc.db
+coverage.db
 data/*.db
 .env
