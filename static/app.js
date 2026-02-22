@@ -1217,6 +1217,24 @@ function scoreToColor(score) {
   return `rgb(${c.r},${c.g},${c.b})`;
 }
 
+// Alt teknikler için: aynı renk ama %55 koyu zemine karıştırılmış (daha soluk)
+// Ana tekniklerin görsel ağırlığını korur
+function scoreToSubColor(score) {
+  function lerp(a, b, t) {
+    return { r: Math.round(a.r + (b.r - a.r) * t),
+             g: Math.round(a.g + (b.g - a.g) * t),
+             b: Math.round(a.b + (b.b - a.b) * t) };
+  }
+  const dark  = { r: 20,  g: 26,  b: 34  };
+  const amber = { r: 176, g: 124, b: 30  };
+  const green = { r: 53,  g: 196, b: 139 };
+  const c = score < 0.40
+    ? lerp(dark, amber, score / 0.40)
+    : lerp(amber, green, (score - 0.40) / 0.60);
+  const muted = lerp(dark, c, 0.52);
+  return `rgb(${muted.r},${muted.g},${muted.b})`;
+}
+
 
 
 
@@ -1311,7 +1329,7 @@ function updateSubtechCard(techId) {
   const mitigationCount = getCheckedMitigationCountForTech(techId);
   const sources = enriched.map(r => r.source);
   const score = computeScore(techId, rulesCount, mitigationCount, sources);
-  card.style.backgroundColor = scoreToColor(score);
+  card.style.backgroundColor = scoreToSubColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
   const importance = techniqueConfig[techId]?.importance || 0.5;
   card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
@@ -1359,6 +1377,9 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
     const mitigationCount = getCheckedMitigationCountForTech(st.id);
     const sources = rulesForSub.map(r => r.source);
     applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources);
+    // Alt teknikler daha soluk gösterilir — ana tekniğin görsel ağırlığını korur
+    const subScore = computeScore(st.id, rulesForSub.length, mitigationCount, sources);
+    subCard.style.backgroundColor = scoreToSubColor(subScore);
 
     const idEl = document.createElement('div');
     idEl.className = 'technique-id';
