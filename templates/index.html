@@ -3,175 +3,247 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SOC Coverage Manager</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=60" />
+  <title>SOC Coverage Map</title>
+  <link rel="stylesheet" href="/static/styles.css?v=70" />
 </head>
 <body>
-  <div class="app-shell">
-    <nav class="sidebar">
-      <div class="brand">SOC Coverage Manager</div>
-      <button class="nav-toggle" id="sidebarToggle" title="Menüyü aç/kapat">Menü</button>
-      <button class="nav-item active" data-target="matrixPanel"><span class="nav-label">Matrix</span><span class="nav-short">M</span></button>
-      <button class="nav-item" data-target="infoPanel"><span class="nav-label">Bilgilendirme</span><span class="nav-short">B</span></button>
-      <button class="nav-item" data-target="settingsPanel"><span class="nav-label">Ayarlar</span><span class="nav-short">A</span></button>
-      <button class="nav-item" data-target="mitigationPanel"><span class="nav-label">Mitigation Listesi</span><span class="nav-short">L</span></button>
-      <button class="nav-item" data-target="rulesPanel"><span class="nav-label">Kurallar</span><span class="nav-short">K</span></button>
-      <div class="sidebar-note">Puanlama ve renklerin anlamı için Bilgilendirme sekmesini kullanın.</div>
-    </nav>
+  <div class="ms-shell">
 
-    <main class="content">
-      <div id="matrixPanel" class="panel active">
-        <div class="header-section">
-          <h1>SOC Coverage Manager</h1>
-          <div class="top-bar">
-            <div class="product-legend" id="productLegend"></div>
-            <div class="stats">
-              Toplam Kural: <span id="totalRules">0</span> | Kapsanan Teknik: <span id="coveredTechs">0</span>
-            </div>
-            <div class="session-box">
-              <span id="userBadge" class="user-badge"></span>
-              <button class="action-btn btn-reset" id="btnLogout" title="Oturumu kapat">Çıkış</button>
-            </div>
-            <div class="admin-actions">
-              <button class="action-btn btn-reset" id="btnReset" title="Verileri sıfırla ve seed dosyasından yeniden yükle">Sıfırla & Yeniden Yükle</button>
-              <button class="action-btn btn-add" id="btnExportCsv" title="CSV dışa aktar">CSV Export</button>
-              <button class="action-btn btn-add" id="btnExportPdf" title="PDF rapor">PDF Export</button>
-              <button class="action-btn btn-add" id="btnExportLayer" title="MITRE Layer JSON">Layer JSON</button>
-            </div>
-            <div class="legend" id="legendContainer"></div>
-          </div>
-        </div>
-        <div class="filter-bar">
-          <div class="filter-group">
-            <label for="techSearch">Arama</label>
-            <input type="text" id="techSearch" placeholder="Teknik adı veya ID (T1059)" />
-          </div>
-        </div>
-
-        <div class="matrix-container" id="matrix"></div>
-      </div>
-
-      <div id="infoPanel" class="panel">
-        <div class="info-card">
-          <h2>Puanlama ve Renkler</h2>
-          <p>Bu uygulamada her teknik için bir skor hesaplanır ve kutunun rengi bu skora göre gri tonundan yeşile doğru değişir.</p>
-          <div class="info-section">
-            <h3>Skor Hesabı</h3>
-            <p>Skor, kural sayısı ve işaretlenen mitigations sayısına göre ağırlıklı hesaplanır.</p>
-            <div class="info-list">
-              <div>1. Kural skoru: <code>min(kural_sayısı, 10) / 10</code></div>
-              <div>2. Mitigation skoru: <code>min(mitigation_sayısı, 5) / 5</code></div>
-              <div>3. Nihai skor: <code>kural_skoru * 0.6 + mitigation_skoru * 0.4</code></div>
-            </div>
-          </div>
-          <div class="info-section">
-            <h3>Renk Anlamı</h3>
-            <p>Skor düşükse kutu koyu griye yakındır. Skor arttıkça renk yumuşak şekilde yeşile döner. Bu, kapsamının arttığını gösterir.</p>
-          </div>
-          <div class="info-section">
-            <h3>Ürün Renkleri</h3>
-            <p>Teknik kutusunun solundaki renkli şerit, o teknik için kullanılan ürünlerin renklerini aynı şerit üzerinde parçalara bölerek gösterir.</p>
-          </div>
+    <!-- ── Top Bar ─────────────────────────────────────── -->
+    <header class="ms-topbar">
+      <div class="ms-topbar-left">
+        <button class="ms-menu-btn" id="sidebarToggle" title="Menüyü aç/kapat" aria-label="Toggle navigation">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <line x1="3" y1="6"  x2="17" y2="6"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="3" y1="14" x2="17" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="ms-brand">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2L4 5.5v4.5c0 5.25 3.33 10.17 8 11.5 4.67-1.33 8-6.25 8-11.5V5.5L12 2z" fill="#0078d4"/>
+            <path d="M12 2L4 5.5v4.5c0 5.25 3.33 10.17 8 11.5V2z" fill="#106ebe" opacity="0.6"/>
+            <path d="M15 9.5l-4 4-2-2" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>SOC Coverage Map</span>
         </div>
       </div>
-
-      <div id="settingsPanel" class="panel">
-        <div class="info-card">
-          <h2>Ayarlar</h2>
-          <div class="settings-tabs" id="settingsTabBar">
-            <button class="settings-tab-btn active" data-tab="stab-product">Ürün Yönetimi</button>
-            <button class="settings-tab-btn" data-tab="stab-csv" id="settingsCsvTab">CSV Yükleme</button>
-            <button class="settings-tab-btn" data-tab="stab-users" id="settingsUsersTab">Kullanıcılar</button>
-            <button class="settings-tab-btn" data-tab="stab-audit" id="settingsAuditTab">Audit Log</button>
-          </div>
-
-          <div id="stab-product" class="settings-tab-panel active">
-            <div class="settings-row">
-              <div class="input-wrapper">
-                <label>Ürün Adı</label>
-                <input type="text" id="productName" placeholder="Örn: QRadar" />
-              </div>
-              <div class="input-wrapper">
-                <label>Renk</label>
-                <input type="color" id="productColor" value="#2e7d32" />
-              </div>
-              <button class="action-btn btn-add" id="btnAddProduct">Ekle</button>
-            </div>
-            <div class="settings-subtitle">Mevcut Ürünler</div>
-            <div class="product-list" id="productList"></div>
-          </div>
-
-          <div id="stab-csv" class="settings-tab-panel">
-            <div class="settings-row">
-              <input type="file" id="csvFile" accept=".csv" />
-              <button class="action-btn btn-add" id="btnUploadCsv">Yükle</button>
-            </div>
-            <div class="csv-help">
-              <div>CSV dosyası başlık satırı içermelidir.</div>
-              <div>Gerekli sütunlar: <code>name,tactic,tech,source</code></div>
-              <div>Örnek satır: <code>Suspicious PowerShell,Execution,T1059,QRadar</code></div>
-              <div>Kaynak (source) alanı ürün adıyla birebir eşleşmelidir.</div>
-            </div>
-            <div class="upload-result" id="uploadResult"></div>
-          </div>
-
-          <div id="stab-users" class="settings-tab-panel">
-            <div class="settings-row">
-              <div class="input-wrapper">
-                <label>Kullanıcı Adı</label>
-                <input type="text" id="newUsername" placeholder="Örn: analyst1" />
-              </div>
-              <div class="input-wrapper">
-                <label>Şifre</label>
-                <input type="password" id="newUserPassword" placeholder="şifre" />
-              </div>
-              <div class="input-wrapper">
-                <label>Rol</label>
-                <select id="newUserRole">
-                  <option value="viewer">viewer</option>
-                  <option value="editor">editor</option>
-                  <option value="admin">admin</option>
-                </select>
-              </div>
-              <button class="action-btn btn-add" id="btnAddUser">Kullanıcı Ekle</button>
-            </div>
-            <div class="settings-subtitle">Mevcut Kullanıcılar</div>
-            <div class="user-list" id="userList"></div>
-          </div>
-
-          <div id="stab-audit" class="settings-tab-panel">
-            <div class="settings-row">
-              <button class="action-btn btn-add" id="btnRefreshAudit">Yenile</button>
-            </div>
-            <div class="audit-list" id="auditList"></div>
-          </div>
+      <div class="ms-topbar-right">
+        <div class="ms-topbar-stats">
+          <div class="stat-item">Toplam Kural: <span class="stat-val" id="totalRules">0</span></div>
+          <div class="stat-item">Kapsanan: <span class="stat-val" id="coveredTechs">0</span></div>
+        </div>
+        <div class="ms-user-area">
+          <span id="userBadge" class="user-badge"></span>
+          <button class="action-btn btn-reset" id="btnLogout" title="Oturumu kapat">Çıkış</button>
         </div>
       </div>
-      <div id="mitigationPanel" class="panel">
-        <div class="info-card">
-          <h2>Mitigation Listesi</h2>
-          <p>Her mitigationın hangi tekniklerde yer aldığını ve ilişkili kayıtları buradan kontrol edebilirsiniz.</p>
-          <div id="mitigationList" class="mitigation-list"></div>
-        </div>
-      </div>
-      <div id="rulesPanel" class="panel">
-        <div class="info-card">
-          <h2>Kurallar</h2>
-          <p>Her kuralın hangi MITRE tekniklerinde yer aldığını görün ve yeni teknik ilişkilendirmeleri ekleyin.</p>
-          <div id="rulesList" class="mitigation-list"></div>
-        </div>
-      </div>
-    </main>
-  </div>
+    </header>
 
+    <!-- ── App Shell ───────────────────────────────────── -->
+    <div class="app-shell">
+
+      <!-- ── Sidebar Nav Rail ──────────────────────────── -->
+      <nav class="sidebar" aria-label="Ana navigasyon">
+        <button class="nav-item active" data-target="matrixPanel">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="3" y="3" width="6" height="6" rx="1" fill="currentColor"/>
+            <rect x="11" y="3" width="6" height="6" rx="1" fill="currentColor"/>
+            <rect x="3" y="11" width="6" height="6" rx="1" fill="currentColor"/>
+            <rect x="11" y="11" width="6" height="6" rx="1" fill="currentColor"/>
+          </svg>
+          <span class="nav-label">Matrix</span>
+        </button>
+        <button class="nav-item" data-target="infoPanel">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="9.25" y="9" width="1.5" height="5" rx="0.75" fill="currentColor"/>
+            <circle cx="10" cy="6.75" r="0.875" fill="currentColor"/>
+          </svg>
+          <span class="nav-label">Bilgilendirme</span>
+        </button>
+        <button class="nav-item" data-target="settingsPanel">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 3v1.5M10 15.5V17M17 10h-1.5M4.5 10H3M14.89 5.11l-1.06 1.06M6.17 13.83l-1.06 1.06M14.89 14.89l-1.06-1.06M6.17 6.17L5.11 5.11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span class="nav-label">Ayarlar</span>
+        </button>
+        <button class="nav-item" data-target="mitigationPanel">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 2.5L3.75 5v4.167c0 3.858 2.667 7.466 6.25 8.333 3.583-.867 6.25-4.475 6.25-8.333V5L10 2.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M7.5 10l1.5 1.5L13 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="nav-label">Mitigation</span>
+        </button>
+        <button class="nav-item" data-target="rulesPanel">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="4" y="2.5" width="12" height="15" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="7" y1="7"  x2="13" y2="7"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="7" y1="10" x2="13" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="7" y1="13" x2="11" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span class="nav-label">Kurallar</span>
+        </button>
+      </nav>
+
+      <!-- ── Content ──────────────────────────────────── -->
+      <main class="content">
+
+        <!-- Matrix Panel -->
+        <div id="matrixPanel" class="panel active">
+          <div class="ms-page-header">
+            <h1 class="ms-page-title">Coverage Matrix</h1>
+            <div class="ms-command-bar">
+              <div class="product-legend" id="productLegend"></div>
+              <div class="legend" id="legendContainer"></div>
+              <div class="ms-command-divider"></div>
+              <div class="admin-actions">
+                <button class="action-btn btn-reset" id="btnReset" title="Verileri sıfırla ve seed dosyasından yeniden yükle">Sıfırla</button>
+                <button class="action-btn btn-add" id="btnExportCsv" title="CSV dışa aktar">CSV Export</button>
+                <button class="action-btn btn-add" id="btnExportPdf" title="PDF rapor">PDF Export</button>
+                <button class="action-btn btn-add" id="btnExportLayer" title="MITRE Layer JSON">Layer JSON</button>
+              </div>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <div class="filter-group">
+              <label for="techSearch">Arama</label>
+              <input type="text" id="techSearch" placeholder="Teknik adı veya ID (T1059)" />
+            </div>
+          </div>
+          <div class="ms-matrix-wrap">
+            <div class="matrix-container" id="matrix"></div>
+          </div>
+        </div>
+
+        <!-- Info Panel -->
+        <div id="infoPanel" class="panel">
+          <div class="info-card">
+            <h2>Puanlama ve Renkler</h2>
+            <p>Bu uygulamada her teknik için bir skor hesaplanır ve kutunun rengi bu skora göre gri tonundan yeşile doğru değişir.</p>
+            <div class="info-section">
+              <h3>Skor Hesabı</h3>
+              <p>Skor, kural sayısı ve işaretlenen mitigations sayısına göre ağırlıklı hesaplanır.</p>
+              <div class="info-list">
+                <div>1. Kural skoru: <code>min(kural_sayısı, 10) / 10</code></div>
+                <div>2. Mitigation skoru: <code>min(mitigation_sayısı, 5) / 5</code></div>
+                <div>3. Nihai skor: <code>kural_skoru * 0.6 + mitigation_skoru * 0.4</code></div>
+              </div>
+            </div>
+            <div class="info-section">
+              <h3>Renk Anlamı</h3>
+              <p>Skor düşükse kutu koyu griye yakındır. Skor arttıkça renk yumuşak şekilde yeşile döner. Bu, kapsamının arttığını gösterir.</p>
+            </div>
+            <div class="info-section">
+              <h3>Ürün Renkleri</h3>
+              <p>Teknik kutusunun solundaki renkli şerit, o teknik için kullanılan ürünlerin renklerini aynı şerit üzerinde parçalara bölerek gösterir.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div id="settingsPanel" class="panel">
+          <div class="info-card">
+            <h2>Ayarlar</h2>
+            <div class="settings-tabs" id="settingsTabBar">
+              <button class="settings-tab-btn active" data-tab="stab-product">Ürün Yönetimi</button>
+              <button class="settings-tab-btn" data-tab="stab-csv" id="settingsCsvTab">CSV Yükleme</button>
+              <button class="settings-tab-btn" data-tab="stab-users" id="settingsUsersTab">Kullanıcılar</button>
+              <button class="settings-tab-btn" data-tab="stab-audit" id="settingsAuditTab">Audit Log</button>
+            </div>
+
+            <div id="stab-product" class="settings-tab-panel active">
+              <div class="settings-row">
+                <div class="input-wrapper">
+                  <label>Ürün Adı</label>
+                  <input type="text" id="productName" placeholder="Örn: QRadar" />
+                </div>
+                <div class="input-wrapper">
+                  <label>Renk</label>
+                  <input type="color" id="productColor" value="#2e7d32" />
+                </div>
+                <button class="action-btn btn-add" id="btnAddProduct">Ekle</button>
+              </div>
+              <div class="settings-subtitle">Mevcut Ürünler</div>
+              <div class="product-list" id="productList"></div>
+            </div>
+
+            <div id="stab-csv" class="settings-tab-panel">
+              <div class="settings-row">
+                <input type="file" id="csvFile" accept=".csv" />
+                <button class="action-btn btn-add" id="btnUploadCsv">Yükle</button>
+              </div>
+              <div class="csv-help">
+                <div>CSV dosyası başlık satırı içermelidir.</div>
+                <div>Gerekli sütunlar: <code>name,tactic,tech,source</code></div>
+                <div>Örnek satır: <code>Suspicious PowerShell,Execution,T1059,QRadar</code></div>
+                <div>Kaynak (source) alanı ürün adıyla birebir eşleşmelidir.</div>
+              </div>
+              <div class="upload-result" id="uploadResult"></div>
+            </div>
+
+            <div id="stab-users" class="settings-tab-panel">
+              <div class="settings-row">
+                <div class="input-wrapper">
+                  <label>Kullanıcı Adı</label>
+                  <input type="text" id="newUsername" placeholder="Örn: analyst1" />
+                </div>
+                <div class="input-wrapper">
+                  <label>Şifre</label>
+                  <input type="password" id="newUserPassword" placeholder="şifre" />
+                </div>
+                <div class="input-wrapper">
+                  <label>Rol</label>
+                  <select id="newUserRole">
+                    <option value="viewer">viewer</option>
+                    <option value="editor">editor</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </div>
+                <button class="action-btn btn-add" id="btnAddUser">Kullanıcı Ekle</button>
+              </div>
+              <div class="settings-subtitle">Mevcut Kullanıcılar</div>
+              <div class="user-list" id="userList"></div>
+            </div>
+
+            <div id="stab-audit" class="settings-tab-panel">
+              <div class="settings-row">
+                <button class="action-btn btn-add" id="btnRefreshAudit">Yenile</button>
+              </div>
+              <div class="audit-list" id="auditList"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mitigation Panel -->
+        <div id="mitigationPanel" class="panel">
+          <div class="info-card">
+            <h2>Mitigation Listesi</h2>
+            <p>Her mitigationın hangi tekniklerde yer aldığını ve ilişkili kayıtları buradan kontrol edebilirsiniz.</p>
+            <div id="mitigationList" class="mitigation-list"></div>
+          </div>
+        </div>
+
+        <!-- Rules Panel -->
+        <div id="rulesPanel" class="panel">
+          <div class="info-card">
+            <h2>Kurallar</h2>
+            <p>Her kuralın hangi MITRE tekniklerinde yer aldığını görün ve yeni teknik ilişkilendirmeleri ekleyin.</p>
+            <div id="rulesList" class="mitigation-list"></div>
+          </div>
+        </div>
+
+      </main>
+    </div><!-- /.app-shell -->
+  </div><!-- /.ms-shell -->
+
+  <!-- Rule Modal -->
   <div id="ruleModal" class="modal" style="display: none;">
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="modalTitle"></h2>
-        <button id="modalClose" class="modal-close">x</button>
+        <button id="modalClose" class="modal-close" aria-label="Kapat">&#x2715;</button>
       </div>
       <div id="modalBody" class="modal-body"></div>
     </div>
