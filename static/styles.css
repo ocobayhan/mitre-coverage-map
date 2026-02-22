@@ -551,6 +551,11 @@ button.action-btn {
 .legend-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--d-text-2); cursor: pointer; }
 .legend-box { width: 10px; height: 10px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.2); }
 .legend-item--off { opacity: 0.35; filter: grayscale(0.7); }
+.legend-box--all {
+  background: linear-gradient(135deg, var(--d-blue) 0%, var(--d-green) 100%);
+  border-color: rgba(255,255,255,0.3);
+}
+.legend-item--all { font-weight: 500; color: var(--d-text-1); }
 
 .product-legend { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--d-text-2); }
 .product-legend-item { display: flex; align-items: center; gap: 4px; }

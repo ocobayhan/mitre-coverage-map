@@ -894,6 +894,19 @@ function renderLegend() {
   const container = document.getElementById('legendContainer');
   if (!container) return;
   container.innerHTML = '';
+
+  // "Tümü" reset butonu
+  const allItem = document.createElement('div');
+  allItem.className = 'legend-item legend-item--all' + (filterAllProducts ? '' : ' legend-item--off');
+  allItem.innerHTML = `<div class="legend-box legend-box--all"></div> Tümü`;
+  allItem.addEventListener('click', () => {
+    filterAllProducts = true;
+    filterProducts = new Set();
+    renderLegend();
+    renderMatrix();
+  });
+  container.appendChild(allItem);
+
   products.forEach(p => {
     const item = document.createElement('div');
     const isActive = filterAllProducts || filterProducts.has(p.name);
