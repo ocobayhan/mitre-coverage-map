@@ -545,8 +545,8 @@ function renderRulesList() {
   const addFormHtml = hasRole('editor') ? `
     <div class="rule-add-form">
       <div class="filter-group">
-        <label>Kural Adı</label>
-        <input id="newRuleNameInline" type="text" placeholder="Kural adı" />
+        <label>Tespit Adı</label>
+        <input id="newRuleNameInline" type="text" placeholder="Tespit adı" />
       </div>
       <div class="filter-group">
         <label>Kaynak (Ürün)</label>
@@ -564,7 +564,7 @@ function renderRulesList() {
       </div>
       <div class="filter-group">
         <label style="visibility:hidden">_</label>
-        <button class="action-btn btn-add" id="btnAddRuleInline">+ Kural Ekle</button>
+        <button class="action-btn btn-add" id="btnAddRuleInline">+ Tespit Ekle</button>
       </div>
     </div>
   ` : '';
@@ -576,8 +576,8 @@ function renderRulesList() {
   const filterBarHtml = `
     <div class="rules-filter-bar">
       <div class="filter-group">
-        <label>Kural Adı</label>
-        <input id="rulesSearch" type="text" placeholder="Kural adı ara..." value="${rulesFilterSearch.replace(/"/g, '&quot;')}" />
+        <label>Tespit Adı</label>
+        <input id="rulesSearch" type="text" placeholder="Tespit adı ara..." value="${rulesFilterSearch.replace(/"/g, '&quot;')}" />
       </div>
       <div class="filter-group">
         <label>Ürün</label>
@@ -594,7 +594,7 @@ function renderRulesList() {
   `;
 
   if (userRules.length === 0) {
-    container.innerHTML = addFormHtml + filterBarHtml + '<div class="empty-state"><div class="empty-title">Kural yok</div><div class="empty-sub">Henüz kural eklenmemiş.</div></div>';
+    container.innerHTML = addFormHtml + filterBarHtml + '<div class="empty-state"><div class="empty-title">Tespit yok</div><div class="empty-sub">Henüz tespit eklenmemiş.</div></div>';
     wireRulesFilterEvents(container);
     wireAddRuleInline(container);
     container.querySelectorAll('.tech-autocomplete-wrapper').forEach(wireAutocomplete);
@@ -644,14 +644,14 @@ function renderRulesList() {
   }).join('');
 
   const emptyNote = visible.length === 0
-    ? '<div class="empty-state"><div class="empty-title">Sonuç yok</div><div class="empty-sub">Filtre kriterlerine uyan kural bulunamadı.</div></div>'
+    ? '<div class="empty-state"><div class="empty-title">Sonuç yok</div><div class="empty-sub">Filtre kriterlerine uyan tespit bulunamadı.</div></div>'
     : '';
 
   container.innerHTML = `
     ${addFormHtml}
     ${filterBarHtml}
     <div class="mitigation-list-header rule-list-header">
-      <div>Kural Adı</div>
+      <div>Tespit Adı</div>
       <div>Kaynak</div>
       <div>Teknikler</div>
       <div>İşlemler</div>
@@ -775,7 +775,7 @@ function wireAddRuleInline(container) {
     const source = (sourceSelect?.value || '').trim();
     const tech = (techInput?.value || '').trim();
 
-    if (!name) { alert('Kural adı gerekli'); return; }
+    if (!name) { alert('Tespit adı gerekli'); return; }
     if (!source) { alert('Kaynak (ürün) seçmelisiniz'); return; }
 
     let techId = '';
@@ -793,7 +793,7 @@ function wireAddRuleInline(container) {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(err.error || 'Kural eklenemedi');
+      alert(err.error || 'Tespit eklenemedi');
       return;
     }
 
@@ -1439,7 +1439,7 @@ async function addRuleDirect(name, tactic, tech, source) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || 'Kural eklenemedi');
+    alert(err.error || 'Tespit eklenemedi');
     return;
   }
 
@@ -1447,7 +1447,7 @@ async function addRuleDirect(name, tactic, tech, source) {
   userRules.push(created);
   renderRulesList();
   renderMatrix();
-  alert('Kural eklendi');
+  alert('Tespit eklendi');
 }
 
 async function addNewRule() {
@@ -1490,7 +1490,7 @@ async function openModal(parentId, parentName, rules) {
   tabBar.className = 'modal-tabs';
   tabBar.innerHTML = `
     <button class="tab-btn active" data-tab="mitigationsTab">Mitigations</button>
-    <button class="tab-btn" data-tab="rulesTab">Kurallar</button>
+    <button class="tab-btn" data-tab="rulesTab">Tespitler</button>
   `;
   body.appendChild(tabBar);
 
@@ -1516,16 +1516,16 @@ async function openModal(parentId, parentName, rules) {
 
   const ruleSearchWrap = document.createElement('div');
   ruleSearchWrap.className = 'rule-search';
-  ruleSearchWrap.innerHTML = `<label>Rule Search</label><input type="text" id="ruleSearchInput" placeholder="Kural adı ara" />`;
+  ruleSearchWrap.innerHTML = `<label>Tespit Ara</label><input type="text" id="ruleSearchInput" placeholder="Tespit adı ara" />`;
   rulesTab.appendChild(ruleSearchWrap);
 
   const modalRuleAdd = document.createElement('div');
   modalRuleAdd.className = 'modal-rule-add';
   const tacticHint = getTacticForTech(parentId);
   modalRuleAdd.innerHTML = `
-    <div class="modal-rule-title">Kural Ekle</div>
+    <div class="modal-rule-title">Tespit Ekle</div>
     <div class="modal-rule-row">
-      <input type="text" id="modalRuleName" placeholder="Kural adı" />
+      <input type="text" id="modalRuleName" placeholder="Tespit adı" />
       <select id="modalRuleSource"></select>
       <button class="action-btn btn-add" id="btnModalAddRule">Ekle</button>
     </div>
@@ -1755,11 +1755,11 @@ async function openModal(parentId, parentName, rules) {
         <small>Mevcut: ${cfg.group_count || 0} tehdit grubu, ${cfg.tool_count || 0} ara\xe7</small>
       </div>
       <div class="tech-config-row">
-        <label>Kural E\u015fi\u011fi</label>
+        <label>Tespit E\u015fi\u011fi</label>
         <select id="cfgThreshold">${[1,2,3,4,5,6,7,8,9,10].map(n =>
           `<option value="${n}"${(cfg.rule_threshold || 3) === n ? ' selected' : ''}>${n}</option>`
         ).join('')}</select>
-        <small>\u201cYeterli kapsama\u201d i\xe7in gereken minimum kural say\u0131s\u0131</small>
+        <small>\u201cYeterli kapsama\u201d i\xe7in gereken minimum tespit say\u0131s\u0131</small>
       </div>
       <button class="action-btn btn-add" id="btnSaveTechConfig">Kaydet</button>
     `;
@@ -2255,7 +2255,7 @@ function wireScoreTooltip() {
         tip.className = 'score-tooltip';
         tip.innerHTML = `
           <div class="score-tooltip-row">
-            <span class="score-tooltip-label">Kural</span>
+            <span class="score-tooltip-label">Tespit</span>
             <span class="score-tooltip-val">${d.rulesCount}/${d.threshold}</span>
           </div>
           <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${ruleBar.toFixed(0)}%;background:#4f86c6"></div></div>
