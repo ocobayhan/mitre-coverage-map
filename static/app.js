@@ -1,4 +1,4 @@
-﻿const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
+const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
 const tacticOrder = Object.values(tacticMap);
 
 const SCORE_RULE_MAX = 10;
@@ -99,7 +99,7 @@ async function init() {
       apiFetch('/api/technique-config')
     ]);
 
-    if (!mitreRes.ok) throw new Error('MITRE verisi yÃ¼klenemedi');
+    if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
     mitreObjects = (await mitreRes.json()).objects || [];
     products = productsRes.ok ? await productsRes.json() : [];
     userRules = rulesRes.ok ? await rulesRes.json() : [];
@@ -116,7 +116,7 @@ async function init() {
     renderRulesList();
     renderMatrix();
   } catch (e) {
-    document.getElementById('matrix').innerHTML = `Veri HatasÄ±: ${e.message}`;
+    document.getElementById('matrix').innerHTML = `Veri Hatası: ${e.message}`;
   }
 }
 async function reloadData() {
@@ -251,7 +251,7 @@ function buildExportRows() {
 function buildFilterSummary() {
   const search = (filterSearch || '').trim();
   const productsSelected = (filterAllProducts || filterProducts.size === 0)
-    ? 'TÃ¼mÃ¼'
+    ? 'Tümü'
     : Array.from(filterProducts).join(', ');
   return { search, productsSelected };
 }
@@ -413,7 +413,7 @@ function renderMitigationList() {
   });
   const mitigations = Object.values(map).sort((a, b) => a.id.localeCompare(b.id));
   if (mitigations.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-title">KayÄ±t yok</div><div class="empty-sub">Mitigation verisi bulunamadÄ±.</div></div>';
+    container.innerHTML = '<div class="empty-state"><div class="empty-title">Kayıt yok</div><div class="empty-sub">Mitigation verisi bulunamadı.</div></div>';
     return;
   }
   const rows = mitigations.map(m => {
@@ -424,7 +424,7 @@ function renderMitigationList() {
     const preview = techLabels.slice(0, 4);
     const extra = techLabels.length - preview.length;
     const chips = techLabels.map(t => `<button class="tech-chip" type="button" data-tech-label="${t.label}">${t.id}</button>`).join('');
-    const moreBtn = extra > 0 ? `<button class="tech-more" data-mit="${m.id}">TÃ¼mÃ¼nÃ¼ GÃ¶ster</button>` : '';
+    const moreBtn = extra > 0 ? `<button class="tech-more" data-mit="${m.id}">Tümünü Göster</button>` : '';
     const entries = mitigationEntries[m.id] || [];
     const desc = mitigationById[m.id]?.description || '';
     const entryHtml = entries.length
@@ -435,7 +435,7 @@ function renderMitigationList() {
             <button class="entry-delete" data-entry-id="${e.id}" data-mit="${m.id}">Sil</button>
           </div>
         `).join('')
-      : '<div class="mitigation-empty">KayÄ±t yok.</div>';
+      : '<div class="mitigation-empty">Kayıt yok.</div>';
     return `
       <div class="mitigation-list-row">
         <div class="mitigation-list-id">${m.id}</div>
@@ -474,7 +474,7 @@ function renderMitigationList() {
       const row = container.querySelector(`.tech-chip-row[data-mit="${mitId}"]`);
       if (!row) return;
       const open = row.classList.toggle('expanded');
-      e.currentTarget.textContent = open ? 'Gizle' : 'TÃ¼mÃ¼nÃ¼ GÃ¶ster';
+      e.currentTarget.textContent = open ? 'Gizle' : 'Tümünü Göster';
     });
   });
 
@@ -1372,15 +1372,15 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
 
 function validateTechniqueInput(inputValue) {
   const val = (inputValue || '').trim();
-  if (!val) return { ok: false, message: 'Teknik alanÄ± boÅŸ.' };
+  if (!val) return { ok: false, message: 'Teknik alanı boÅŸ.' };
   const isId = /^T\d{4}(\.\d{3})?$/i.test(val);
   if (isId) {
     const tid = val.toUpperCase();
-    if (!techDetailsMap[tid]) return { ok: false, message: 'Teknik ID bulunamadÄ±.' };
+    if (!techDetailsMap[tid]) return { ok: false, message: 'Teknik ID bulunamadı.' };
     return { ok: true, tid };
   }
   const lookup = nameToIdMap[val.toLowerCase()];
-  if (!lookup) return { ok: false, message: 'Teknik adÄ± bulunamadÄ±.' };
+  if (!lookup) return { ok: false, message: 'Teknik adı bulunamadı.' };
   return { ok: true, tid: lookup };
 }
 
@@ -1428,7 +1428,7 @@ async function addNewRule() {
   const source = sourceEl.value.trim();
 
   if (!name || !tactic || !tech || !source) {
-    alert('LÃ¼tfen alanlarÄ± doldurun.');
+    alert('Lütfen alanları doldurun.');
     return;
   }
   await addRuleDirect(name, tactic, tech, source);
@@ -1482,7 +1482,7 @@ async function openModal(parentId, parentName, rules) {
 
   const ruleSearchWrap = document.createElement('div');
   ruleSearchWrap.className = 'rule-search';
-  ruleSearchWrap.innerHTML = `<label>Rule Search</label><input type="text" id="ruleSearchInput" placeholder="Kural adÄ± ara" />`;
+  ruleSearchWrap.innerHTML = `<label>Rule Search</label><input type="text" id="ruleSearchInput" placeholder="Kural adı ara" />`;
   rulesTab.appendChild(ruleSearchWrap);
 
   const modalRuleAdd = document.createElement('div');
@@ -1491,7 +1491,7 @@ async function openModal(parentId, parentName, rules) {
   modalRuleAdd.innerHTML = `
     <div class="modal-rule-title">Kural Ekle</div>
     <div class="modal-rule-row">
-      <input type="text" id="modalRuleName" placeholder="Kural adÄ±" />
+      <input type="text" id="modalRuleName" placeholder="Kural adı" />
       <select id="modalRuleSource"></select>
       <button class="action-btn btn-add" id="btnModalAddRule">Ekle</button>
     </div>
@@ -1511,7 +1511,7 @@ async function openModal(parentId, parentName, rules) {
     const emptyMit = document.createElement('div');
     emptyMit.style.color = '#aaa';
     emptyMit.style.fontSize = '0.85rem';
-    emptyMit.textContent = 'Bu teknik iÃ§in Mitigation bulunamadÄ±.';
+    emptyMit.textContent = 'Bu teknik için Mitigation bulunamadı.';
     mitigationSection.appendChild(emptyMit);
   } else {
     mitigations.forEach(m => {
@@ -1533,9 +1533,9 @@ async function openModal(parentId, parentName, rules) {
             <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
           </div>
           <div class="mitigation-pop" data-tech="${parentId}" data-mit="${m.id}">
-            <div class="mitigation-meta">KÄ±sa aÃ§Ä±klama</div>
-            <div class="mitigation-summary">${summarizeText(m.description || 'AÃ§Ä±klama bulunamadÄ±.')}</div>
-            <div class="mitigation-full">${m.description || 'AÃ§Ä±klama bulunamadÄ±.'}</div>
+            <div class="mitigation-meta">Kısa açıklama</div>
+            <div class="mitigation-summary">${summarizeText(m.description || 'Açıklama bulunamadı.')}</div>
+            <div class="mitigation-full">${m.description || 'Açıklama bulunamadı.'}</div>
             <button class="mitigation-more">Detay</button>
           </div>
         </div>
@@ -1585,7 +1585,7 @@ async function openModal(parentId, parentName, rules) {
   if (mitList.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'mitigation-empty';
-    empty.textContent = 'KayÄ±t yok.';
+    empty.textContent = 'Kayıt yok.';
     mitigationSummary.appendChild(empty);
   } else {
     mitList.forEach(m => {
@@ -1594,7 +1594,7 @@ async function openModal(parentId, parentName, rules) {
       block.className = 'mitigation-summary-row';
       const entriesHtml = entries.length
         ? entries.map(e => `<div class="mitigation-entry-line"><span>${e.team}</span> ${e.comment}</div>`).join('')
-        : '<div class="mitigation-empty">KayÄ±t yok.</div>';
+        : '<div class="mitigation-empty">Kayıt yok.</div>';
       block.innerHTML = `<div class="mitigation-summary-name">${m.id} - ${m.name}</div>${entriesHtml}`;
       mitigationSummary.appendChild(block);
     });
@@ -1653,7 +1653,7 @@ async function openModal(parentId, parentName, rules) {
       const full = pop.querySelector('.mitigation-full');
       if (!full) return;
       const isOpen = full.classList.toggle('open');
-      e.currentTarget.textContent = isOpen ? 'KÄ±sa' : 'Detay';
+      e.currentTarget.textContent = isOpen ? 'Kısa' : 'Detay';
     });
   });
 
@@ -1663,7 +1663,7 @@ async function openModal(parentId, parentName, rules) {
       const name = (document.getElementById('modalRuleName').value || '').trim();
       const source = (document.getElementById('modalRuleSource').value || '').trim();
       if (!name || !source) {
-        alert('LÃ¼tfen alanlarÄ± doldurun.');
+        alert('Lütfen alanları doldurun.');
         return;
       }
       await addRuleDirect(name, tacticHint, parentId, source);
@@ -1781,7 +1781,7 @@ async function addMitigationEntry(mitId, team, comment) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || 'Mitigation kaydÄ± eklenemedi');
+    alert(err.error || 'Mitigation kaydı eklenemedi');
     return null;
   }
   return await res.json();
@@ -1799,7 +1799,7 @@ function renderMitigationEntries(row, mitId) {
   if (!list) return;
   const entries = mitigationEntries[mitId] || [];
   if (entries.length === 0) {
-    list.innerHTML = '<div class="mitigation-empty">KayÄ±t yok.</div>';
+    list.innerHTML = '<div class="mitigation-empty">Kayıt yok.</div>';
     return;
   }
   list.innerHTML = entries.map(e => `
@@ -1865,7 +1865,7 @@ async function addProduct() {
   const name = document.getElementById('productName').value.trim();
   const color = document.getElementById('productColor').value.trim();
   if (!name || !color) {
-    alert('ÃœrÃ¼n adÄ± ve renk gerekli.');
+    alert('Ãœrün adı ve renk gerekli.');
     return;
   }
   const res = await apiFetch('/api/products', {
@@ -1875,7 +1875,7 @@ async function addProduct() {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    alert(err.error || 'ÃœrÃ¼n eklenemedi');
+    alert(err.error || 'Ãœrün eklenemedi');
     return;
   }
   document.getElementById('productName').value = '';
@@ -1892,7 +1892,7 @@ async function uploadCsv() {
   const result = document.getElementById('uploadResult');
   result.textContent = '';
   if (!fileInput.files || fileInput.files.length === 0) {
-    result.textContent = 'LÃ¼tfen bir CSV dosyasÄ± seÃ§in.';
+    result.textContent = 'Lütfen bir CSV dosyası seçin.';
     return;
   }
   const form = new FormData();
@@ -1900,13 +1900,13 @@ async function uploadCsv() {
   const res = await apiFetch('/api/rules/bulk', { method: 'POST', body: form });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    result.textContent = payload.error || 'YÃ¼kleme baÅŸarÄ±sÄ±z.';
+    result.textContent = payload.error || 'Yükleme baÅŸarısız.';
     return;
   }
   await reloadData();
   renderMatrix();
   const errors = (payload.errors || []).slice(0, 10).join(' | ');
-  result.textContent = `YÃ¼klendi: ${payload.inserted}. Hata: ${payload.errors.length}` + (errors ? ` (${errors})` : '');
+  result.textContent = `Yüklendi: ${payload.inserted}. Hata: ${payload.errors.length}` + (errors ? ` (${errors})` : '');
 }
 
 async function addUser() {
@@ -1996,14 +1996,14 @@ function wireValidation() {
   techInput.addEventListener('input', () => {
     const val = techInput.value.trim();
     if (!val) {
-      setFieldError(techInput, 'Teknik alanÄ± boÅŸ.');
+      setFieldError(techInput, 'Teknik alanı boÅŸ.');
       return;
     }
     const isId = /^T\d{4}(\.\d{3})?$/i.test(val);
     if (isId) {
       const tid = val.toUpperCase();
       if (!techDetailsMap[tid]) {
-        setFieldError(techInput, 'Teknik ID bulunamadÄ±.');
+        setFieldError(techInput, 'Teknik ID bulunamadı.');
       } else {
         setFieldError(techInput, '');
       }
@@ -2011,7 +2011,7 @@ function wireValidation() {
     }
     const lookup = nameToIdMap[val.toLowerCase()];
     if (!lookup) {
-      setFieldError(techInput, 'Teknik adÄ± bulunamadÄ±.');
+      setFieldError(techInput, 'Teknik adı bulunamadı.');
       return;
     }
     setFieldError(techInput, '');
@@ -2044,7 +2044,7 @@ function wireActions() {
   const resetBtn = document.getElementById('btnReset');
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
-      const confirmText = prompt('Ä°ÅŸlemi onaylamak iÃ§in RESET yazÄ±n:');
+      const confirmText = prompt('İÅŸlemi onaylamak için RESET yazın:');
       if (confirmText !== 'RESET') return;
       const res = await apiFetch('/api/admin/reset', {
         method: 'POST',
@@ -2053,12 +2053,12 @@ function wireActions() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'SÄ±fÄ±rlama baÅŸarÄ±sÄ±z');
+        alert(err.error || 'Sıfırlama baÅŸarısız');
         return;
       }
       await reloadData();
       renderMatrix();
-      alert('Veriler sÄ±fÄ±rlandÄ± ve yeniden yÃ¼klendi.');
+      alert('Veriler sıfırlandı ve yeniden yüklendi.');
     });
   }
 
@@ -2196,8 +2196,8 @@ function renderMatrix() {
             <line x1="16.65" y1="16.65" x2="21" y2="21"></line>
           </svg>
         </div>
-        <div class="empty-title">SonuÃ§ bulunamadÄ±</div>
-        <div class="empty-sub">Arama veya Ã¼rÃ¼n filtrelerini temizleyip tekrar deneyin.</div>
+        <div class="empty-title">Sonuç bulunamadı</div>
+        <div class="empty-sub">Arama veya ürün filtrelerini temizleyip tekrar deneyin.</div>
       </div>
     `;
   }
