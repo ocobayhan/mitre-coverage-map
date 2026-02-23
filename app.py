@@ -64,6 +64,19 @@ def ensure_mitigation_global_table(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+def ensure_teams_table(db: sqlite3.Connection) -> None:
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS teams (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    db.commit()
+
+
 def ensure_mitigation_global_seed(db: sqlite3.Connection) -> None:
     existing = db.execute("SELECT COUNT(*) AS cnt FROM mitigation_global").fetchone()[0]
     if existing:
@@ -317,6 +330,7 @@ def init_db() -> None:
         ensure_mitigation_team_column(db)
         ensure_mitigation_global_table(db)
         ensure_mitigation_global_seed(db)
+        ensure_teams_table(db)
         ensure_products(db)
         ensure_users(db)
         migrate_rule_techniques(db)
@@ -439,6 +453,7 @@ def _minify_mitre(raw: dict) -> dict:
                 "description": obj.get("description"),
                 "kill_chain_phases": obj.get("kill_chain_phases", []),
                 "x_mitre_is_subtechnique": obj.get("x_mitre_is_subtechnique", False),
+                "x_mitre_platforms": obj.get("x_mitre_platforms", []),
                 "external_references": obj.get("external_references", []),
                 "revoked": obj.get("revoked", False),
                 "x_mitre_deprecated": obj.get("x_mitre_deprecated", False),
@@ -820,6 +835,50 @@ def update_product(product_id: int):
     db.commit()
     return jsonify({"ok": True})
 
+@app.route("/api/teams", methods=["GET", "POST"])
+@role_required("viewer")
+def teams_api():
+    db = get_db()
+    if request.method == "GET":
+        rows = db.execute(
+            "SELECT id, name, created_at FROM teams ORDER BY name ASC"
+        ).fetchall()
+        return jsonify([dict(r) for r in rows])
+
+    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["admin"]:
+        return jsonify({"error": "Forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Missing fields: name"}), 400
+    try:
+        cur = db.execute("INSERT INTO teams (name) VALUES (?)", (name,))
+        write_audit_log(
+            db,
+            action="create",
+            target_type="team",
+            target_id=str(cur.lastrowid),
+            detail=f"name={name}",
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Team already exists"}), 400
+    return jsonify({"id": cur.lastrowid, "name": name}), 201
+
+
+@app.route("/api/teams/<int:team_id>", methods=["DELETE"])
+@role_required("admin")
+def delete_team(team_id: int):
+    db = get_db()
+    db.execute("DELETE FROM teams WHERE id = ?", (team_id,))
+    write_audit_log(
+        db, action="delete", target_type="team", target_id=str(team_id)
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/mitigation-notes", methods=["GET", "POST"])
 @role_required("viewer")
 def mitigation_notes():
@@ -827,19 +886,35 @@ def mitigation_notes():
     if request.method == "GET":
         ensure_mitigation_global_table(db)
         ensure_mitigation_global_seed(db)
+        # Auto-compute checked: any mitigation_id with entries in mitigation_entries is checked
+        auto_checked_ids = set(
+            r["mitigation_id"]
+            for r in db.execute(
+                "SELECT DISTINCT mitigation_id FROM mitigation_entries"
+            ).fetchall()
+        )
         rows = db.execute(
             "SELECT mitigation_id, checked, comment, team FROM mitigation_global"
         ).fetchall()
         result = []
+        seen: set[str] = set()
         for r in rows:
+            mid = r["mitigation_id"]
+            seen.add(mid)
             result.append(
                 {
-                    "mitigation_id": r["mitigation_id"],
-                    "checked": bool(r["checked"]),
+                    "mitigation_id": mid,
+                    "checked": bool(r["checked"]) or (mid in auto_checked_ids),
                     "comment": r["comment"],
                     "team": r["team"],
                 }
             )
+        # Also surface mitigation_ids that have entries but no global row
+        for mid in auto_checked_ids:
+            if mid not in seen:
+                result.append(
+                    {"mitigation_id": mid, "checked": True, "comment": "", "team": ""}
+                )
         return jsonify(result)
 
     if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
@@ -1034,6 +1109,284 @@ def audit_logs_api():
     ).fetchall()
     return jsonify([dict(r) for r in rows])
 
+_TACTIC_ORDER = [
+    "reconnaissance", "resource-development", "initial-access", "execution",
+    "persistence", "privilege-escalation", "defense-evasion", "credential-access",
+    "discovery", "lateral-movement", "collection", "command-and-control",
+    "exfiltration", "impact",
+]
+
+
+@app.route("/api/ttp-list")
+@role_required("viewer")
+def ttp_list():
+    if not MITRE_PATH.exists():
+        return jsonify({"error": "MITRE data not found"}), 500
+    try:
+        mitre = get_minified_mitre()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    db = get_db()
+
+    # Build lookup structures from minified MITRE data
+    tech_by_stix: dict[str, dict] = {}
+    mitigation_stix_to_ext: dict[str, str] = {}
+    tech_to_mitigations: dict[str, set] = {}
+
+    for obj in mitre["objects"]:
+        t = obj.get("type")
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        if t == "attack-pattern":
+            ext_id = next(
+                (
+                    ref["external_id"]
+                    for ref in obj.get("external_references", [])
+                    if ref.get("source_name") == "mitre-attack"
+                    and ref.get("external_id", "").startswith("T")
+                ),
+                None,
+            )
+            if not ext_id:
+                continue
+            tactics = [
+                ph["phase_name"]
+                for ph in obj.get("kill_chain_phases", [])
+                if ph.get("kill_chain_name") == "mitre-attack"
+            ]
+            is_sub = obj.get("x_mitre_is_subtechnique", False)
+            parent_id = ext_id.split(".")[0] if is_sub and "." in ext_id else None
+            tech_by_stix[obj["id"]] = {
+                "external_id": ext_id,
+                "name": obj.get("name", ""),
+                "is_subtechnique": is_sub,
+                "parent_id": parent_id,
+                "tactics": tactics,
+            }
+        elif t == "course-of-action":
+            ext_id = next(
+                (
+                    ref["external_id"]
+                    for ref in obj.get("external_references", [])
+                    if ref.get("source_name") == "mitre-attack"
+                    and ref.get("external_id", "").startswith("M")
+                ),
+                None,
+            )
+            if ext_id:
+                mitigation_stix_to_ext[obj["id"]] = ext_id
+        elif t == "relationship" and obj.get("relationship_type") == "mitigates":
+            mit_ext = mitigation_stix_to_ext.get(obj.get("source_ref", ""))
+            tech_info = tech_by_stix.get(obj.get("target_ref", ""))
+            if mit_ext and tech_info:
+                tech_to_mitigations.setdefault(tech_info["external_id"], set()).add(mit_ext)
+
+    # Rule counts per tech_id
+    rule_rows = db.execute(
+        "SELECT tech_id, COUNT(DISTINCT rule_id) AS cnt FROM rule_techniques GROUP BY tech_id"
+    ).fetchall()
+    rule_count_by_tech = {r["tech_id"]: r["cnt"] for r in rule_rows}
+
+    # Covered mitigations (has entries or globally checked)
+    covered_mits = set(
+        r["mitigation_id"]
+        for r in db.execute(
+            "SELECT DISTINCT mitigation_id FROM mitigation_entries"
+        ).fetchall()
+    )
+    covered_mits |= set(
+        r["mitigation_id"]
+        for r in db.execute(
+            "SELECT mitigation_id FROM mitigation_global WHERE checked=1"
+        ).fetchall()
+    )
+
+    # Technique config
+    tc_rows = db.execute(
+        "SELECT tech_id, importance, rule_threshold FROM technique_config"
+    ).fetchall()
+    technique_config_map = {
+        r["tech_id"]: {"importance": r["importance"], "rule_threshold": r["rule_threshold"]}
+        for r in tc_rows
+    }
+
+    # Build tactic groups
+    tactic_techs: dict[str, list] = {}
+    for _stix_id, info in tech_by_stix.items():
+        teid = info["external_id"]
+        tc = technique_config_map.get(teid, {})
+        importance = tc.get("importance", 0.5)
+        rule_threshold = tc.get("rule_threshold", 3)
+        mits_for_tech = tech_to_mitigations.get(teid, set())
+        tech_data = {
+            "tech_id": teid,
+            "name": info["name"],
+            "is_subtechnique": info["is_subtechnique"],
+            "parent_id": info["parent_id"],
+            "rule_count": rule_count_by_tech.get(teid, 0),
+            "mitigation_entry_count": len(mits_for_tech & covered_mits),
+            "total_mitigations": len(mits_for_tech),
+            "importance": importance,
+            "rule_threshold": rule_threshold,
+        }
+        for tactic in info["tactics"]:
+            tactic_techs.setdefault(tactic, []).append(tech_data)
+
+    result = []
+    for tactic in _TACTIC_ORDER:
+        if tactic in tactic_techs:
+            result.append({
+                "tactic": tactic,
+                "techniques": sorted(tactic_techs[tactic], key=lambda x: x["tech_id"]),
+            })
+    for tactic, techs in tactic_techs.items():
+        if tactic not in _TACTIC_ORDER:
+            result.append({
+                "tactic": tactic,
+                "techniques": sorted(techs, key=lambda x: x["tech_id"]),
+            })
+    return jsonify(result)
+
+
+def _importance_to_level(imp: float) -> int:
+    if imp >= 0.91:
+        return 5
+    if imp >= 0.73:
+        return 4
+    if imp >= 0.57:
+        return 3
+    if imp >= 0.39:
+        return 2
+    return 1
+
+
+@app.route("/api/technique-detail/<tech_id>")
+@role_required("viewer")
+def technique_detail(tech_id: str):
+    tech_id = tech_id.upper()
+    if not MITRE_PATH.exists():
+        return jsonify({"error": "MITRE data not found"}), 500
+    try:
+        mitre = get_minified_mitre()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    db = get_db()
+
+    tech_obj: dict | None = None
+    mitigation_stix_to_info: dict[str, dict] = {}
+    tech_mitigations: list[str] = []
+
+    for obj in mitre["objects"]:
+        t = obj.get("type")
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        if t == "attack-pattern":
+            for ref in obj.get("external_references", []):
+                if (
+                    ref.get("source_name") == "mitre-attack"
+                    and ref.get("external_id", "").upper() == tech_id
+                ):
+                    tech_obj = obj
+                    break
+        elif t == "course-of-action":
+            ext_id = next(
+                (
+                    ref["external_id"]
+                    for ref in obj.get("external_references", [])
+                    if ref.get("source_name") == "mitre-attack"
+                    and ref.get("external_id", "").startswith("M")
+                ),
+                None,
+            )
+            if ext_id:
+                mitigation_stix_to_info[obj["id"]] = {
+                    "mitigation_id": ext_id,
+                    "name": obj.get("name", ""),
+                    "description": (obj.get("description") or "")[:200],
+                }
+
+    if not tech_obj:
+        return jsonify({"error": f"Technique {tech_id} not found"}), 404
+
+    tech_stix_id = tech_obj["id"]
+    for obj in mitre["objects"]:
+        if (
+            obj.get("type") == "relationship"
+            and obj.get("relationship_type") == "mitigates"
+            and obj.get("target_ref") == tech_stix_id
+        ):
+            mit_stix = obj.get("source_ref", "")
+            if mit_stix in mitigation_stix_to_info:
+                tech_mitigations.append(mit_stix)
+
+    # MITRE URL
+    mitre_url = next(
+        (
+            ref.get("url", "")
+            for ref in tech_obj.get("external_references", [])
+            if ref.get("source_name") == "mitre-attack"
+        ),
+        "",
+    )
+
+    # Linked rules
+    rule_rows = db.execute(
+        """
+        SELECT r.name, r.source
+        FROM rules r
+        JOIN rule_techniques rt ON rt.rule_id = r.id
+        WHERE rt.tech_id = ?
+        ORDER BY r.name ASC
+        """,
+        (tech_id,),
+    ).fetchall()
+    linked_rules = [{"name": r["name"], "source": r["source"]} for r in rule_rows]
+
+    # Mitigation details with entries
+    mitigation_data = []
+    for mit_stix in tech_mitigations:
+        mit_info = mitigation_stix_to_info[mit_stix]
+        mid = mit_info["mitigation_id"]
+        entries = db.execute(
+            "SELECT id, team, comment FROM mitigation_entries WHERE mitigation_id = ? ORDER BY id ASC",
+            (mid,),
+        ).fetchall()
+        global_row = db.execute(
+            "SELECT checked, comment, team FROM mitigation_global WHERE mitigation_id = ?",
+            (mid,),
+        ).fetchone()
+        mitigation_data.append({
+            "mitigation_id": mid,
+            "name": mit_info["name"],
+            "description": mit_info["description"],
+            "entries": [{"id": e["id"], "team": e["team"], "comment": e["comment"]} for e in entries],
+            "global_checked": bool(global_row["checked"]) if global_row else False,
+        })
+
+    # Technique config
+    tc = db.execute(
+        "SELECT importance, rule_threshold FROM technique_config WHERE tech_id = ?",
+        (tech_id,),
+    ).fetchone()
+    importance = tc["importance"] if tc else 0.5
+    rule_threshold = tc["rule_threshold"] if tc else 3
+
+    return jsonify({
+        "tech_id": tech_id,
+        "name": tech_obj.get("name", ""),
+        "description": (tech_obj.get("description") or "")[:500],
+        "platforms": tech_obj.get("x_mitre_platforms", []),
+        "mitre_url": mitre_url,
+        "importance": importance,
+        "importance_level": _importance_to_level(importance),
+        "rule_threshold": rule_threshold,
+        "linked_rules": linked_rules,
+        "mitigations": mitigation_data,
+    })
+
+
 @app.route("/api/admin/reset", methods=["POST"])
 @role_required("admin")
 def admin_reset():
@@ -1079,12 +1432,20 @@ def get_technique_config():
     return jsonify({r["tech_id"]: dict(r) for r in rows})
 
 
+_LEVEL_TO_FLOAT = {1: 0.30, 2: 0.48, 3: 0.65, 4: 0.82, 5: 1.00}
+
+
 @app.route("/api/technique-config/<tech_id>", methods=["PUT"])
 @role_required("admin")
 def update_technique_config(tech_id: str):
-    """Admin'in bir teknik için importance ve rule_threshold'u el ile ayarlamasına izin verir."""
+    """Admin'in bir teknik için importance ve rule_threshold'u el ile ayarlamasına izin verir.
+    importance_level (1-5 INT) kabul eder ve float'a çevirir."""
     payload = request.get_json(silent=True) or {}
-    importance = float(payload.get("importance", 0.5))
+    if "importance_level" in payload:
+        level = max(1, min(5, int(payload["importance_level"])))
+        importance = _LEVEL_TO_FLOAT[level]
+    else:
+        importance = float(payload.get("importance", 0.5))
     rule_threshold = int(payload.get("rule_threshold", 3))
     importance = max(0.1, min(1.0, importance))
     rule_threshold = max(1, min(10, rule_threshold))
