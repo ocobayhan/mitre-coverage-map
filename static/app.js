@@ -39,6 +39,7 @@ let rulesFilterProduct = '';
 // Teknik bazlı puanlama konfigürasyonu — /api/technique-config'den yüklenir.
 // { "T1059": { importance, rule_threshold, group_count, tool_count }, ... }
 let techniqueConfig = {};
+let teams = [];
 
 function hasRole(role) {
   const level = { viewer: 1, editor: 2, admin: 3 };
@@ -75,6 +76,7 @@ function applyRoleUI() {
   document.getElementById('settingsCsvTab')?.classList.toggle('hidden', !hasRole('editor'));
   document.getElementById('settingsUsersTab')?.classList.toggle('hidden', !hasRole('admin'));
   document.getElementById('settingsAuditTab')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('settingsTeamsTab')?.classList.toggle('hidden', !hasRole('admin'));
 }
 
 async function init() {
@@ -90,13 +92,14 @@ async function init() {
       await loadAuditLogs();
     }
 
-    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes] = await Promise.all([
+    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes, teamsRes] = await Promise.all([
       apiFetch('/api/mitre-min'),
       apiFetch('/api/products'),
       apiFetch('/api/rules'),
       apiFetch('/api/mitigation-notes'),
       apiFetch('/api/mitigation-entries'),
-      apiFetch('/api/technique-config')
+      apiFetch('/api/technique-config'),
+      apiFetch('/api/teams')
     ]);
 
     if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
@@ -108,6 +111,7 @@ async function init() {
     const entries = entriesRes.ok ? await entriesRes.json() : [];
     mitigationEntries = normalizeEntries(entries);
     techniqueConfig = configRes.ok ? await configRes.json() : {};
+    teams = teamsRes.ok ? await teamsRes.json() : [];
 
     prepareMitreLookup();
     await loadProducts();
@@ -120,11 +124,12 @@ async function init() {
   }
 }
 async function reloadData() {
-  const [productsRes, rulesRes, notesRes, entriesRes] = await Promise.all([
+  const [productsRes, rulesRes, notesRes, entriesRes, teamsRes] = await Promise.all([
     apiFetch('/api/products'),
     apiFetch('/api/rules'),
     apiFetch('/api/mitigation-notes'),
-    apiFetch('/api/mitigation-entries')
+    apiFetch('/api/mitigation-entries'),
+    apiFetch('/api/teams')
   ]);
   products = productsRes.ok ? await productsRes.json() : [];
   userRules = rulesRes.ok ? await rulesRes.json() : [];
@@ -132,6 +137,7 @@ async function reloadData() {
   mitigationNotes = normalizeNotes(notes);
   const entries = entriesRes.ok ? await entriesRes.json() : [];
   mitigationEntries = normalizeEntries(entries);
+  teams = teamsRes.ok ? await teamsRes.json() : [];
   renderLegend();
   renderProductLegend();
   populateSourceSelect();
@@ -163,6 +169,16 @@ function normalizeEntries(list) {
     out[e.mitigation_id].push(e);
   });
   return out;
+}
+
+function buildTeamSelectEl(mitId) {
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const sel = document.createElement('select');
+  sel.className = 'mitigation-entry-team';
+  sel.dataset.mit = mitId;
+  sel.innerHTML = `<option value="">— Ekip Seçin —</option>` +
+    teams.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  return sel;
 }
 
 async function reloadMitigationEntries() {
@@ -449,8 +465,8 @@ function renderMitigationList() {
         </div>
         <div class="mitigation-list-entries" data-mit="${m.id}">
           ${entryHtml}
-          <div class="mitigation-entry-form">
-            <input class="mitigation-entry-team" data-mit="${m.id}" placeholder="Ekip">
+          <div class="mitigation-entry-form" data-mit="${m.id}">
+            <span class="mitigation-entry-team-placeholder" data-mit="${m.id}"></span>
             <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Yorum"></textarea>
             <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
           </div>
@@ -467,6 +483,12 @@ function renderMitigationList() {
     </div>
     ${rows}
   `;
+
+  // Replace team input placeholders with selects
+  container.querySelectorAll('.mitigation-entry-team-placeholder').forEach(ph => {
+    const mitId = ph.dataset.mit;
+    ph.replaceWith(buildTeamSelectEl(mitId));
+  });
 
   container.querySelectorAll('.tech-more').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -502,8 +524,9 @@ function renderMitigationList() {
       const created = await addMitigationEntry(mitId, team, comment);
       if (!created) return;
       await reloadMitigationEntries();
-      if (teamInput) teamInput.value = '';
-      if (commentInput) commentInput.value = '';
+      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
+      mitigationNotes[mitId].checked = true;
+      refreshTechniqueCardsForMitigation(mitId);
       renderMitigationList();
     });
   });
@@ -511,10 +534,14 @@ function renderMitigationList() {
   container.querySelectorAll('.entry-delete').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       const id = e.currentTarget.dataset.entryId;
+      const mitId = e.currentTarget.dataset.mit;
       if (!id) return;
       const ok = await deleteMitigationEntry(id);
       if (!ok) return;
       await reloadMitigationEntries();
+      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
+      mitigationNotes[mitId].checked = (mitigationEntries[mitId]?.length > 0);
+      if (mitId) refreshTechniqueCardsForMitigation(mitId);
       renderMitigationList();
     });
   });
@@ -1161,7 +1188,7 @@ function getCheckedMitigationCountForTech(techId) {
   let count = 0;
   mitigations.forEach(m => {
     const note = getMitigationNote(m.id);
-    if (note.checked) count += 1;
+    if (note.checked || (mitigationEntries[m.id]?.length > 0)) count += 1;
   });
   return count;
 }
@@ -1199,40 +1226,33 @@ function computeScore(techId, rulesCount, mitigationCount, sources) {
   return Math.min(ruleScore * 0.50 + mitScore * 0.30 + divScore * 0.20, 1.0);
 }
 
-// 3 bölgeli renk geçişi: koyu gri → amber → yeşil
-//   0.0–0.40  → gri'den amber'e (kapsanmamış / kısmi)
-//   0.40–1.0  → amber'den yeşile (iyi kapsama)
-function scoreToColor(score) {
-  function lerp(a, b, t) {
-    return { r: Math.round(a.r + (b.r - a.r) * t),
-             g: Math.round(a.g + (b.g - a.g) * t),
-             b: Math.round(a.b + (b.b - a.b) * t) };
-  }
-  const dark  = { r: 20,  g: 26,  b: 34  };
-  const amber = { r: 176, g: 124, b: 30  };
-  const green = { r: 53,  g: 196, b: 139 };
-  const c = score < 0.40
-    ? lerp(dark, amber, score / 0.40)
-    : lerp(amber, green, (score - 0.40) / 0.60);
-  return `rgb(${c.r},${c.g},${c.b})`;
+// Ortak lerp & renk sabitleri
+// Yeşil: soğuk/sade ton (önceki cırtlak #35c48b yerine daha yumuşak)
+function _colorLerp(a, b, t) {
+  return { r: Math.round(a.r + (b.r - a.r) * t),
+           g: Math.round(a.g + (b.g - a.g) * t),
+           b: Math.round(a.b + (b.b - a.b) * t) };
+}
+const _SCORE_DARK  = { r: 20,  g: 26,  b: 34  };
+const _SCORE_AMBER = { r: 162, g: 112, b: 26  };  // biraz daha soğuk amber
+const _SCORE_GREEN = { r: 48,  g: 165, b: 122 };  // soğuk/sade yeşil
+
+function _scoreRgb(score) {
+  return score < 0.40
+    ? _colorLerp(_SCORE_DARK, _SCORE_AMBER, score / 0.40)
+    : _colorLerp(_SCORE_AMBER, _SCORE_GREEN, (score - 0.40) / 0.60);
 }
 
-// Alt teknikler için: aynı renk ama %55 koyu zemine karıştırılmış (daha soluk)
-// Ana tekniklerin görsel ağırlığını korur
+// Ana kart rengi — %20 saydamlık (dark bg üzerinde ince tint)
+function scoreToColor(score) {
+  const c = _scoreRgb(score);
+  return `rgba(${c.r},${c.g},${c.b},0.20)`;
+}
+
+// Alt teknik kartı — biraz daha sönük (%13 saydamlık)
 function scoreToSubColor(score) {
-  function lerp(a, b, t) {
-    return { r: Math.round(a.r + (b.r - a.r) * t),
-             g: Math.round(a.g + (b.g - a.g) * t),
-             b: Math.round(a.b + (b.b - a.b) * t) };
-  }
-  const dark  = { r: 20,  g: 26,  b: 34  };
-  const amber = { r: 176, g: 124, b: 30  };
-  const green = { r: 53,  g: 196, b: 139 };
-  const c = score < 0.40
-    ? lerp(dark, amber, score / 0.40)
-    : lerp(amber, green, (score - 0.40) / 0.60);
-  const muted = lerp(dark, c, 0.52);
-  return `rgb(${muted.r},${muted.g},${muted.b})`;
+  const c = _scoreRgb(score);
+  return `rgba(${c.r},${c.g},${c.b},0.13)`;
 }
 
 
@@ -1273,10 +1293,6 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
   const importance = techniqueConfig[techId]?.importance || 0.5;
   card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
 
-  if (mitigationCount > 0) {
-    card.innerHTML += `<div class="mitigation-badge">OK${mitigationCount}</div>`;
-  }
-
   // Hover tooltip için skor verisi
   const cfg = techniqueConfig[techId] || {};
   const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
@@ -1302,23 +1318,8 @@ function updateTechniqueCard(parentId) {
   const score = computeScore(parentId, rulesCount, mitigationCount, sources);
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
-  card.style.borderColor = (rulesCount > 0 || mitigationCount > 0) ? '#fff' : 'var(--card-border)';
   const importance = techniqueConfig[parentId]?.importance || 0.5;
   card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
-
-  const badge = card.querySelector('.mitigation-badge');
-  if (mitigationCount > 0) {
-    if (badge) {
-      badge.textContent = `OK${mitigationCount}`;
-    } else {
-      const newBadge = document.createElement('div');
-      newBadge.className = 'mitigation-badge';
-      newBadge.textContent = `OK${mitigationCount}`;
-      card.appendChild(newBadge);
-    }
-  } else if (badge) {
-    badge.remove();
-  }
 }
 
 function updateSubtechCard(techId) {
@@ -1333,20 +1334,6 @@ function updateSubtechCard(techId) {
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
   const importance = techniqueConfig[techId]?.importance || 0.5;
   card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
-
-  const badge = card.querySelector('.mitigation-badge');
-  if (mitigationCount > 0) {
-    if (badge) {
-      badge.textContent = `OK${mitigationCount}`;
-    } else {
-      const newBadge = document.createElement('div');
-      newBadge.className = 'mitigation-badge';
-      newBadge.textContent = `OK${mitigationCount}`;
-      card.appendChild(newBadge);
-    }
-  } else if (badge) {
-    badge.remove();
-  }
 }
 
 function refreshTechniqueCardsForMitigation(mitId) {
@@ -1483,8 +1470,30 @@ async function openModal(parentId, parentName, rules) {
   const body = document.getElementById('modalBody');
   const colorMap = productColorMap();
   body.innerHTML = '';
-  pendingMitigationEdits = {};
   await reloadMitigationEntries();
+
+  // Teknik açıklaması ve meta bilgisi
+  const descDiv = document.createElement('div');
+  descDiv.className = 'modal-tech-desc';
+  descDiv.innerHTML = '<div style="color:var(--d-text-3);font-size:12px;padding:4px 0">Yükleniyor…</div>';
+  body.appendChild(descDiv);
+
+  apiFetch(`/api/technique-detail/${parentId}`)
+    .then(r => r.json())
+    .then(d => {
+      const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const platforms = (d.platforms||[]).join(', ');
+      const lvl = d.importance_level || 1;
+      const lvlLabels = ['','Düşük','Orta-Düşük','Orta','Yüksek','Kritik'];
+      let h = '';
+      if (d.description) h += `<div class="modal-desc-text">${esc(d.description.slice(0,500))}${d.description.length>=500?'…':''}</div>`;
+      if (platforms) h += `<div class="modal-desc-meta">Platform: ${esc(platforms)}</div>`;
+      h += `<div class="modal-desc-meta">Önem: <span class="importance-badge imp-level-${lvl}">${lvl} — ${lvlLabels[lvl]}</span>`;
+      if (d.mitre_url) h += ` &nbsp;<a class="modal-mitre-link" href="${esc(d.mitre_url)}" target="_blank" rel="noopener">MITRE ↗</a>`;
+      h += '</div>';
+      descDiv.innerHTML = h;
+    })
+    .catch(() => { descDiv.innerHTML = ''; });
 
   const tabBar = document.createElement('div');
   tabBar.className = 'modal-tabs';
@@ -1553,16 +1562,17 @@ async function openModal(parentId, parentName, rules) {
       const row = document.createElement('div');
       row.className = 'mitigation-row';
       if (note.checked) row.classList.add('checked');
+      const isChecked = note.checked || (mitigationEntries[m.id]?.length > 0);
       row.innerHTML = `
         <label class="mitigation-name">
-          <input type="checkbox" data-tech="${parentId}" data-mit="${m.id}" ${note.checked ? 'checked' : ''} ${hasRole('editor') ? '' : 'disabled'}>
+          <span class="mit-status-indicator ${isChecked ? 'checked' : ''}" data-mit="${m.id}">${isChecked ? '✓' : '○'}</span>
           ${m.id} - ${m.name}
           <span class="mitigation-info" data-tech="${parentId}" data-mit="${m.id}">i</span>
         </label>
         <div class="mitigation-fields">
           <div class="mitigation-entries" data-mit="${m.id}"></div>
           <div class="mitigation-entry-form ${hasRole('editor') ? '' : 'hidden'}">
-            <input class="mitigation-entry-team" data-mit="${m.id}" placeholder="Ekip">
+            <span class="mitigation-entry-team-placeholder" data-mit="${m.id}"></span>
             <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Yorum"></textarea>
             <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
           </div>
@@ -1575,6 +1585,9 @@ async function openModal(parentId, parentName, rules) {
         </div>
       `;
       renderMitigationEntries(row, m.id);
+      // Replace team placeholder with select
+      const teamPh = row.querySelector('.mitigation-entry-team-placeholder');
+      if (teamPh) teamPh.replaceWith(buildTeamSelectEl(m.id));
       mitigationSection.appendChild(row);
     });
   }
@@ -1635,18 +1648,6 @@ async function openModal(parentId, parentName, rules) {
   }
   rulesTab.appendChild(mitigationSummary);
 
-  mitigationsTab.querySelectorAll('.mitigation-row input[type="checkbox"]').forEach(cb => {
-    cb.addEventListener('change', async (e) => {
-      if (!hasRole('editor')) return;
-      const mitId = e.target.dataset.mit;
-      const note = getMitigationNote(mitId);
-      note.checked = e.target.checked;
-      const row = e.target.closest('.mitigation-row');
-      if (row) row.classList.toggle('checked', e.target.checked);
-      pendingMitigationEdits[mitId] = { ...note };
-      refreshTechniqueCardsForMitigation(mitId);
-    });
-  });
   mitigationsTab.querySelectorAll('.mitigation-entry-add').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       const mitId = e.currentTarget.dataset.mit;
@@ -1665,6 +1666,14 @@ async function openModal(parentId, parentName, rules) {
       await reloadMitigationEntries();
       if (teamInput) teamInput.value = '';
       if (commentInput) commentInput.value = '';
+      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
+      mitigationNotes[mitId].checked = true;
+      refreshTechniqueCardsForMitigation(mitId);
+      // Update status indicator
+      const indicator = mitigationsTab.querySelector(`.mit-status-indicator[data-mit="${mitId}"]`);
+      if (indicator) { indicator.textContent = '✓'; indicator.classList.add('checked'); }
+      const mitigationRow = indicator?.closest('.mitigation-row');
+      if (mitigationRow) { mitigationRow.classList.add('checked'); }
       refreshMitigationEntriesInModal(mitId, mitigationsTab);
     });
   });
@@ -1712,32 +1721,6 @@ async function openModal(parentId, parentName, rules) {
         const name = tr.getAttribute('data-rule-name') || '';
         tr.style.display = name.includes(term) ? '' : 'none';
       });
-    });
-  }
-
-  if (hasRole('editor')) {
-    const confirmWrap = document.createElement('div');
-    confirmWrap.className = 'mitigation-confirm';
-    confirmWrap.innerHTML = `<button class="action-btn btn-add" id="btnMitigationConfirm">Onayla</button>`;
-    mitigationsTab.appendChild(confirmWrap);
-  }
-
-  const confirmBtn = document.getElementById('btnMitigationConfirm');
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', async () => {
-      const pending = { ...pendingMitigationEdits };
-      for (const mitId of Object.keys(pending)) {
-        const note = pending[mitId];
-        await saveMitigationNote(mitId, note);
-      }
-      // refresh in-memory notes
-      Object.keys(pending).forEach(mid => {
-        mitigationNotes[mid] = { ...mitigationNotes[mid], ...pending[mid] };
-      });
-      pendingMitigationEdits = {};
-      renderMatrix();
-      document.getElementById('ruleModal').style.display = 'none';
-      alert('Kaydedildi');
     });
   }
 
@@ -1851,6 +1834,9 @@ function renderMitigationEntries(row, mitId) {
       const ok = await deleteMitigationEntry(id);
       if (!ok) return;
       await reloadMitigationEntries();
+      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
+      mitigationNotes[mitId].checked = (mitigationEntries[mitId]?.length > 0);
+      refreshTechniqueCardsForMitigation(mitId);
       renderMitigationEntries(row, mitId);
     });
   });

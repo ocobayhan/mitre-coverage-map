@@ -1,6 +1,6 @@
 # PROJECT STATE - MITRE Coverage Map
 
-Last updated: 2026-02-20
+Last updated: 2026-02-23
 
 ## Purpose
 Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, product-based coverage, and persistent storage.
@@ -90,6 +90,74 @@ If PowerShell execution policy blocks activation:
 - `.gitignore` excludes: `.venv/`, `soc.db`, `__pycache__/`, `.env`
 - Untracked files often include `Error.jpg`, `Mitre.jpg` (do not commit)
 
+## Session 4 — Bug Fix & UX İyileştirme Turu (2026-02-23)
+
+### Birleşik modal (techDetailModal kaldırıldı)
+- `#techDetailModal` HTML'i ve tüm JS kodu (`openTechDetail`, `closeTechDetail`, `saveTechImportance`, `_ensureRole`) silindi.
+- TTP listesindeki teknik adı tıklaması artık doğrudan `openModal()` çağırıyor (index.html'deki yeni basit `openTechDetail()` wrapper'ı ile).
+- Böylece tek bir modal (`#ruleModal`) kullanılıyor, iki ayrı popup ortadan kalktı.
+
+### Matrix modal yeniden tasarımı (openModal)
+- **Checkbox kaldırıldı** → yerine `.mit-status-indicator` span (✓ / ○); entry varsa otomatik ✓ gösteriyor.
+- **"Onayla" butonu kaldırıldı** → entry ekleyince/silince matrix kartları anında güncelleniyor (`refreshTechniqueCardsForMitigation`).
+- **Ekip text input → `<select>`** → `buildTeamSelectEl(mitId)` helper'ı, `teams` global'inden seçenek üretiyor.
+- **Teknik açıklaması eklendi** → modal açılınca async `/api/technique-detail/<id>` fetch; description, platform, önem seviyesi ve MITRE linki gösteriliyor.
+- `pendingMitigationEdits` sistemi kaldırıldı (artık gereksiz).
+
+### Teams entegrasyonu (app.js)
+- `let teams = []` global eklendi.
+- `init()` ve `reloadData()`'ya `/api/teams` fetch eklendi.
+- `applyRoleUI()` içine `settingsTeamsTab` hidden toggle eklendi.
+- `buildTeamSelectEl(mitId)` fonksiyonu: `<select>` DOM elementi döndürür, teams global'ini kullanır.
+
+### getCheckedMitigationCountForTech düzeltmesi
+- Eski: sadece `note.checked` olan mitigationları sayıyordu → matrix rengi entry eklenince değişmiyordu.
+- Yeni: `note.checked || mitigationEntries[m.id]?.length > 0` → entry eklenince matrix kartı anında renk alıyor.
+
+### renderMitigationList güncellemesi
+- Ekip input → `<select>` (buildTeamSelectEl ile).
+- Entry ekle/sil handler'larına matrix refresh eklendi.
+
+### renderMitigationEntries güncellemesi
+- Entry sil handler'ına matrix refresh eklendi.
+
+### TTP listesi CSS düzeltmesi (kritik layout bug)
+- **Sorun**: `.ttp-content` (flex column) içindeki `.ttp-tactic-section` öğeleri `flex-shrink:1` ile küçüldüğü için `overflow:hidden` tarafından kesiliyordu; teknikler görünmüyordu.
+- **Düzeltme 1**: `.ttp-content { min-height: 0 }` → scroll aktif hale geldi.
+- **Düzeltme 2**: `.ttp-tactic-section { flex-shrink: 0 }` → her bölüm kendi doğal yüksekliğini korudu.
+- **Düzeltme 3**: `#ttpPanel.panel.active { display: flex; flex-direction: column }` + `.ttp-shell { flex: 1; min-height: 0 }` → flex zinciri tamamlandı.
+
+### Skor renklendirme sistemi yeniden tasarımı
+**Matrix kartları (app.js):**
+- Ortak `_scoreRgb()` yardımcı fonksiyon oluşturuldu; renk sabitleri merkezi tanımlandı.
+- Yeşil tonu soğutuldu ve sönükleştirildi: `rgb(53,196,139)` → `rgb(48,165,122)` (cırtlak değil, sage-teal).
+- Amber de soğutuldu: `rgb(176,124,30)` → `rgb(162,112,26)`.
+- `scoreToColor()` → `rgba(r,g,b,0.20)` (ana kartlar, %80 şeffaf).
+- `scoreToSubColor()` → `rgba(r,g,b,0.13)` (alt teknikler, daha sönük).
+- Beyaz border override kaldırıldı (saydamlıkla uyumsuzdu).
+
+**TTP listesi (index.html):**
+- `_ttpRowBg()` eklendi: aynı gradyan mantığı, `rgba(r,g,b,0.22)` — her satır kapsamına göre ince renk tonu alıyor.
+- Aynı renk sabitleri kullanıldı (matrix ile tutarlı).
+
+**CSS hover güncellemesi (styles.css):**
+- `.technique-card:hover`, `.subtech-card:hover`, `.ttp-tech-row:hover` → `background:` override yerine `filter: brightness(1.4)` — inline rgba üzerine class background yazamaz, filter her durumda çalışır.
+
+### Badge temizliği
+- **Önem badge'leri** (1-5 renkli sayı yuvarlakları) matrix kartlarından kaldırıldı: `_addImportanceBadges` MutationObserver silindi.
+- **"OK{n}" mitigation badge'leri** matrix kartlarından kaldırıldı: `applyTechniqueVisuals`, `updateTechniqueCard`, `updateSubtechCard` içinden badge DOM kodu çıkarıldı.
+- **TTP listesindeki importance-badge `<span>`'ları** kaldırıldı; renk satırı bilgiyi görsel olarak taşıyor.
+- `.mitigation-badge` ve `.ttp-tech-row .importance-badge` CSS kuralları temizlendi.
+
+### MutationObserver temizliği (index.html)
+- `_replaceTeamInputs()` + `_modalObs` bloğu kaldırıldı (teams artık app.js'de doğrudan yerleştiriliyor).
+
+### Cache bust versiyonları
+- `styles.css`: v=72 → v=77
+- `app.js`: v=63 → v=66
+
+---
+
 ## Recent Work (High Level)
 - Removed bottom "Yeni Kural" form and draggable resizer (matrix is full-height now)
 - Removed slide-in rule panel (kept modal + existing add flow)
@@ -164,6 +232,13 @@ Deferred:
 - [x] Kurallar filtre bar (ad araması + ürün dropdown)
 - [x] Teknik autocomplete (dark-theme dropdown, klavye navigasyonu)
 - [x] Ayarlar sekme yapısı (4 sekme + role bazlı gizleme)
+
+- [x] Teams yönetimi: Ayarlar > Ekipler sekmesi, API, app.js entegrasyonu
+- [x] TTP Listesi paneli: /api/ttp-list, renderTtpList, skor renklendirme, flex scroll düzeltmesi
+- [x] Teknik detay modal birleştirildi (techDetailModal → openModal)
+- [x] Matrix modal: checkbox kaldırıldı, status indicator, Onayla kaldırıldı, teams select, description section
+- [x] Matrix renk sistemi: RGBA saydamlık (%20), soğuk/sade renk tonu, badge temizliği
+- [x] TTP listesi renk sistemi: aynı gradyan, %22 saydamlık, matrixle tutarlı
 
 - [ ] Mitigation Listesi responsive düzen (dar ekran)
 - [ ] UX final polish (spacing, tipografi, tutarlılık)
