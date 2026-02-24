@@ -2314,6 +2314,11 @@ function updateMatrixStats() {
     ? Math.round(parents.reduce((s, r) => s + r.score, 0) / totalP * 100)
     : 0;
 
+  const allRows = visibleExportRows;
+  const avgAll  = allRows.length
+    ? Math.round(allRows.reduce((s, r) => s + r.score, 0) / allRows.length * 100)
+    : 0;
+
   const criticalGap = parents.filter(r => {
     const cfg = techniqueConfig[r.tech_id] || {};
     return (cfg.importance || 0.5) >= 0.7 && r.score < 0.35;
@@ -2333,8 +2338,10 @@ function updateMatrixStats() {
     covPct >= 70 ? 'good' : covPct >= 40 ? 'mid' : 'bad');
   setVal('ms-sub',      totalS ? `${coveredS} / ${totalS}` : '—',
     totalS && coveredS / totalS >= 0.5 ? 'good' : 'mid');
-  setVal('ms-score',    avgScore,
+  setVal('ms-score',   avgScore,
     avgScore >= 60 ? 'good' : avgScore >= 35 ? 'mid' : 'bad');
+  setVal('ms-avg-all', avgAll + '%',
+    avgAll >= 60 ? 'good' : avgAll >= 35 ? 'mid' : 'bad');
   setVal('ms-gap',      criticalGap,
     criticalGap === 0 ? 'muted' : 'bad');
   setVal('ms-mitentry', totalMitEntries,

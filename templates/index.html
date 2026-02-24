@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
-  <link rel="stylesheet" href="/static/styles.css?v=80" />
+  <link rel="stylesheet" href="/static/styles.css?v=81" />
 </head>
 <body>
   <div class="ms-shell">
@@ -142,7 +142,12 @@
             <div class="mstat-sep"></div>
             <div class="mstat">
               <span class="mstat-val" id="ms-score">—</span>
-              <span class="mstat-lbl">Ort. Skor</span>
+              <span class="mstat-lbl">Teknik Ort.</span>
+            </div>
+            <div class="mstat-sep"></div>
+            <div class="mstat">
+              <span class="mstat-val" id="ms-avg-all">—</span>
+              <span class="mstat-lbl">Genel Ort. %</span>
             </div>
             <div class="mstat-sep"></div>
             <div class="mstat">
@@ -1131,7 +1136,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=69"></script>
+  <script src="/static/app.js?v=70"></script>
   <script>
     // ── Wiki sidebar navigation ──────────────────────────────
     document.querySelectorAll('.wiki-nav-item').forEach(btn => {
