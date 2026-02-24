@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
-  <link rel="stylesheet" href="/static/styles.css?v=77" />
+  <link rel="stylesheet" href="/static/styles.css?v=79" />
 </head>
 <body>
   <div class="ms-shell">
@@ -119,6 +119,10 @@
               <label for="techSearch">Arama</label>
               <input type="text" id="techSearch" placeholder="Teknik adı veya ID (T1059)" />
             </div>
+            <div class="filter-group">
+              <label style="visibility:hidden">_</label>
+              <button class="action-btn btn-neutral" id="btnExpandAll" title="Tüm alt teknikleri göster / gizle">Hepsini Aç</button>
+            </div>
           </div>
           <div class="ms-matrix-wrap">
             <div class="matrix-container" id="matrix"></div>
@@ -163,6 +167,14 @@
               <button class="wiki-nav-item" data-wiki="w-roles">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M1 13c0-2.761 2.239-4 5-4s5 1.239 5 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M11 7l1.5 1.5L15 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 Roller
+              </button>
+              <button class="wiki-nav-item" data-wiki="w-ttp">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="2" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                TTP Listesi
+              </button>
+              <button class="wiki-nav-item" data-wiki="w-teams">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l1.8 3.6 4 .6-2.9 2.8.7 4L8 10.5l-3.6 2 .7-4L2.2 5.7l4-.6L8 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                Önem &amp; Ekipler
               </button>
             </nav>
 
@@ -213,6 +225,20 @@
                     <div class="wiki-card-title">Dışa Aktarma</div>
                     <div class="wiki-card-body">Kapsama raporunu CSV veya PDF olarak dışa aktarın. MITRE Navigator için Layer JSON üretin.</div>
                   </div>
+                  <div class="wiki-card">
+                    <div class="wiki-card-icon" style="background:rgba(87,163,0,.1);color:#57a300">
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><line x1="3" y1="5" x2="17" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="15" x2="11" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    </div>
+                    <div class="wiki-card-title">TTP Listesi</div>
+                    <div class="wiki-card-body">Tüm teknikleri taktik bazında satır listesi olarak görüntüleyin. Her satırda tespit sayısı, mitigation durumu ve önem seviyesi yer alır.</div>
+                  </div>
+                  <div class="wiki-card">
+                    <div class="wiki-card-icon" style="background:rgba(209,52,56,.1);color:#d13438">
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2l2.2 4.5 5 .7-3.6 3.5.85 5L10 13.25 5.55 15.7l.85-5L2.8 7.2l5-.7L10 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                    </div>
+                    <div class="wiki-card-title">Önem Seviyeleri</div>
+                    <div class="wiki-card-body">Her tekniğe 1–5 arası önem seviyesi atayın. Seviye 5 kritik tekniklerin kartlarına kırmızı kenarlık eklenir; boşluklar hemen fark edilir.</div>
+                  </div>
                 </div>
 
                 <div class="wiki-section">
@@ -248,6 +274,20 @@
                     </div>
                     <div class="wiki-step">
                       <div class="wiki-step-num">5</div>
+                      <div>
+                        <div class="wiki-step-title">TTP Listesi İncele</div>
+                        <div class="wiki-step-body">Sol menüden TTP Listesi'ne geç — tüm teknikleri satır halinde gör, arama yap, teknik adına tıklayarak detay modalını aç.</div>
+                      </div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">6</div>
+                      <div>
+                        <div class="wiki-step-title">Ekip &amp; Önem Ayarla</div>
+                        <div class="wiki-step-body">Ayarlar → Ekipler sekmesinden ekip adları tanımla. Teknik modalı → Admin sekmesinden önem seviyesi (1–5) ata. Mitigation girişlerinde ekibi dropdown'dan seç.</div>
+                      </div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">7</div>
                       <div>
                         <div class="wiki-step-title">Raporla</div>
                         <div class="wiki-step-body">CSV/PDF export ile yönetime sunum hazırla ya da Layer JSON ile MITRE Navigator'da görsel harita oluştur.</div>
@@ -326,8 +366,18 @@
                         <tr><td><span class="wt-exclaim">!</span></td><td>Kırmızı ünlem — kritik boşluk (önem ≥ 0.7 ve skor &lt; 0.35)</td></tr>
                         <tr><td><div class="wt-dots"><span class="wt-dot" style="background:#0078d4"></span><span class="wt-dot" style="background:#57a300"></span></div></td><td>Sağ alt nokta(lar) — tekniği kapsayan ürün renkleri</td></tr>
                         <tr><td><div class="wt-stripe" style="background:#ca5010"></div></td><td>Sol renkli şerit — hangi ürünlerin tespit içerdiği</td></tr>
+                        <tr><td><span style="font-size:10px;opacity:.7">▶</span></td><td>Sağ üst küçük ok — kartta alt teknikler (subtechnik) var; tıklayınca açılır / kapanır</td></tr>
                       </tbody>
                     </table>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Alt Teknikler (Subteknikler)</h2>
+                  <div class="wiki-info-box">
+                    <p>Alt teknikleri olan kartlarda sağ üst köşede küçük <strong>▶</strong> oku gösterilir. Karta tıklayınca alt teknikler kartın altında açılır; ok 90° döner. Tekrar tıklayınca kapanır.</p>
+                    <p>Filter bar'daki <strong>"Hepsini Aç"</strong> butonu tüm alt teknikleri aynı anda açar; tekrar basınca hepsini kapatır. Her yeni arama sonrasında buton "Hepsini Aç" konumuna sıfırlanır.</p>
+                    <p><em>Not:</em> Alt tekniklerin kapsama sayımı ebeveyn teknikten bağımsızdır — alt tekniğe eklenen tespit ve mitigationlar yalnızca o alt tekniğin skoruna katkı sağlar.</p>
                   </div>
                 </div>
 
@@ -444,41 +494,54 @@
                 </div>
 
                 <div class="wiki-section">
+                  <h2 class="wiki-h2">RGBA Şeffaflık Sistemi</h2>
+                  <div class="wiki-info-box">
+                    <p>Kart arka plan rengi doğrudan solid bir renk değil, <strong>%20 opaklıkta</strong> bir RGBA katmanıdır. Bu sayede:</p>
+                    <ul class="wiki-ul">
+                      <li>Karanlık arka plan (%80) korunur — kartlar okunabilir kalır</li>
+                      <li>Çok sayıda kart aynı anda ekranda olduğunda göz yorulmaz</li>
+                      <li>Ürün rengi şeridi ile arka plan rengi aynı anda görülebilir</li>
+                    </ul>
+                    <p>Örneğin tam yeşil <code>rgb(48,165,122)</code> rengi %20 opaklıkta uygulanır: <code>rgba(48,165,122, 0.20)</code>.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
                   <h2 class="wiki-h2">Renk Örnekleri</h2>
                   <div class="wiki-color-samples">
                     <div class="wcs-item">
                       <div class="wcs-swatch" style="background:rgb(20,26,34)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 0.00</div>
-                        <div class="wcs-desc">Hiç tespit yok, mitigation yok. Tamamen koyu.</div>
+                        <div class="wcs-desc">Hiç tespit yok, mitigation yok. Tamamen koyu arka plan.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgb(57,46,17)"></div>
+                      <div class="wcs-swatch" style="background:rgba(176,124,30,0.20)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 0.20</div>
-                        <div class="wcs-desc">1–2 tespit. Koyu amber tonu, başlangıç kapsamı.</div>
+                        <div class="wcs-desc">1–2 tespit. Hafif amber tonu — %20 opaklık.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgb(176,124,30)"></div>
+                      <div class="wcs-swatch" style="background:rgba(176,124,30,0.55)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 0.40</div>
-                        <div class="wcs-desc">~4 tespit veya bazı mitigationlar. Amber rengi, orta kapsama.</div>
+                        <div class="wcs-desc">~4 tespit veya bazı mitigationlar. Daha belirgin amber, orta kapsama.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgb(90,165,80)"></div>
+                      <div class="wcs-swatch" style="background:rgba(48,165,122,0.20)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 0.70</div>
-                        <div class="wcs-desc">6–7 tespit + bazı mitigationlar. Belirgin yeşil.</div>
+                        <div class="wcs-desc">6–7 tespit + bazı mitigationlar. Cool green tonu <code>rgba(48,165,122,0.20)</code>.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgb(53,196,139)"></div>
+                      <div class="wcs-swatch" style="background:rgba(48,165,122,0.55)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 1.00</div>
-                        <div class="wcs-desc">10+ tespit, tüm mitigationlar, 2+ ürün. Tam yeşil.</div>
+                        <div class="wcs-desc">10+ tespit, tüm mitigationlar, 2+ ürün. Güçlü yeşil.</div>
                       </div>
                     </div>
                   </div>
@@ -556,17 +619,26 @@
                 <div class="wiki-section">
                   <h2 class="wiki-h2">Mitigation Nedir?</h2>
                   <div class="wiki-info-box">
-                    <p>MITRE, her teknik için saldırıyı zorlaştıracak kontroller tanımlar. Örneğin <strong>T1059 (Command & Scripting)</strong> için önerilen mitigationlar şunlardır:</p>
+                    <p>MITRE, her teknik için saldırıyı zorlaştıracak kontroller tanımlar. Örneğin <strong>T1059 (Command &amp; Scripting)</strong> için önerilen mitigationlar şunlardır:</p>
                     <ul class="wiki-ul">
                       <li><strong>M1038</strong> — Execution Prevention (uygulama beyaz listesi)</li>
                       <li><strong>M1026</strong> — Privileged Account Management</li>
                       <li><strong>M1049</strong> — Antivirus / Antimalware</li>
                     </ul>
+                    <p>Mitigation adına tıklayınca açılan popup MITRE'nin tam açıklamasını ve resmi bağlantısını gösterir.</p>
                   </div>
                 </div>
 
                 <div class="wiki-section">
-                  <h2 class="wiki-h2">Nasıl İşaretlenir?</h2>
+                  <h2 class="wiki-h2">Entry-Based Takip</h2>
+                  <div class="wiki-info-box">
+                    <p>Mitigation takibi <strong>onay kutusu</strong> değil, <strong>kayıt girişi</strong> tabanlıdır. Bir mitigation için kayıt eklediğinizde (ekip + yorum) sistem o mitigationu <em>tamamlandı</em> sayar ve skora yansıtır.</p>
+                    <p>Bu sayede "kim, ne zaman, hangi ekip" gibi bilgiler kayıt altına alınır ve audit trail oluşturulur.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Nasıl Kayıt Eklenir?</h2>
                   <div class="wiki-steps">
                     <div class="wiki-step">
                       <div class="wiki-step-num">1</div>
@@ -578,7 +650,11 @@
                     </div>
                     <div class="wiki-step">
                       <div class="wiki-step-num">3</div>
-                      <div>Her mitigation için <strong>Ekip</strong> ve <strong>Yorum</strong> girerek kaydedin. Kaydedilen mitigationlar skora yansır.</div>
+                      <div>Bir mitigation için <strong>Ekip</strong> dropdown'ından sorumlu ekibi seçin (Ayarlar → Ekipler'de tanımlıdır), <strong>Yorum</strong> alanına açıklama girin ve <strong>Kaydet</strong>'e tıklayın.</div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">4</div>
+                      <div>Kaydedilen giriş mitigationun altında listelenir. İlk kayıt sonrasında o mitigation <em>tamamlandı</em> sayılır ve teknik skoru artar.</div>
                     </div>
                   </div>
                 </div>
@@ -587,7 +663,7 @@
                   <h2 class="wiki-h2">Mitigation Listesi Sayfası</h2>
                   <div class="wiki-info-box">
                     <p>Sol menüden <strong>Mitigation</strong> sekmesine gidin. Tüm MITRE mitigationlarını, hangi tekniklerde geçtiklerini ve ekibinizin eklediği kayıtları tek sayfada görürsünüz.</p>
-                    <p>Bir mitigation satırındaki teknik adlarına tıklayarak direkt o tekniğin modalını açabilirsiniz.</p>
+                    <p>Mitigation adına tıklayınca açılan popup tam açıklamayı ve MITRE bağlantısını gösterir. Teknik adlarına tıklayarak o tekniğin modalını açabilirsiniz.</p>
                   </div>
                 </div>
 
@@ -697,6 +773,7 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
                         <tr><td>Tespit ekleme / silme</td><td class="tc">—</td><td class="tc">✓</td><td class="tc">✓</td></tr>
                         <tr><td>CSV yükleme</td><td class="tc">—</td><td class="tc">✓</td><td class="tc">✓</td></tr>
                         <tr><td>Ürün ekleme / silme</td><td class="tc">—</td><td class="tc">—</td><td class="tc">✓</td></tr>
+                        <tr><td>Ekipler yönetimi</td><td class="tc">—</td><td class="tc">—</td><td class="tc">✓</td></tr>
                         <tr><td>Kullanıcı yönetimi</td><td class="tc">—</td><td class="tc">—</td><td class="tc">✓</td></tr>
                         <tr><td>Audit log görüntüleme</td><td class="tc">—</td><td class="tc">—</td><td class="tc">✓</td></tr>
                         <tr><td>Veri sıfırlama</td><td class="tc">—</td><td class="tc">—</td><td class="tc">✓</td></tr>
@@ -717,6 +794,95 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
                   <h2 class="wiki-h2">Audit Log</h2>
                   <div class="wiki-info-box">
                     <p>Ayarlar → <strong>Audit Log</strong> (yalnızca admin). Tespit ekleme/silme, mitigation işaretleme gibi tüm yazma işlemleri tarih, kullanıcı ve işlem detayıyla kaydedilir.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- TTP Listesi -->
+              <div class="wiki-page" id="w-ttp">
+                <h1 class="wiki-page-title">TTP Listesi</h1>
+                <p class="wiki-page-lead">Tüm MITRE ATT&amp;CK tekniklerini matris yerine satır halinde, taktik bazlı gruplandırılmış liste olarak görüntüleyen panel.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Panel Açıklaması</h2>
+                  <div class="wiki-info-box">
+                    <p>Sol menüden <strong>TTP Listesi</strong>'ne tıklayın. Teknikler her taktik için ayrı bir bölüm halinde sıralanır. Her satırda şu bilgiler yer alır:</p>
+                    <ul class="wiki-ul">
+                      <li><strong>ID</strong> — Teknik kodu (T1059 gibi)</li>
+                      <li><strong>Teknik Adı</strong> — Tıklanabilir; detay modalını açar</li>
+                      <li><strong>Taktik</strong> — Tekniğin ait olduğu ATT&amp;CK taktiği</li>
+                      <li><strong>Tespit</strong> — Kayıtlı tespit sayısı</li>
+                      <li><strong>Mitigation</strong> — Tamamlanan / toplam mitigation oranı</li>
+                      <li><strong>Önem</strong> — Atanmış önem seviyesi (1–5)</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Satır Renkleri</h2>
+                  <div class="wiki-info-box">
+                    <p>Her taktik başlığı satırı, o taktiğin ortalama kapsama skoru oranında hafif renklendirilir — aynı RGBA %20 sistemi kullanılır. Düşük kapsanan taktikler koyu, iyi kapsananlar yeşil tona yakın görünür.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Arama</h2>
+                  <div class="wiki-info-box">
+                    <p>Panelin üstündeki arama kutusu teknik adı ve ID'ye göre anlık filtreler. Arama sonuçlarında sadece eşleşen teknikler görünür; boş kalan taktik grupları otomatik gizlenir.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Detay Modalı</h2>
+                  <div class="wiki-info-box">
+                    <p>Teknik adına tıklandığında matristeki kart tıklamasıyla aynı detay modalı açılır — tespitler, mitigationlar ve admin ayarları sekmeleriyle tam erişim sağlanır.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Önem & Ekipler -->
+              <div class="wiki-page" id="w-teams">
+                <h1 class="wiki-page-title">Önem Seviyeleri &amp; Ekipler</h1>
+                <p class="wiki-page-lead">Her tekniğe 1–5 arası önem derecesi atayabilir, mitigation girişlerini sorumlu ekiplere bağlayabilirsiniz.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Önem Seviyesi</h2>
+                  <div class="wiki-info-box">
+                    <p>Teknik modalı → <strong>Admin</strong> sekmesi → <em>Önem Derecesi</em> alanı. 1–5 arası bir değer girin:</p>
+                    <ul class="wiki-ul">
+                      <li><span class="importance-badge imp-level-1" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(120,120,120,.15);border:1px solid #888;color:#aaa">1 — Düşük</span> — izlemesi yararlı ama öncelikli değil</li>
+                      <li><span class="importance-badge imp-level-2" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(0,120,212,.15);border:1px solid #0078d4;color:#2b88d8">2 — Orta-Düşük</span> — standart takip</li>
+                      <li><span class="importance-badge imp-level-3" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(202,80,16,.15);border:1px solid #ca5010;color:#e07840">3 — Orta</span> — dikkat gerektiren teknikler</li>
+                      <li><span class="importance-badge imp-level-4" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(230,120,0,.15);border:1px solid #e67800;color:#e69000">4 — Yüksek</span> — öncelikli kapsanmalı</li>
+                      <li><span class="importance-badge imp-level-5" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(209,52,56,.15);border:1px solid #d13438;color:#d13438">5 — Kritik</span> — kapsanmamışsa kırmızı kenarlık gösterilir</li>
+                    </ul>
+                    <p>Seviye 5 atanmış ve skoru &lt; 0.35 olan teknikler matris kartlarında <strong>kırmızı kenarlık (kritik boşluk)</strong> ile işaretlenir.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Ekip Yönetimi</h2>
+                  <div class="wiki-info-box">
+                    <p>Ekipler <strong>Ayarlar → Ekipler</strong> sekmesinde (yalnızca admin) oluşturulur. Ekip adı girilip <strong>Ekle</strong> butonuna tıklanır.</p>
+                    <p>Oluşturulan ekipler, mitigation kayıt girişlerindeki <strong>Ekip</strong> dropdown'unda otomatik olarak listelenir. Bu sayede her mitigation girişi için hangi ekibin sorumlu olduğu izlenebilir.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Mitigation Girişinde Ekip Seçimi</h2>
+                  <div class="wiki-steps">
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">1</div>
+                      <div>Ayarlar → <strong>Ekipler</strong> sekmesinden ekibinizi önce tanımlayın (örn. <em>SOC Ekibi</em>, <em>Güvenlik Mimarisi</em>).</div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">2</div>
+                      <div>Teknik modalı → <strong>Mitigation</strong> sekmesinde, bir mitigation için <strong>Ekip</strong> dropdown'ından sorumlu ekibi seçin.</div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">3</div>
+                      <div>Yorum alanını doldurup kaydedin. Girişiniz Mitigation Listesi sayfasındaki Ekip/Yorum kolonunda görünür.</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -934,7 +1100,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=66"></script>
+  <script src="/static/app.js?v=68"></script>
   <script>
     // ── Wiki sidebar navigation ──────────────────────────────
     document.querySelectorAll('.wiki-nav-item').forEach(btn => {
@@ -954,6 +1120,7 @@ td small{color:#555}
     async function loadTeams() {
       try {
         const res = await fetch('/api/teams');
+        if (!res.ok) return [];
         _teamsCache = await res.json();
         renderTeamList();
         return _teamsCache;

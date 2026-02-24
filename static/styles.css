@@ -817,7 +817,7 @@ button.action-btn {
 /* ── Tech Chips ─────────────────────────────────────────── */
 .tech-chip-row { display: flex; flex-wrap: wrap; gap: 6px; max-height: 48px; overflow: hidden; }
 .tech-chip-row.expanded { max-height: none; }
-.tech-chip { background: var(--d-surface-alt); border: 1px solid var(--d-border); color: var(--d-text-2); padding: 2px 8px; border-radius: 999px; font-size: 11px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.tech-chip { background: var(--d-surface-alt); border: 1px solid var(--d-border); color: var(--d-text-2); padding: 2px 8px; border-radius: 999px; font-size: 11px; cursor: pointer; transition: background 0.15s, border-color 0.15s; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tech-chip:hover { background: var(--d-hover); border-color: var(--d-blue); color: var(--d-text-1); }
 .tech-more { background: transparent; border: 1px dashed var(--d-border); color: var(--d-text-2); border-radius: 999px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
 .tech-all { margin-top: 6px; border-left: 2px solid var(--d-border); padding-left: 8px; }
@@ -843,7 +843,7 @@ button.action-btn {
 #mitigationPanel .mitigation-list-header,
 #mitigationPanel .mitigation-list-row {
   display: grid;
-  grid-template-columns: 110px minmax(200px, 0.8fr) minmax(200px, 0.8fr) minmax(860px, 4fr);
+  grid-template-columns: 110px minmax(200px, 0.8fr) minmax(380px, 1.6fr) minmax(350px, 2fr);
   gap: 14px;
 }
 #mitigationPanel .mitigation-list-entries { gap: 12px; padding: 10px; min-width: 0; }
@@ -971,6 +971,20 @@ button.action-btn {
 /* ── Tech Popover ───────────────────────────────────────── */
 .tech-chip-popover { position: absolute; z-index: 2000; max-width: 320px; background: var(--d-surface-alt); border: 1px solid var(--d-border); color: var(--d-text-2); border-radius: 4px; padding: 8px 10px; font-size: 12px; line-height: 1.35; box-shadow: 0 10px 26px rgba(0,0,0,0.5); }
 
+/* ── Mitigation Detail Popup ────────────────────────────── */
+.mit-detail-popup { position: absolute; z-index: 2100; width: 440px; max-width: calc(100vw - 20px); background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; padding: 12px 14px; box-shadow: 0 10px 28px rgba(0,0,0,0.55); }
+.mit-detail-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--d-border); }
+.mit-detail-mid { font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: var(--d-text-3); white-space: nowrap; }
+.mit-detail-name { font-size: 13px; font-weight: 600; color: var(--d-text-1); }
+.mit-detail-desc { font-size: 12px; color: var(--d-text-2); line-height: 1.55; max-height: 240px; overflow-y: auto; white-space: pre-wrap; }
+.mit-detail-footer { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--d-border); }
+.mit-detail-link { color: var(--d-blue); font-size: 12px; text-decoration: none; }
+.mit-detail-link:hover { text-decoration: underline; }
+.mitigation-list-id { cursor: pointer; }
+.mitigation-list-id:hover { color: var(--d-blue); }
+.mit-name-popup-btn { background: none; border: none; padding: 0; cursor: pointer; color: var(--d-text-1); font-weight: 600; font-size: 12px; text-align: left; font-family: inherit; line-height: 1.3; }
+.mit-name-popup-btn:hover { color: var(--d-blue); }
+
 /* ── Autocomplete ───────────────────────────────────────── */
 .tech-autocomplete-wrapper { position: relative; display: inline-flex; flex-direction: column; }
 .tech-autocomplete-dropdown { position: absolute; top: calc(100% + 2px); left: 0; z-index: 1500; min-width: 300px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 220px; overflow-y: auto; }
@@ -990,6 +1004,15 @@ button.action-btn {
 .score-tooltip-divider { border-top: 1px solid var(--d-border); margin: 6px 0; }
 
 /* ── Critical Gap ───────────────────────────────────────── */
+/* ── Subteknik expand göstergesi ─────────────────────────── */
+.technique-card.has-subtechs::after {
+  content: '▶';
+  position: absolute; right: 5px; top: 5px;
+  font-size: 8px; opacity: 0.35;
+  transition: transform 0.2s;
+}
+.technique-card.expanded::after { transform: rotate(90deg); opacity: 0.6; }
+
 .technique-card.critical-gap,
 .subtech-card.critical-gap {
   border-color: var(--d-red) !important;

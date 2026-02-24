@@ -423,7 +423,7 @@ function renderMitigationList() {
   Object.keys(mitigationsByTechnique).forEach(tid => {
     const list = mitigationsByTechnique[tid] || [];
     list.forEach(m => {
-      if (!map[m.id]) map[m.id] = { id: m.id, name: m.name, techniques: [] };
+      if (!map[m.id]) map[m.id] = { id: m.id, name: m.name, description: m.description || '', techniques: [] };
       map[m.id].techniques.push(tid);
     });
   });
@@ -439,10 +439,10 @@ function renderMitigationList() {
     });
     const preview = techLabels.slice(0, 4);
     const extra = techLabels.length - preview.length;
-    const chips = techLabels.map(t => `<button class="tech-chip" type="button" data-tech-label="${t.label}">${t.id}</button>`).join('');
+    const chips = techLabels.map(t => `<button class="tech-chip" type="button" data-tech-label="${t.label}">${techDetailsMap[t.id]?.name || t.id}</button>`).join('');
     const moreBtn = extra > 0 ? `<button class="tech-more" data-mit="${m.id}">Tümünü Göster</button>` : '';
     const entries = mitigationEntries[m.id] || [];
-    const desc = mitigationById[m.id]?.description || '';
+    const desc = m.description || '';
     const entryHtml = entries.length
       ? entries.map(e => `
           <div class="mitigation-entry">
@@ -454,9 +454,9 @@ function renderMitigationList() {
       : '<div class="mitigation-empty">Kayıt yok.</div>';
     return `
       <div class="mitigation-list-row">
-        <div class="mitigation-list-id">${m.id}</div>
+        <div class="mitigation-list-id mit-popup-btn" data-mit="${m.id}">${m.id}</div>
           <div class="mitigation-list-name">
-          ${m.name}
+          <button class="mit-name-popup-btn" data-mit="${m.id}">${m.name}</button>
           <div class="mitigation-list-desc">${summarizeText(desc, 90)}</div>
         </div>
         <div class="mitigation-list-tech">
@@ -543,6 +543,17 @@ function renderMitigationList() {
       mitigationNotes[mitId].checked = (mitigationEntries[mitId]?.length > 0);
       if (mitId) refreshTechniqueCardsForMitigation(mitId);
       renderMitigationList();
+    });
+  });
+
+  // Mitigation popup — ID veya ad tıklanınca açıklama + MITRE linki göster
+  container.querySelectorAll('.mit-popup-btn, .mit-name-popup-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mitId = e.currentTarget.dataset.mit;
+      const mitData = mitigations.find(mx => mx.id === mitId);
+      if (!mitData) return;
+      showMitDetailPopup(e.currentTarget, mitData.id, mitData.name, mitData.description);
     });
   });
 }
@@ -642,7 +653,7 @@ function renderRulesList() {
       const details = techDetailsMap[t];
       const techLabel = details ? `${t} - ${details.name}` : t;
       return `<span class="rule-tech-chip">
-        <button class="tech-chip" type="button" data-tech-label="${techLabel}">${t}</button>
+        <button class="tech-chip" type="button" data-tech-label="${techLabel}">${details?.name || t}</button>
         ${hasRole('editor') ? `<button class="rule-tech-remove" data-rule-id="${r.id}" data-tech-id="${t}" title="Tekniği kaldır">×</button>` : ''}
       </span>`;
     }).join('');
@@ -893,6 +904,46 @@ function wireAutocomplete(wrapper) {
   document.addEventListener('click', e => {
     if (!wrapper.contains(e.target)) dropdown.classList.add('hidden');
   }, true);
+}
+
+let mitDetailPopupEl = null;
+
+function showMitDetailPopup(anchorEl, mid, name, description) {
+  if (mitDetailPopupEl) mitDetailPopupEl.remove();
+  if (techChipPopoverEl) { techChipPopoverEl.remove(); techChipPopoverEl = null; }
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const mitreUrl = `https://attack.mitre.org/mitigations/${mid}/`;
+  const rect = anchorEl.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'mit-detail-popup';
+  pop.innerHTML = `
+    <div class="mit-detail-header">
+      <span class="mit-detail-mid">${esc(mid)}</span>
+      <span class="mit-detail-name">${esc(name)}</span>
+    </div>
+    <div class="mit-detail-desc">${esc(description) || '<em style="color:var(--d-text-3)">Açıklama bulunamadı.</em>'}</div>
+    <div class="mit-detail-footer">
+      <a class="mit-detail-link" href="${mitreUrl}" target="_blank" rel="noopener">MITRE ATT&amp;CK ↗</a>
+    </div>
+  `;
+  const viewportW = window.innerWidth;
+  let left = rect.left + window.scrollX;
+  const popW = 440;
+  if (left + popW > viewportW - 10) left = viewportW - popW - 10;
+  pop.style.left = `${Math.max(10, left)}px`;
+  pop.style.top = `${rect.bottom + window.scrollY + 6}px`;
+  document.body.appendChild(pop);
+  mitDetailPopupEl = pop;
+
+  const close = (evt) => {
+    if (!mitDetailPopupEl) return;
+    if (evt.target === anchorEl || anchorEl.contains(evt.target)) return;
+    if (mitDetailPopupEl.contains(evt.target)) return;
+    mitDetailPopupEl.remove();
+    mitDetailPopupEl = null;
+    document.removeEventListener('click', close, true);
+  };
+  setTimeout(() => document.addEventListener('click', close, true), 0);
 }
 
 function showTechChipPopover(anchorEl, text) {
@@ -1193,12 +1244,6 @@ function getCheckedMitigationCountForTech(techId) {
   return count;
 }
 
-function getCheckedMitigationCountForParent(parentId) {
-  let count = getCheckedMitigationCountForTech(parentId);
-  const subs = subTechsByParent[parentId] || [];
-  subs.forEach(sub => { count += getCheckedMitigationCountForTech(sub.id); });
-  return count;
-}
 
 // Bir teknik için kaç mitigasyon olduğunu döner (subteknik ise parent'a düşer).
 function getMitigationTotal(techId) {
@@ -1313,7 +1358,7 @@ function updateTechniqueCard(parentId) {
   const card = document.querySelector(`.technique-card[data-tech-id="${parentId}"]`);
   if (!card) return;
   const rulesCount = currentRulesByParent[parentId] || 0;
-  const mitigationCount = getCheckedMitigationCountForParent(parentId);
+  const mitigationCount = getCheckedMitigationCountForTech(parentId);
   const sources = enrichRules().filter(r => r.parentId === parentId).map(r => r.source);
   const score = computeScore(parentId, rulesCount, mitigationCount, sources);
   card.style.backgroundColor = scoreToColor(score);
@@ -1466,6 +1511,8 @@ async function deleteRule(ruleId) {
 }
 
 async function openModal(parentId, parentName, rules) {
+  if (mitDetailPopupEl) { mitDetailPopupEl.remove(); mitDetailPopupEl = null; }
+  if (techChipPopoverEl) { techChipPopoverEl.remove(); techChipPopoverEl = null; }
   document.getElementById('modalTitle').innerText = `${parentId} - ${parentName}`;
   const body = document.getElementById('modalBody');
   const colorMap = productColorMap();
@@ -2082,6 +2129,25 @@ function wireActions() {
     });
   }
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const modal = document.getElementById('ruleModal');
+    if (modal && modal.style.display === 'flex') modal.style.display = 'none';
+    if (mitDetailPopupEl) { mitDetailPopupEl.remove(); mitDetailPopupEl = null; }
+    if (techChipPopoverEl) { techChipPopoverEl.remove(); techChipPopoverEl = null; }
+  });
+
+  const btnExpandAll = document.getElementById('btnExpandAll');
+  if (btnExpandAll) {
+    btnExpandAll.addEventListener('click', () => {
+      const containers = document.querySelectorAll('.subtech-container');
+      const anyOpen = [...containers].some(c => c.children.length > 0 && !c.classList.contains('open'));
+      containers.forEach(c => { if (c.children.length > 0) c.classList.toggle('open', anyOpen); });
+      document.querySelectorAll('.technique-card.has-subtechs').forEach(c => c.classList.toggle('expanded', anyOpen));
+      btnExpandAll.textContent = anyOpen ? 'Hepsini Kapat' : 'Hepsini Aç';
+    });
+  }
+
   const logoutBtn = document.getElementById('btnLogout');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
@@ -2131,7 +2197,7 @@ function renderMatrix() {
 
       // export rows
       const parentRuleCount = parentRules.length;
-      const parentMitCount = getCheckedMitigationCountForParent(tech.id);
+      const parentMitCount = getCheckedMitigationCountForTech(tech.id);
       const parentSources = parentRules.map(r => r.source);
       visibleExportRows.push({
         type: "technique",
@@ -2170,7 +2236,7 @@ function renderMatrix() {
         card.style.borderColor = '#fff';
       }
 
-      const mitigationCount = getCheckedMitigationCountForParent(tech.id);
+      const mitigationCount = getCheckedMitigationCountForTech(tech.id);
       const sources = rulesForCell.map(r => r.source);
       applyTechniqueVisuals(card, tech.id, rulesForCell.length, mitigationCount, sources);
 
@@ -2195,8 +2261,12 @@ function renderMatrix() {
 
       const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches);
       card.style.cursor = 'pointer';
+      if (subContainer.children.length > 0) card.classList.add('has-subtechs');
       card.onclick = () => {
-        if (subContainer) subContainer.classList.toggle('open');
+        if (subContainer && subContainer.children.length > 0) {
+          const isOpen = subContainer.classList.toggle('open');
+          card.classList.toggle('expanded', isOpen);
+        }
       };
 
       col.appendChild(card);
@@ -2221,6 +2291,9 @@ function renderMatrix() {
       </div>
     `;
   }
+
+  const expBtn = document.getElementById('btnExpandAll');
+  if (expBtn) expBtn.textContent = 'Hepsini Aç';
 
   wireScoreTooltip();
 }
