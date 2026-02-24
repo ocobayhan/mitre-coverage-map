@@ -445,6 +445,53 @@ h1, h2, h3 { margin: 0; }
   background: rgba(0,0,0,0.35);
 }
 
+/* ── Matrix Stat Bar ────────────────────────────────────── */
+.matrix-stat-bar {
+  display: flex;
+  align-items: center;
+  background: var(--d-surface);
+  border: 1px solid var(--d-border);
+  border-radius: 3px;
+  padding: 0 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  gap: 0;
+}
+.mstat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 7px 18px;
+  min-width: 80px;
+}
+.mstat-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--d-text-1);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.mstat-lbl {
+  font-size: 9.5px;
+  color: var(--d-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.mstat-sep {
+  width: 1px;
+  height: 26px;
+  background: var(--d-border);
+  flex-shrink: 0;
+}
+/* Color states */
+.mstat-val.good  { color: #57a300; }
+.mstat-val.mid   { color: #ca5010; }
+.mstat-val.bad   { color: #d13438; }
+.mstat-val.muted { color: var(--d-text-3); }
+
 /* ── Filter Bar ─────────────────────────────────────────── */
 .filter-bar {
   display: flex;

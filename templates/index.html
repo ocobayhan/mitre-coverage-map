@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
-  <link rel="stylesheet" href="/static/styles.css?v=79" />
+  <link rel="stylesheet" href="/static/styles.css?v=80" />
 </head>
 <body>
   <div class="ms-shell">
@@ -122,6 +122,37 @@
             <div class="filter-group">
               <label style="visibility:hidden">_</label>
               <button class="action-btn btn-neutral" id="btnExpandAll" title="Tüm alt teknikleri göster / gizle">Hepsini Aç</button>
+            </div>
+          </div>
+          <div id="matrixStatBar" class="matrix-stat-bar">
+            <div class="mstat">
+              <span class="mstat-val" id="ms-total">—</span>
+              <span class="mstat-lbl">Teknik</span>
+            </div>
+            <div class="mstat-sep"></div>
+            <div class="mstat">
+              <span class="mstat-val" id="ms-covered">—</span>
+              <span class="mstat-lbl">Kapsanan</span>
+            </div>
+            <div class="mstat-sep"></div>
+            <div class="mstat">
+              <span class="mstat-val" id="ms-sub">—</span>
+              <span class="mstat-lbl">Alt Teknik Kapsama</span>
+            </div>
+            <div class="mstat-sep"></div>
+            <div class="mstat">
+              <span class="mstat-val" id="ms-score">—</span>
+              <span class="mstat-lbl">Ort. Skor</span>
+            </div>
+            <div class="mstat-sep"></div>
+            <div class="mstat">
+              <span class="mstat-val" id="ms-gap">—</span>
+              <span class="mstat-lbl">Kritik Boşluk</span>
+            </div>
+            <div class="mstat-sep"></div>
+            <div class="mstat">
+              <span class="mstat-val" id="ms-mitentry">—</span>
+              <span class="mstat-lbl">Mitigation Girişi</span>
             </div>
           </div>
           <div class="ms-matrix-wrap">
@@ -1100,7 +1131,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=68"></script>
+  <script src="/static/app.js?v=69"></script>
   <script>
     // ── Wiki sidebar navigation ──────────────────────────────
     document.querySelectorAll('.wiki-nav-item').forEach(btn => {
