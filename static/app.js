@@ -2398,6 +2398,26 @@ function wireScoreTooltip() {
 }
 
 // ══════════════════════════════════════════════════════════════
+// GAP panelinden teknik/alt-teknik modal açma
+// Matrix davranışını birebir yansıtır:
+//   • Parent teknik → tüm kurallar (parentId eşleşmesi)
+//   • Alt teknik    → sadece o alt tekniğin kuralları (tid eşleşmesi)
+// ══════════════════════════════════════════════════════════════
+function openGapTechDetail(techId, techName) {
+  const allRules = enrichRules();
+  const isSub = techId.includes('.');
+  let rules;
+  if (isSub) {
+    rules = allRules.filter(r => r.tid === techId);
+  } else {
+    rules = allRules.filter(r => r.parentId === techId || r.tid === techId);
+  }
+  // techName: techDetailsMap'teki isim varsa onu kullan, yoksa GAP'ten gelen ismi kullan
+  const mapName = techDetailsMap[techId] ? techDetailsMap[techId].name : techName;
+  openModal(techId, mapName || techName, rules);
+}
+
+// ══════════════════════════════════════════════════════════════
 // P0: GAP Analysis Panel
 // ══════════════════════════════════════════════════════════════
 const _esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -2484,12 +2504,13 @@ function renderGapDashboard(data) {
     html += '<div class="gap-critical-list">';
     gaps.forEach(g => {
       const tacticLabel = TACTIC_TR[g.tactic] || g.tactic || '—';
-      html += `<div class="gap-critical-item" onclick="openTechDetail('${_esc(g.tech_id)}')">
+      const safeName = _esc(g.name).replace(/'/g, '&#39;');
+      html += `<div class="gap-critical-item" onclick="openGapTechDetail('${_esc(g.tech_id)}','${safeName}')">
         <div class="gap-imp-dot lv-${g.importance_level}"></div>
         <div class="gap-critical-id">${_esc(g.tech_id)}</div>
         <div class="gap-critical-name">${_esc(g.name)}</div>
         <div class="gap-critical-tactic">${_esc(tacticLabel)}</div>
-        ${hasRole('editor') ? `<button class="gap-critical-add" onclick="event.stopPropagation();openNewActionForTech('${_esc(g.tech_id)}','${_esc(g.name).replace(/'/g,'\\\'')}')" title="Aksiyon ekle">+ Aksiyon</button>` : ''}
+        ${hasRole('editor') ? `<button class="gap-critical-add" onclick="event.stopPropagation();openNewActionForTech('${_esc(g.tech_id)}','${safeName}')" title="Aksiyon ekle">+ Aksiyon</button>` : ''}
       </div>`;
     });
     html += '</div>';
