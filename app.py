@@ -24,7 +24,25 @@ app.secret_key = os.environ.get("SOC_SECRET_KEY", "change-this-in-production")
 
 
 MITRE_CACHE = {"mtime": None, "data": None}
+THREAT_ACTOR_CACHE: dict[str, Any] = {"mtime": None, "data": None}
 ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
+
+_TACTIC_LABEL_MAP: dict[str, str] = {
+    "reconnaissance": "Reconnaissance",
+    "resource-development": "Resource Development",
+    "initial-access": "Initial Access",
+    "execution": "Execution",
+    "persistence": "Persistence",
+    "privilege-escalation": "Privilege Escalation",
+    "defense-evasion": "Defense Evasion",
+    "credential-access": "Credential Access",
+    "discovery": "Discovery",
+    "lateral-movement": "Lateral Movement",
+    "collection": "Collection",
+    "command-and-control": "Command and Control",
+    "exfiltration": "Exfiltration",
+    "impact": "Impact",
+}
 
 
 
@@ -58,6 +76,29 @@ def ensure_mitigation_global_table(db: sqlite3.Connection) -> None:
             checked INTEGER NOT NULL DEFAULT 0,
             comment TEXT NOT NULL DEFAULT "",
             team TEXT NOT NULL DEFAULT ""
+        )
+        """
+    )
+    db.commit()
+
+
+def ensure_action_items_table(db: sqlite3.Connection) -> None:
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS action_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tech_id TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            priority INTEGER NOT NULL DEFAULT 2
+                CHECK(priority IN (1, 2, 3, 4)),
+            status TEXT NOT NULL DEFAULT 'open'
+                CHECK(status IN ('open','in_progress','done','cancelled')),
+            assigned_team_id INTEGER,
+            due_date TEXT,
+            created_by_username TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
@@ -331,6 +372,7 @@ def init_db() -> None:
         ensure_mitigation_global_table(db)
         ensure_mitigation_global_seed(db)
         ensure_teams_table(db)
+        ensure_action_items_table(db)
         ensure_products(db)
         ensure_users(db)
         migrate_rule_techniques(db)
@@ -438,6 +480,248 @@ def role_required(min_role: str):
     return decorator
 
 
+
+
+def _compute_gap_analysis(mitre_data: dict, db: sqlite3.Connection) -> dict:
+    """Shared logic for /api/gap-analysis and /report.
+    Returns dict with overview, by_tactic, critical_gaps."""
+    tech_by_stix: dict[str, dict] = {}
+    mitigation_stix_to_ext: dict[str, str] = {}
+    tech_to_mitigations: dict[str, set] = {}
+
+    for obj in mitre_data["objects"]:
+        t = obj.get("type")
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        if t == "attack-pattern":
+            ext_id = next(
+                (
+                    ref["external_id"]
+                    for ref in obj.get("external_references", [])
+                    if ref.get("source_name") == "mitre-attack"
+                    and ref.get("external_id", "").startswith("T")
+                ),
+                None,
+            )
+            if not ext_id:
+                continue
+            tactics = [
+                ph["phase_name"]
+                for ph in obj.get("kill_chain_phases", [])
+                if ph.get("kill_chain_name") == "mitre-attack"
+            ]
+            tech_by_stix[obj["id"]] = {
+                "external_id": ext_id,
+                "name": obj.get("name", ""),
+                "is_subtechnique": obj.get("x_mitre_is_subtechnique", False),
+                "tactics": tactics,
+            }
+        elif t == "course-of-action":
+            ext_id = next(
+                (
+                    ref["external_id"]
+                    for ref in obj.get("external_references", [])
+                    if ref.get("source_name") == "mitre-attack"
+                    and ref.get("external_id", "").startswith("M")
+                ),
+                None,
+            )
+            if ext_id:
+                mitigation_stix_to_ext[obj["id"]] = ext_id
+        elif t == "relationship" and obj.get("relationship_type") == "mitigates":
+            mit_ext = mitigation_stix_to_ext.get(obj.get("source_ref", ""))
+            tech_info = tech_by_stix.get(obj.get("target_ref", ""))
+            if mit_ext and tech_info:
+                tech_to_mitigations.setdefault(tech_info["external_id"], set()).add(mit_ext)
+
+    rule_count_by_tech = {
+        r["tech_id"]: r["cnt"]
+        for r in db.execute(
+            "SELECT tech_id, COUNT(DISTINCT rule_id) AS cnt FROM rule_techniques GROUP BY tech_id"
+        ).fetchall()
+    }
+
+    covered_mits: set = set(
+        r["mitigation_id"]
+        for r in db.execute(
+            "SELECT DISTINCT mitigation_id FROM mitigation_entries"
+        ).fetchall()
+    )
+    covered_mits |= set(
+        r["mitigation_id"]
+        for r in db.execute(
+            "SELECT mitigation_id FROM mitigation_global WHERE checked=1"
+        ).fetchall()
+    )
+
+    tech_config = {
+        r["tech_id"]: {"importance": r["importance"], "rule_threshold": r["rule_threshold"]}
+        for r in db.execute(
+            "SELECT tech_id, importance, rule_threshold FROM technique_config"
+        ).fetchall()
+    }
+
+    all_techs = []
+    for _stix_id, info in tech_by_stix.items():
+        teid = info["external_id"]
+        rule_count = rule_count_by_tech.get(teid, 0)
+        mits_for_tech = tech_to_mitigations.get(teid, set())
+        mitigation_checked = bool(mits_for_tech & covered_mits)
+        covered = rule_count > 0 or mitigation_checked
+        tc = tech_config.get(teid, {})
+        importance = tc.get("importance", 0.5)
+        imp_level = _importance_to_level(importance)
+        all_techs.append({
+            "tech_id": teid,
+            "name": info["name"],
+            "is_subtechnique": info["is_subtechnique"],
+            "tactics": info["tactics"],
+            "rule_count": rule_count,
+            "mitigation_checked": mitigation_checked,
+            "covered": covered,
+            "importance": importance,
+            "importance_level": imp_level,
+        })
+
+    parents = [t for t in all_techs if not t["is_subtechnique"]]
+    subs = [t for t in all_techs if t["is_subtechnique"]]
+    total_techniques = len(parents)
+    covered_techniques = sum(1 for t in parents if t["covered"])
+    total_subtechniques = len(subs)
+    covered_subtechniques = sum(1 for t in subs if t["covered"])
+    critical_gaps_list = [t for t in parents if t["importance_level"] >= 4 and not t["covered"]]
+    coverage_pct = round(covered_techniques / total_techniques * 100, 1) if total_techniques else 0.0
+
+    by_tactic_map: dict[str, dict] = {}
+    for t in parents:
+        for tactic in t["tactics"]:
+            entry = by_tactic_map.setdefault(tactic, {"total": 0, "covered": 0})
+            entry["total"] += 1
+            if t["covered"]:
+                entry["covered"] += 1
+
+    by_tactic = []
+    for tactic in _TACTIC_ORDER:
+        if tactic in by_tactic_map:
+            entry = by_tactic_map[tactic]
+            pct = round(entry["covered"] / entry["total"] * 100, 1) if entry["total"] else 0.0
+            by_tactic.append({
+                "tactic": tactic,
+                "label": _TACTIC_LABEL_MAP.get(tactic, tactic),
+                "total": entry["total"],
+                "covered": entry["covered"],
+                "pct": pct,
+            })
+    for tactic, entry in by_tactic_map.items():
+        if tactic not in _TACTIC_ORDER:
+            pct = round(entry["covered"] / entry["total"] * 100, 1) if entry["total"] else 0.0
+            by_tactic.append({
+                "tactic": tactic,
+                "label": _TACTIC_LABEL_MAP.get(tactic, tactic),
+                "total": entry["total"],
+                "covered": entry["covered"],
+                "pct": pct,
+            })
+
+    critical_gaps_sorted = sorted(
+        critical_gaps_list, key=lambda x: (-x["importance"], x["name"])
+    )[:50]
+    critical_gaps_out = [
+        {
+            "tech_id": t["tech_id"],
+            "name": t["name"],
+            "tactic": t["tactics"][0] if t["tactics"] else "",
+            "importance_level": t["importance_level"],
+            "importance": t["importance"],
+            "rule_count": t["rule_count"],
+            "mitigation_checked": t["mitigation_checked"],
+        }
+        for t in critical_gaps_sorted
+    ]
+
+    return {
+        "overview": {
+            "total_techniques": total_techniques,
+            "covered_techniques": covered_techniques,
+            "coverage_pct": coverage_pct,
+            "total_subtechniques": total_subtechniques,
+            "covered_subtechniques": covered_subtechniques,
+            "critical_gap_count": len(critical_gaps_list),
+        },
+        "by_tactic": by_tactic,
+        "critical_gaps": critical_gaps_out,
+    }
+
+
+def _get_threat_actors() -> list:
+    """Parse mitre.json for intrusion-sets and their technique usage. Cached."""
+    if not MITRE_PATH.exists():
+        return []
+    mtime = MITRE_PATH.stat().st_mtime
+    if THREAT_ACTOR_CACHE["data"] is not None and THREAT_ACTOR_CACHE["mtime"] == mtime:
+        return THREAT_ACTOR_CACHE["data"]  # type: ignore[return-value]
+
+    data = json.loads(MITRE_PATH.read_text(encoding="utf-8"))
+    objects = data.get("objects", [])
+
+    tech_stix_to_ext: dict[str, str] = {}
+    actors: dict[str, dict] = {}
+
+    for obj in objects:
+        t = obj.get("type", "")
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        if t == "attack-pattern":
+            for ref in obj.get("external_references", []):
+                if ref.get("source_name") == "mitre-attack" and ref.get("external_id", "").startswith("T"):
+                    tech_stix_to_ext[obj["id"]] = ref["external_id"]
+                    break
+        elif t == "intrusion-set":
+            stix_id = obj["id"]
+            name = obj.get("name", "")
+            aliases = obj.get("aliases", [name])
+            g_id = ""
+            for ref in obj.get("external_references", []):
+                if ref.get("source_name") == "mitre-attack" and ref.get("external_id", "").startswith("G"):
+                    g_id = ref["external_id"]
+                    break
+            actors[stix_id] = {
+                "id": g_id,
+                "stix_id": stix_id,
+                "name": name,
+                "aliases": aliases,
+                "technique_ids": set(),
+            }
+
+    for obj in objects:
+        if obj.get("type") != "relationship":
+            continue
+        if obj.get("relationship_type") != "uses":
+            continue
+        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
+            continue
+        src = obj.get("source_ref", "")
+        tgt = obj.get("target_ref", "")
+        if src in actors:
+            t_ext = tech_stix_to_ext.get(tgt)
+            if t_ext:
+                actors[src]["technique_ids"].add(t_ext)
+
+    result = [
+        {
+            "id": a["id"],
+            "stix_id": a["stix_id"],
+            "name": a["name"],
+            "aliases": a["aliases"],
+            "technique_ids": sorted(a["technique_ids"]),
+        }
+        for a in actors.values()
+    ]
+    result.sort(key=lambda x: x["name"])
+
+    THREAT_ACTOR_CACHE["mtime"] = mtime
+    THREAT_ACTOR_CACHE["data"] = result
+    return result
 
 
 def _minify_mitre(raw: dict) -> dict:
@@ -1469,6 +1753,205 @@ def update_technique_config(tech_id: str):
     )
     db.commit()
     return jsonify({"ok": True})
+
+
+@app.route("/api/gap-analysis")
+@role_required("viewer")
+def gap_analysis_api():
+    if not MITRE_PATH.exists():
+        return jsonify({"error": "MITRE data not found"}), 500
+    try:
+        mitre = get_minified_mitre()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    db = get_db()
+    try:
+        result = _compute_gap_analysis(mitre, db)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify(result)
+
+
+@app.route("/api/threat-actors")
+@role_required("viewer")
+def threat_actors_api():
+    if not MITRE_PATH.exists():
+        return jsonify({"error": "MITRE data not found"}), 500
+    try:
+        actors = _get_threat_actors()
+        return jsonify(actors)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/action-items", methods=["GET", "POST"])
+@role_required("viewer")
+def action_items_api():
+    db = get_db()
+    if request.method == "GET":
+        status_filter = request.args.get("status", "").strip()
+        tech_id_filter = request.args.get("tech_id", "").strip()
+        query = """
+            SELECT ai.id, ai.tech_id, ai.title, ai.description, ai.priority,
+                   ai.status, ai.assigned_team_id, ai.due_date,
+                   ai.created_by_username, ai.created_at, ai.updated_at,
+                   t.name AS assigned_team_name
+            FROM action_items ai
+            LEFT JOIN teams t ON t.id = ai.assigned_team_id
+            WHERE 1=1
+        """
+        params: list = []
+        if status_filter:
+            query += " AND ai.status = ?"
+            params.append(status_filter)
+        if tech_id_filter:
+            query += " AND ai.tech_id = ?"
+            params.append(tech_id_filter.upper())
+        query += " ORDER BY ai.priority DESC, ai.created_at DESC"
+        rows = db.execute(query, params).fetchall()
+        return jsonify([dict(r) for r in rows])
+
+    # POST — create
+    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
+        return jsonify({"error": "Forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "Missing fields: title"}), 400
+
+    tech_id = (payload.get("tech_id") or "").strip().upper()
+    description = (payload.get("description") or "").strip()
+    try:
+        priority = max(1, min(4, int(payload.get("priority", 2))))
+    except (ValueError, TypeError):
+        priority = 2
+    status = payload.get("status", "open")
+    if status not in ("open", "in_progress", "done", "cancelled"):
+        status = "open"
+    assigned_team_id = payload.get("assigned_team_id")
+    if assigned_team_id is not None:
+        try:
+            assigned_team_id = int(assigned_team_id)
+        except (ValueError, TypeError):
+            assigned_team_id = None
+    due_date = (payload.get("due_date") or "").strip() or None
+
+    cur = db.execute(
+        """INSERT INTO action_items
+           (tech_id, title, description, priority, status, assigned_team_id, due_date, created_by_username)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (tech_id, title, description, priority, status, assigned_team_id, due_date,
+         g.current_user["username"]),
+    )
+    write_audit_log(
+        db, action="create", target_type="action_item",
+        target_id=str(cur.lastrowid),
+        detail=f"title={title};tech_id={tech_id};priority={priority}",
+    )
+    db.commit()
+
+    item = db.execute(
+        """SELECT ai.id, ai.tech_id, ai.title, ai.description, ai.priority,
+                  ai.status, ai.assigned_team_id, ai.due_date,
+                  ai.created_by_username, ai.created_at, ai.updated_at,
+                  t.name AS assigned_team_name
+           FROM action_items ai
+           LEFT JOIN teams t ON t.id = ai.assigned_team_id
+           WHERE ai.id = ?""",
+        (cur.lastrowid,),
+    ).fetchone()
+    return jsonify(dict(item)), 201
+
+
+@app.route("/api/action-items/<int:item_id>", methods=["PUT", "DELETE"])
+@role_required("editor")
+def action_item_detail(item_id: int):
+    db = get_db()
+
+    if request.method == "DELETE":
+        db.execute("DELETE FROM action_items WHERE id = ?", (item_id,))
+        write_audit_log(db, action="delete", target_type="action_item", target_id=str(item_id))
+        db.commit()
+        return jsonify({"ok": True})
+
+    # PUT — update
+    row = db.execute("SELECT * FROM action_items WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    title = (payload.get("title") or row["title"]).strip()
+    tech_id = (payload["tech_id"] if "tech_id" in payload else row["tech_id"] or "").strip().upper()
+    description = payload.get("description") if "description" in payload else (row["description"] or "")
+    try:
+        priority = max(1, min(4, int(payload.get("priority", row["priority"]))))
+    except (ValueError, TypeError):
+        priority = row["priority"]
+    status = payload.get("status", row["status"])
+    if status not in ("open", "in_progress", "done", "cancelled"):
+        status = row["status"]
+    assigned_team_id = payload.get("assigned_team_id", row["assigned_team_id"])
+    if assigned_team_id is not None:
+        try:
+            assigned_team_id = int(assigned_team_id)
+        except (ValueError, TypeError):
+            assigned_team_id = None
+    due_date = payload.get("due_date", row["due_date"]) or None
+
+    db.execute(
+        """UPDATE action_items SET tech_id=?, title=?, description=?, priority=?,
+           status=?, assigned_team_id=?, due_date=?,
+           updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+        (tech_id, title, description, priority, status, assigned_team_id, due_date, item_id),
+    )
+    write_audit_log(
+        db, action="update", target_type="action_item",
+        target_id=str(item_id),
+        detail=f"status={status};priority={priority}",
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/report")
+@login_required
+def report_page():
+    """Yönetici raporu — GAP verileri ve aksiyon planı."""
+    from datetime import datetime
+
+    gap_data: dict = {"overview": {}, "by_tactic": [], "critical_gaps": []}
+    action_items_data: list = []
+
+    try:
+        if MITRE_PATH.exists():
+            mitre = get_minified_mitre()
+            db = get_db()
+            gap_data = _compute_gap_analysis(mitre, db)
+            rows = db.execute(
+                """SELECT ai.id, ai.tech_id, ai.title, ai.priority, ai.status,
+                          ai.due_date, t.name AS team_name
+                   FROM action_items ai
+                   LEFT JOIN teams t ON t.id = ai.assigned_team_id
+                   WHERE ai.status IN ('open', 'in_progress')
+                   ORDER BY ai.priority DESC, ai.created_at DESC"""
+            ).fetchall()
+            action_items_data = [dict(r) for r in rows]
+    except Exception:
+        pass
+
+    priority_labels = {1: "Düşük", 2: "Orta", 3: "Yüksek", 4: "Kritik"}
+    status_labels = {"open": "Açık", "in_progress": "Devam", "done": "Tamamlandı", "cancelled": "İptal"}
+
+    return render_template(
+        "report.html",
+        gap=gap_data,
+        action_items=action_items_data,
+        priority_labels=priority_labels,
+        status_labels=status_labels,
+        generated_at=datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC"),
+        current_user=g.current_user,
+    )
 
 
 if __name__ == "__main__":

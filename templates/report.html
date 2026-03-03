@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MITRE ATT&CK GAP Raporu</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 13px;
+      color: #201f1e;
+      background: #fff;
+      padding: 32px 40px;
+    }
+    /* ── Header ── */
+    .rpt-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      border-bottom: 3px solid #0078d4;
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+    }
+    .rpt-title { font-size: 22px; font-weight: 700; color: #003060; }
+    .rpt-subtitle { font-size: 13px; color: #605e5c; margin-top: 4px; }
+    .rpt-meta { font-size: 12px; color: #605e5c; text-align: right; }
+    .rpt-back {
+      display: inline-block;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: #0078d4;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .rpt-back:hover { text-decoration: underline; }
+
+    /* ── Section titles ── */
+    .rpt-section { margin-bottom: 28px; }
+    .rpt-section-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #003060;
+      border-bottom: 1px solid #edebe9;
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+    }
+
+    /* ── Overview cards ── */
+    .rpt-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .rpt-card {
+      border: 1px solid #edebe9;
+      border-radius: 6px;
+      padding: 16px 20px;
+      text-align: center;
+      background: #faf9f8;
+    }
+    .rpt-card-val {
+      font-size: 32px;
+      font-weight: 700;
+      color: #0078d4;
+      line-height: 1.1;
+    }
+    .rpt-card-val.red { color: #d13438; }
+    .rpt-card-val.green { color: #107c10; }
+    .rpt-card-lbl { font-size: 12px; color: #605e5c; margin-top: 4px; }
+    .rpt-card-sub { font-size: 11px; color: #a19f9d; margin-top: 2px; }
+
+    /* ── Status comment ── */
+    .rpt-status-box {
+      padding: 12px 16px;
+      border-radius: 6px;
+      border-left: 4px solid #0078d4;
+      background: #f0f6ff;
+      font-size: 13px;
+      color: #201f1e;
+      line-height: 1.5;
+    }
+    .rpt-status-box.warn { border-color: #ca5010; background: #fff4ef; }
+    .rpt-status-box.danger { border-color: #d13438; background: #fde7e9; }
+
+    /* ── Tactic table ── */
+    .rpt-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .rpt-table th {
+      background: #0078d4;
+      color: #fff;
+      padding: 7px 10px;
+      text-align: left;
+      font-weight: 600;
+    }
+    .rpt-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #edebe9;
+      vertical-align: middle;
+    }
+    .rpt-table tr:last-child td { border-bottom: none; }
+    .rpt-table tr:hover td { background: #f3f2f1; }
+
+    /* ── Progress bar ── */
+    .rpt-bar-wrap {
+      background: #edebe9;
+      border-radius: 3px;
+      height: 10px;
+      width: 180px;
+      overflow: hidden;
+    }
+    .rpt-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: #107c10;
+      transition: width 0.3s;
+    }
+    .rpt-bar-fill.low { background: #ca5010; }
+    .rpt-bar-fill.mid { background: #d69923; }
+
+    /* ── Importance badges ── */
+    .imp-dot {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+    .imp-1 { background: #888; }
+    .imp-2 { background: #0078d4; }
+    .imp-3 { background: #ca5010; }
+    .imp-4 { background: #e67800; }
+    .imp-5 { background: #d13438; }
+
+    /* ── Priority / Status badges ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .p-1 { background: #f3f2f1; color: #605e5c; }
+    .p-2 { background: #dff6dd; color: #107c10; }
+    .p-3 { background: #fff4ce; color: #7a5900; }
+    .p-4 { background: #fde7e9; color: #d13438; }
+    .s-open { background: #deecf9; color: #004e8c; }
+    .s-in_progress { background: #fff4ce; color: #7a5900; }
+
+    /* ── Footer ── */
+    .rpt-footer {
+      margin-top: 36px;
+      padding-top: 12px;
+      border-top: 1px solid #edebe9;
+      font-size: 11px;
+      color: #a19f9d;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Print / PDF button ── */
+    .rpt-print-btn {
+      background: #0078d4;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 18px;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .rpt-print-btn:hover { background: #106ebe; }
+    .rpt-actions-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    /* ── Empty state ── */
+    .rpt-empty {
+      padding: 20px;
+      text-align: center;
+      color: #a19f9d;
+      font-style: italic;
+      border: 1px dashed #edebe9;
+      border-radius: 4px;
+    }
+
+    /* ── Print media ── */
+    @media print {
+      body { padding: 0; font-size: 11px; }
+      .rpt-actions-bar, .rpt-back { display: none !important; }
+      .rpt-bar-wrap { width: 120px; }
+      @page { margin: 15mm; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="rpt-actions-bar">
+    <a class="rpt-back" href="/">&#8592; Ana Sayfa</a>
+    <button class="rpt-print-btn" onclick="window.print()">&#128438; Yazdır / PDF Kaydet</button>
+  </div>
+
+  <!-- ── Header ── -->
+  <div class="rpt-header">
+    <div>
+      <div class="rpt-title">MITRE ATT&amp;CK GAP Raporu</div>
+      <div class="rpt-subtitle">SOC Coverage Map — Güvenlik Kapsama Analizi</div>
+    </div>
+    <div class="rpt-meta">
+      <div>Oluşturulma: {{ generated_at }}</div>
+      <div>Oluşturan: <strong>{{ current_user.username }}</strong></div>
+    </div>
+  </div>
+
+  {% if gap.overview %}
+
+  <!-- ── Yönetici Özeti ── -->
+  <div class="rpt-section">
+    <div class="rpt-section-title">Yönetici Özeti</div>
+    <div class="rpt-cards">
+      <div class="rpt-card">
+        <div class="rpt-card-val">{{ gap.overview.total_techniques }}</div>
+        <div class="rpt-card-lbl">Toplam Teknik</div>
+        <div class="rpt-card-sub">+{{ gap.overview.total_subtechniques }} alt teknik</div>
+      </div>
+      <div class="rpt-card">
+        <div class="rpt-card-val green">{{ gap.overview.covered_techniques }} <small style="font-size:18px">(%{{ gap.overview.coverage_pct }})</small></div>
+        <div class="rpt-card-lbl">Kapsanan Teknik</div>
+        <div class="rpt-card-sub">Tespit veya mitigation mevcut</div>
+      </div>
+      <div class="rpt-card">
+        <div class="rpt-card-val red">{{ gap.overview.critical_gap_count }}</div>
+        <div class="rpt-card-lbl">Kritik Boşluk</div>
+        <div class="rpt-card-sub">Önem ≥ 4, kapsanmamış</div>
+      </div>
+    </div>
+
+    {% set pct = gap.overview.coverage_pct | float %}
+    {% if pct >= 60 %}
+      <div class="rpt-status-box">
+        <strong>Genel Durum: İyi.</strong> Kapsama oranı %{{ gap.overview.coverage_pct }}'dir.
+        Kritik boşlukların kapatılması önceliklendirilmelidir.
+      </div>
+    {% elif pct >= 30 %}
+      <div class="rpt-status-box warn">
+        <strong>Genel Durum: Orta.</strong> Kapsama oranı %{{ gap.overview.coverage_pct }}'dir.
+        {{ gap.overview.critical_gap_count }} kritik boşluk tespit edildi. Aksiyon planı gerekmektedir.
+      </div>
+    {% else %}
+      <div class="rpt-status-box danger">
+        <strong>Genel Durum: Yetersiz.</strong> Kapsama oranı %{{ gap.overview.coverage_pct }}'dir.
+        {{ gap.overview.critical_gap_count }} kritik boşluk mevcuttur. Acil müdahale önerilir.
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Taktik Bazlı Kapsama ── -->
+  <div class="rpt-section">
+    <div class="rpt-section-title">Taktik Bazlı Kapsama</div>
+    {% if gap.by_tactic %}
+    <table class="rpt-table">
+      <thead>
+        <tr>
+          <th>Taktik</th>
+          <th>Kapsama</th>
+          <th>Kapsanan / Toplam</th>
+          <th>Oran</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in gap.by_tactic %}
+        <tr>
+          <td>{{ t.label }}</td>
+          <td>
+            <div class="rpt-bar-wrap">
+              <div class="rpt-bar-fill {% if t.pct < 30 %}low{% elif t.pct < 60 %}mid{% endif %}"
+                   style="width:{{ t.pct }}%"></div>
+            </div>
+          </td>
+          <td>{{ t.covered }} / {{ t.total }}</td>
+          <td><strong>%{{ t.pct }}</strong></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="rpt-empty">Taktik verisi bulunamadı.</div>
+    {% endif %}
+  </div>
+
+  <!-- ── Kritik Boşluklar ── -->
+  <div class="rpt-section">
+    <div class="rpt-section-title">Kritik Boşluklar (Önem ≥ 4, Kapsanmamış)</div>
+    {% if gap.critical_gaps %}
+    <table class="rpt-table">
+      <thead>
+        <tr>
+          <th>Teknik ID</th>
+          <th>Ad</th>
+          <th>Taktik</th>
+          <th>Önem</th>
+          <th>Tespit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g_item in gap.critical_gaps %}
+        <tr>
+          <td><strong>{{ g_item.tech_id }}</strong></td>
+          <td>{{ g_item.name }}</td>
+          <td style="color:#605e5c">{{ g_item.tactic | replace('-', ' ') | title }}</td>
+          <td>
+            <span class="imp-dot imp-{{ g_item.importance_level }}"></span>
+            Seviye {{ g_item.importance_level }}
+          </td>
+          <td>{{ g_item.rule_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="rpt-empty">Kritik boşluk yok. Tüm yüksek öncelikli teknikler kapsanmış.</div>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <div class="rpt-empty" style="margin: 40px 0">
+    MITRE verisi bulunamadı. Lütfen <code>data/mitre.json</code> dosyasını yükleyin.
+  </div>
+  {% endif %}
+
+  <!-- ── Aksiyon Planı ── -->
+  <div class="rpt-section">
+    <div class="rpt-section-title">Aksiyon Planı (Açık &amp; Devam Eden)</div>
+    {% if action_items %}
+    <table class="rpt-table">
+      <thead>
+        <tr>
+          <th>Teknik</th>
+          <th>Başlık</th>
+          <th>Ekip</th>
+          <th>Öncelik</th>
+          <th>Durum</th>
+          <th>Bitiş</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in action_items %}
+        <tr>
+          <td>{% if item.tech_id %}<strong>{{ item.tech_id }}</strong>{% else %}—{% endif %}</td>
+          <td>{{ item.title }}</td>
+          <td>{{ item.team_name or '—' }}</td>
+          <td>
+            <span class="badge p-{{ item.priority }}">
+              {{ priority_labels.get(item.priority, item.priority) }}
+            </span>
+          </td>
+          <td>
+            <span class="badge s-{{ item.status }}">
+              {{ status_labels.get(item.status, item.status) }}
+            </span>
+          </td>
+          <td>{{ item.due_date or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="rpt-empty">Açık aksiyon maddesi bulunmuyor.</div>
+    {% endif %}
+  </div>
+
+  <!-- ── Footer ── -->
+  <div class="rpt-footer">
+    <span>SOC Coverage Map — MITRE ATT&amp;CK GAP Raporu</span>
+    <span>{{ generated_at }}</span>
+  </div>
+
+</body>
+</html>

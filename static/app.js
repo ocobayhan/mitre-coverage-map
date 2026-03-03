@@ -2102,6 +2102,7 @@ function wireActions() {
   wireValidation();
   wireSidebarToggle();
   wireSettings();
+  wireNewPanels();
   const addBtn = document.getElementById('btnAdd');
   if (addBtn) addBtn.addEventListener('click', addNewRule);
   document.getElementById('modalClose').addEventListener('click', () => {
@@ -2394,5 +2395,395 @@ function wireScoreTooltip() {
       });
       card.addEventListener('mouseleave', () => { if (tip) { tip.remove(); tip = null; } });
     });
+}
+
+// ══════════════════════════════════════════════════════════════
+// P0: GAP Analysis Panel
+// ══════════════════════════════════════════════════════════════
+const _esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+let _gapData = null;
+
+async function loadGapDashboard() {
+  const el = document.getElementById('gapContent');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--d-text-3);padding:20px">Yükleniyor…</div>';
+  try {
+    const res = await apiFetch('/api/gap-analysis');
+    if (!res.ok) { el.innerHTML = '<div style="color:var(--d-red);padding:20px">GAP verisi yüklenemedi.</div>'; return; }
+    _gapData = await res.json();
+    renderGapDashboard(_gapData);
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--d-red);padding:20px">Hata: ' + _esc(e.message) + '</div>';
+  }
+}
+
+function renderGapDashboard(data) {
+  const el = document.getElementById('gapContent');
+  if (!el || !data) return;
+
+  const ov = data.overview || {};
+  const total = ov.total_techniques || 0;
+  const covered = ov.covered_techniques || 0;
+  const pct = ov.coverage_pct || 0;
+  const critCount = ov.critical_gap_count || 0;
+
+  const IMP_LABEL = ['','Düşük','Orta-Düşük','Orta','Yüksek','Kritik'];
+  const TACTIC_TR = {
+    'reconnaissance':'Reconnaissance','resource-development':'Resource Development',
+    'initial-access':'Initial Access','execution':'Execution',
+    'persistence':'Persistence','privilege-escalation':'Privilege Escalation',
+    'defense-evasion':'Defense Evasion','credential-access':'Credential Access',
+    'discovery':'Discovery','lateral-movement':'Lateral Movement',
+    'collection':'Collection','command-and-control':'Command & Control',
+    'exfiltration':'Exfiltration','impact':'Impact'
+  };
+
+  // Stat cards
+  let html = `<div class="gap-stat-cards">
+    <div class="gap-stat-card">
+      <div class="gap-stat-val">${total}</div>
+      <div class="gap-stat-lbl">Toplam Teknik</div>
+      <div class="gap-stat-sub">+${ov.total_subtechniques || 0} alt teknik</div>
+    </div>
+    <div class="gap-stat-card">
+      <div class="gap-stat-val good">${covered} <span style="font-size:16px">(%${pct})</span></div>
+      <div class="gap-stat-lbl">Kapsanan Teknik</div>
+      <div class="gap-stat-sub">${ov.covered_subtechniques || 0} alt teknik kapsanmış</div>
+    </div>
+    <div class="gap-stat-card">
+      <div class="gap-stat-val danger">${critCount}</div>
+      <div class="gap-stat-lbl">Kritik Boşluk</div>
+      <div class="gap-stat-sub">Önem ≥ 4, kapsanmamış</div>
+    </div>
+  </div>`;
+
+  // Tactic progress bars
+  html += '<div class="gap-section-title">Taktik Bazlı Kapsama</div>';
+  (data.by_tactic || []).forEach(t => {
+    const barPct = t.pct || 0;
+    const cls = barPct < 30 ? 'low' : barPct < 60 ? 'mid' : '';
+    html += `<div class="gap-tactic-row">
+      <div class="gap-tactic-name">${_esc(t.label || t.tactic)}</div>
+      <div class="gap-bar-wrap"><div class="gap-bar-fill ${cls}" style="width:${barPct}%"></div></div>
+      <div class="gap-tactic-pct">%${barPct}</div>
+      <div class="gap-tactic-count">${t.covered}/${t.total}</div>
+    </div>`;
+  });
+
+  // Critical gaps
+  html += '<div class="gap-section-title" style="margin-top:20px">Kritik Boşluklar (Önem ≥ 4, Kapsanmamış)</div>';
+  const gaps = data.critical_gaps || [];
+  if (gaps.length === 0) {
+    html += '<div style="color:var(--d-text-3);font-size:12px;padding:10px 0">Kritik boşluk yok.</div>';
+  } else {
+    html += '<div class="gap-critical-list">';
+    gaps.forEach(g => {
+      const tacticLabel = TACTIC_TR[g.tactic] || g.tactic || '—';
+      html += `<div class="gap-critical-item" onclick="openTechDetail('${_esc(g.tech_id)}')">
+        <div class="gap-imp-dot lv-${g.importance_level}"></div>
+        <div class="gap-critical-id">${_esc(g.tech_id)}</div>
+        <div class="gap-critical-name">${_esc(g.name)}</div>
+        <div class="gap-critical-tactic">${_esc(tacticLabel)}</div>
+        ${hasRole('editor') ? `<button class="gap-critical-add" onclick="event.stopPropagation();openNewActionForTech('${_esc(g.tech_id)}','${_esc(g.name).replace(/'/g,'\\\'')}')" title="Aksiyon ekle">+ Aksiyon</button>` : ''}
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════
+// P1: Action Items Panel
+// ══════════════════════════════════════════════════════════════
+let _actionItems = [];
+let _actionsFilter = '';
+let _editingActionId = null;
+
+async function loadActionsPanel() {
+  try {
+    const res = await apiFetch('/api/action-items');
+    if (!res.ok) return;
+    _actionItems = await res.json();
+    renderActionItems();
+  } catch (e) { /* ignore */ }
+}
+
+function renderActionItems() {
+  const tbody = document.getElementById('actionsTableBody');
+  const emptyEl = document.getElementById('actionsEmpty');
+  if (!tbody) return;
+
+  const PRIORITY_LABEL = {1:'Düşük', 2:'Orta', 3:'Yüksek', 4:'Kritik'};
+  const STATUS_LABEL = {open:'Açık', in_progress:'Devam', done:'Tamamlandı', cancelled:'İptal'};
+
+  const filtered = _actionsFilter
+    ? _actionItems.filter(a => a.status === _actionsFilter)
+    : _actionItems;
+
+  tbody.innerHTML = '';
+  if (filtered.length === 0) {
+    if (emptyEl) emptyEl.style.display = 'block';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  filtered.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${item.tech_id ? `<strong style="color:var(--d-blue)">${_esc(item.tech_id)}</strong>` : '—'}</td>
+      <td>${_esc(item.title)}</td>
+      <td>${_esc(item.assigned_team_name || '—')}</td>
+      <td><span class="priority-badge p-${item.priority}">${_esc(PRIORITY_LABEL[item.priority] || item.priority)}</span></td>
+      <td><span class="status-badge s-${item.status}">${_esc(STATUS_LABEL[item.status] || item.status)}</span></td>
+      <td>${_esc(item.due_date || '—')}</td>
+      <td>
+        <div class="action-item-actions">
+          ${hasRole('editor') ? `
+            <button class="action-item-btn" title="Düzenle" data-edit="${item.id}">✏️</button>
+            <button class="action-item-btn del" title="Sil" data-del="${item.id}">🗑️</button>
+          ` : ''}
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Wire edit/delete buttons
+  tbody.querySelectorAll('[data-edit]').forEach(btn => {
+    btn.addEventListener('click', () => openEditAction(parseInt(btn.dataset.edit)));
+  });
+  tbody.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => deleteAction(parseInt(btn.dataset.del)));
+  });
+}
+
+function openNewActionForTech(techId, techName) {
+  // Switch to actions panel
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const navItem = document.querySelector('.nav-item[data-target="actionsPanel"]');
+  const panel = document.getElementById('actionsPanel');
+  if (navItem) navItem.classList.add('active');
+  if (panel) panel.classList.add('active');
+
+  loadActionsPanel();
+  // Pre-fill form
+  _editingActionId = null;
+  const form = document.getElementById('actionFormCard');
+  if (form) {
+    form.classList.add('open');
+    const titleEl = document.getElementById('actionTitle');
+    const techEl = document.getElementById('actionTechId');
+    if (titleEl) titleEl.value = techId ? `${techId} — Kapsama açığı kapatılacak` : '';
+    if (techEl) techEl.value = techId || '';
+    populateActionTeamSelect();
+  }
+}
+
+function openEditAction(id) {
+  const item = _actionItems.find(a => a.id === id);
+  if (!item) return;
+  _editingActionId = id;
+  const form = document.getElementById('actionFormCard');
+  if (!form) return;
+  form.classList.add('open');
+  document.getElementById('actionTitle').value = item.title || '';
+  document.getElementById('actionTechId').value = item.tech_id || '';
+  document.getElementById('actionPriority').value = item.priority || 2;
+  document.getElementById('actionStatus').value = item.status || 'open';
+  document.getElementById('actionDueDate').value = item.due_date || '';
+  document.getElementById('actionDesc').value = item.description || '';
+  populateActionTeamSelect(item.assigned_team_id);
+}
+
+function populateActionTeamSelect(selectedId) {
+  const sel = document.getElementById('actionTeam');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Ekip Seç —</option>';
+  teams.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name;
+    if (selectedId && t.id === selectedId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+async function saveAction() {
+  if (!hasRole('editor')) return;
+  const title = (document.getElementById('actionTitle')?.value || '').trim();
+  if (!title) { alert('Başlık zorunlu.'); return; }
+
+  const payload = {
+    title,
+    tech_id: (document.getElementById('actionTechId')?.value || '').trim().toUpperCase(),
+    priority: parseInt(document.getElementById('actionPriority')?.value || '2'),
+    status: document.getElementById('actionStatus')?.value || 'open',
+    description: (document.getElementById('actionDesc')?.value || '').trim(),
+    due_date: document.getElementById('actionDueDate')?.value || null,
+    assigned_team_id: document.getElementById('actionTeam')?.value
+      ? parseInt(document.getElementById('actionTeam').value) : null,
+  };
+
+  const url = _editingActionId ? `/api/action-items/${_editingActionId}` : '/api/action-items';
+  const method = _editingActionId ? 'PUT' : 'POST';
+  const res = await apiFetch(url, {
+    method,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'Kayıt başarısız'); return; }
+
+  _editingActionId = null;
+  document.getElementById('actionFormCard')?.classList.remove('open');
+  await loadActionsPanel();
+}
+
+async function deleteAction(id) {
+  if (!hasRole('editor')) return;
+  if (!confirm('Aksiyonu silmek istiyor musunuz?')) return;
+  await apiFetch(`/api/action-items/${id}`, {method: 'DELETE'});
+  await loadActionsPanel();
+}
+
+function wireActionsPanel() {
+  document.getElementById('btnNewAction')?.addEventListener('click', () => {
+    _editingActionId = null;
+    const form = document.getElementById('actionFormCard');
+    if (!form) return;
+    form.classList.toggle('open');
+    if (form.classList.contains('open')) {
+      document.getElementById('actionTitle').value = '';
+      document.getElementById('actionTechId').value = '';
+      document.getElementById('actionPriority').value = '2';
+      document.getElementById('actionStatus').value = 'open';
+      document.getElementById('actionDueDate').value = '';
+      document.getElementById('actionDesc').value = '';
+      populateActionTeamSelect();
+    }
+  });
+  document.getElementById('actionFormCancel')?.addEventListener('click', () => {
+    document.getElementById('actionFormCard')?.classList.remove('open');
+    _editingActionId = null;
+  });
+  document.getElementById('actionFormSave')?.addEventListener('click', saveAction);
+
+  // Filter buttons
+  document.getElementById('actionsFilterBar')?.querySelectorAll('.actions-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#actionsFilterBar .actions-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _actionsFilter = btn.dataset.filter || '';
+      renderActionItems();
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// P0: Threat Actor Overlay
+// ══════════════════════════════════════════════════════════════
+let _threatActors = [];
+let _activeThreatActor = null;
+
+async function loadThreatActors() {
+  try {
+    const res = await apiFetch('/api/threat-actors');
+    if (!res.ok) return;
+    _threatActors = await res.json();
+    populateThreatActorSelect();
+  } catch (e) { /* ignore — MITRE data may not exist */ }
+}
+
+function populateThreatActorSelect() {
+  const sel = document.getElementById('threatActorSelect');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Seç —</option>';
+  _threatActors.forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.stix_id;
+    opt.textContent = a.name + (a.id ? ` (${a.id})` : '');
+    sel.appendChild(opt);
+  });
+}
+
+function applyThreatOverlay(stixId) {
+  const actor = _threatActors.find(a => a.stix_id === stixId);
+  const allCards = document.querySelectorAll('.technique-card[data-tech-id], .subtech-card[data-tech-id]');
+  const statEl = document.getElementById('threatActorStat');
+  const clearBtn = document.getElementById('threatActorClear');
+
+  if (!actor) {
+    clearThreatOverlay();
+    return;
+  }
+
+  _activeThreatActor = actor;
+  const techSet = new Set(actor.technique_ids);
+  const total = actor.technique_ids.length;
+
+  allCards.forEach(card => {
+    const tid = card.dataset.techId;
+    if (techSet.has(tid)) {
+      card.classList.add('threat-match');
+      card.classList.remove('threat-dim');
+    } else {
+      card.classList.add('threat-dim');
+      card.classList.remove('threat-match');
+    }
+  });
+
+  const visibleIds = new Set([...allCards].map(c => c.dataset.techId));
+  const visibleActorTechs = actor.technique_ids.filter(t => visibleIds.has(t)).length;
+
+  if (statEl) {
+    statEl.style.display = '';
+    statEl.innerHTML = `<strong>${_esc(actor.name)}</strong>: ${visibleActorTechs}/${total} teknik`;
+  }
+  if (clearBtn) clearBtn.style.display = '';
+}
+
+function clearThreatOverlay() {
+  _activeThreatActor = null;
+  document.querySelectorAll('.technique-card, .subtech-card').forEach(card => {
+    card.classList.remove('threat-match', 'threat-dim');
+  });
+  const statEl = document.getElementById('threatActorStat');
+  const clearBtn = document.getElementById('threatActorClear');
+  if (statEl) statEl.style.display = 'none';
+  if (clearBtn) clearBtn.style.display = 'none';
+  const sel = document.getElementById('threatActorSelect');
+  if (sel) sel.value = '';
+}
+
+function wireThreatActors() {
+  const sel = document.getElementById('threatActorSelect');
+  if (sel) {
+    sel.addEventListener('change', () => {
+      if (sel.value) applyThreatOverlay(sel.value);
+      else clearThreatOverlay();
+    });
+  }
+  document.getElementById('threatActorClear')?.addEventListener('click', clearThreatOverlay);
+}
+
+// ══════════════════════════════════════════════════════════════
+// Wire all new panels
+// ══════════════════════════════════════════════════════════════
+function wireNewPanels() {
+  // GAP panel: load data when nav item is clicked
+  document.querySelector('.nav-item[data-target="gapPanel"]')?.addEventListener('click', () => {
+    loadGapDashboard();
+  });
+  // Actions panel: load data when nav item is clicked
+  document.querySelector('.nav-item[data-target="actionsPanel"]')?.addEventListener('click', () => {
+    loadActionsPanel();
+  });
+
+  wireActionsPanel();
+  wireThreatActors();
+
+  // Load threat actors in background after main init completes
+  setTimeout(loadThreatActors, 1500);
 }
 
