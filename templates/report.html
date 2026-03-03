@@ -227,12 +227,12 @@
       <div class="rpt-card">
         <div class="rpt-card-val">{{ gap.overview.total_techniques }}</div>
         <div class="rpt-card-lbl">Toplam Teknik</div>
-        <div class="rpt-card-sub">+{{ gap.overview.total_subtechniques }} alt teknik</div>
+        <div class="rpt-card-sub">{{ gap.overview.parent_total }} ana · {{ gap.overview.total_subtechniques }} alt</div>
       </div>
       <div class="rpt-card">
         <div class="rpt-card-val green">{{ gap.overview.covered_techniques }} <small style="font-size:18px">(%{{ gap.overview.coverage_pct }})</small></div>
         <div class="rpt-card-lbl">Kapsanan Teknik</div>
-        <div class="rpt-card-sub">Tespit veya mitigation mevcut</div>
+        <div class="rpt-card-sub">Tespit (kural) zorunlu · {{ gap.overview.covered_subtechniques }} alt teknik dahil</div>
       </div>
       <div class="rpt-card">
         <div class="rpt-card-val red">{{ gap.overview.critical_gap_count }}</div>

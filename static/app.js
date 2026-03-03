@@ -2423,12 +2423,16 @@ function renderGapDashboard(data) {
   if (!el || !data) return;
 
   const ov = data.overview || {};
-  const total = ov.total_techniques || 0;
+  // Tüm teknikler (parent + alt) bazında sayılar
+  const total   = ov.total_techniques || 0;
   const covered = ov.covered_techniques || 0;
-  const pct = ov.coverage_pct || 0;
+  const pct     = ov.coverage_pct || 0;
   const critCount = ov.critical_gap_count || 0;
+  const parentTotal   = ov.parent_total   || 0;
+  const parentCovered = ov.parent_covered || 0;
+  const subTotal   = ov.total_subtechniques   || 0;
+  const subCovered = ov.covered_subtechniques || 0;
 
-  const IMP_LABEL = ['','Düşük','Orta-Düşük','Orta','Yüksek','Kritik'];
   const TACTIC_TR = {
     'reconnaissance':'Reconnaissance','resource-development':'Resource Development',
     'initial-access':'Initial Access','execution':'Execution',
@@ -2439,22 +2443,22 @@ function renderGapDashboard(data) {
     'exfiltration':'Exfiltration','impact':'Impact'
   };
 
-  // Stat cards
+  // Stat cards — tüm teknikler üzerinden
   let html = `<div class="gap-stat-cards">
     <div class="gap-stat-card">
       <div class="gap-stat-val">${total}</div>
       <div class="gap-stat-lbl">Toplam Teknik</div>
-      <div class="gap-stat-sub">+${ov.total_subtechniques || 0} alt teknik</div>
+      <div class="gap-stat-sub">${parentTotal} ana · ${subTotal} alt</div>
     </div>
     <div class="gap-stat-card">
       <div class="gap-stat-val good">${covered} <span style="font-size:16px">(%${pct})</span></div>
-      <div class="gap-stat-lbl">Kapsanan Teknik</div>
-      <div class="gap-stat-sub">${ov.covered_subtechniques || 0} alt teknik kapsanmış</div>
+      <div class="gap-stat-lbl">Kapsanan (tespit zorunlu)</div>
+      <div class="gap-stat-sub">${parentCovered} ana · ${subCovered} alt teknik</div>
     </div>
     <div class="gap-stat-card">
       <div class="gap-stat-val danger">${critCount}</div>
       <div class="gap-stat-lbl">Kritik Boşluk</div>
-      <div class="gap-stat-sub">Önem ≥ 4, kapsanmamış</div>
+      <div class="gap-stat-sub">Önem ≥ 4, tespit yok</div>
     </div>
   </div>`;
 

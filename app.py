@@ -567,7 +567,8 @@ def _compute_gap_analysis(mitre_data: dict, db: sqlite3.Connection) -> dict:
         rule_count = rule_count_by_tech.get(teid, 0)
         mits_for_tech = tech_to_mitigations.get(teid, set())
         mitigation_checked = bool(mits_for_tech & covered_mits)
-        covered = rule_count > 0 or mitigation_checked
+        # Detection (kural) zorunlu — yalnızca mitigation kapsama saymaz
+        covered = rule_count > 0
         tc = tech_config.get(teid, {})
         importance = tc.get("importance", 0.5)
         imp_level = _importance_to_level(importance)
@@ -585,15 +586,21 @@ def _compute_gap_analysis(mitre_data: dict, db: sqlite3.Connection) -> dict:
 
     parents = [t for t in all_techs if not t["is_subtechnique"]]
     subs = [t for t in all_techs if t["is_subtechnique"]]
+    # Kapsama yüzdesine alt teknikler de dahil
+    total_all = len(all_techs)
+    covered_all = sum(1 for t in all_techs if t["covered"])
     total_techniques = len(parents)
     covered_techniques = sum(1 for t in parents if t["covered"])
     total_subtechniques = len(subs)
     covered_subtechniques = sum(1 for t in subs if t["covered"])
-    critical_gaps_list = [t for t in parents if t["importance_level"] >= 4 and not t["covered"]]
-    coverage_pct = round(covered_techniques / total_techniques * 100, 1) if total_techniques else 0.0
+    # Kritik boşluklar: parent + alt teknikler, önem ≥ 4, kapsanmamış
+    critical_gaps_list = [t for t in all_techs if t["importance_level"] >= 4 and not t["covered"]]
+    # Genel kapsama % — tüm teknikler (parent + alt)
+    coverage_pct = round(covered_all / total_all * 100, 1) if total_all else 0.0
 
+    # Taktik bazlı: parent + alt teknikler birlikte
     by_tactic_map: dict[str, dict] = {}
-    for t in parents:
+    for t in all_techs:
         for tactic in t["tactics"]:
             entry = by_tactic_map.setdefault(tactic, {"total": 0, "covered": 0})
             entry["total"] += 1
@@ -641,9 +648,13 @@ def _compute_gap_analysis(mitre_data: dict, db: sqlite3.Connection) -> dict:
 
     return {
         "overview": {
-            "total_techniques": total_techniques,
-            "covered_techniques": covered_techniques,
+            # Genel (parent + alt) sayılar — coverage_pct buna göre
+            "total_techniques": total_all,
+            "covered_techniques": covered_all,
             "coverage_pct": coverage_pct,
+            # Sadece parent / sadece alt — UI'da detay göstermek için
+            "parent_total": total_techniques,
+            "parent_covered": covered_techniques,
             "total_subtechniques": total_subtechniques,
             "covered_subtechniques": covered_subtechniques,
             "critical_gap_count": len(critical_gaps_list),
