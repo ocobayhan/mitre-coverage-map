@@ -2796,6 +2796,10 @@ function wireThreatActors() {
 // Wire all new panels
 // ══════════════════════════════════════════════════════════════
 function wireNewPanels() {
+  // TTP panel: load data when nav item is clicked
+  document.querySelector('.nav-item[data-target="ttpPanel"]')?.addEventListener('click', () => {
+    loadTtpList();
+  });
   // GAP panel: load data when nav item is clicked
   document.querySelector('.nav-item[data-target="gapPanel"]')?.addEventListener('click', () => {
     loadGapDashboard();
@@ -2810,5 +2814,166 @@ function wireNewPanels() {
 
   // Load threat actors in background after main init completes
   setTimeout(loadThreatActors, 1500);
+
+  // TTP search
+  document.getElementById('ttpSearch')?.addEventListener('input', e => {
+    if (_ttpData) renderTtpList(_ttpData, e.target.value);
+  });
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// TTP Listesi
+// ══════════════════════════════════════════════════════════════
+const _TTP_TACTIC_LABELS = {
+  'reconnaissance':'Reconnaissance','resource-development':'Resource Development',
+  'initial-access':'Initial Access','execution':'Execution',
+  'persistence':'Persistence','privilege-escalation':'Privilege Escalation',
+  'defense-evasion':'Defense Evasion','credential-access':'Credential Access',
+  'discovery':'Discovery','lateral-movement':'Lateral Movement',
+  'collection':'Collection','command-and-control':'Command and Control',
+  'exfiltration':'Exfiltration','impact':'Impact'
+};
+
+let _ttpData = null;
+
+function _ttpRowBg(ruleCount, mitEntryCount, totalMits, ruleThreshold) {
+  const ruleScore = Math.min(ruleCount / (ruleThreshold || 3), 1.0);
+  const mitScore  = totalMits > 0 ? Math.min(mitEntryCount / totalMits, 1.0) : 0;
+  const score = Math.min(ruleScore * 0.65 + mitScore * 0.35, 1.0);
+  if (score < 0.01) return '';
+  function lerp(a, b, t) { return Math.round(a + (b - a) * t); }
+  const dark = [20,26,34], amber = [162,112,26], green = [48,165,122];
+  let c;
+  if (score < 0.4) {
+    const t = score / 0.4;
+    c = [lerp(dark[0],amber[0],t), lerp(dark[1],amber[1],t), lerp(dark[2],amber[2],t)];
+  } else {
+    const t = (score - 0.4) / 0.6;
+    c = [lerp(amber[0],green[0],t), lerp(amber[1],green[1],t), lerp(amber[2],green[2],t)];
+  }
+  return `rgba(${c[0]},${c[1]},${c[2]},0.22)`;
+}
+
+async function loadTtpList() {
+  if (_ttpData) {
+    renderTtpList(_ttpData, document.getElementById('ttpSearch')?.value || '');
+    return;
+  }
+  const el = document.getElementById('ttpContent');
+  if (!el) return;
+  el.innerHTML = '<div class="ttp-loading">Yükleniyor\u2026</div>';
+  try {
+    const res = await fetch('/api/ttp-list');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error('Unexpected response');
+    _ttpData = data;
+    renderTtpList(_ttpData, '');
+  } catch(e) {
+    if (el) el.innerHTML = '<div class="ttp-loading">Veriler y\u00fcklenemedi: ' + e.message + '</div>';
+  }
+}
+
+function renderTtpList(data, filter) {
+  const el = document.getElementById('ttpContent');
+  if (!el) return;
+  filter = (filter || '').toLowerCase();
+
+  let totalTechs = 0, coveredTechs = 0;
+  data.forEach(tg => tg.techniques.forEach(t => {
+    if (!t.is_subtechnique) {
+      totalTechs++;
+      if (t.rule_count > 0 || t.mitigation_entry_count > 0) coveredTechs++;
+    }
+  }));
+  const totalEl = document.getElementById('ttpTotalCount');
+  const coveredEl = document.getElementById('ttpCoveredCount');
+  const ratioEl = document.getElementById('ttpCoverageRatio');
+  if (totalEl) totalEl.textContent = totalTechs;
+  if (coveredEl) coveredEl.textContent = coveredTechs;
+  if (ratioEl) ratioEl.textContent = totalTechs ? Math.round(coveredTechs / totalTechs * 100) + '%' : '0%';
+
+  let html = '';
+  data.forEach(tg => {
+    const tactic = tg.tactic;
+    const label = _TTP_TACTIC_LABELS[tactic] || tactic;
+    const parents = tg.techniques.filter(t => !t.is_subtechnique);
+    const subs = {};
+    tg.techniques.filter(t => t.is_subtechnique).forEach(t => {
+      (subs[t.parent_id] = subs[t.parent_id] || []).push(t);
+    });
+
+    const visParents = parents.filter(t => {
+      if (!filter) return true;
+      if (t.tech_id.toLowerCase().includes(filter)) return true;
+      if (t.name.toLowerCase().includes(filter)) return true;
+      if ((subs[t.tech_id] || []).some(s =>
+        s.tech_id.toLowerCase().includes(filter) || s.name.toLowerCase().includes(filter)
+      )) return true;
+      return false;
+    });
+    if (!visParents.length) return;
+
+    html += `<div class="ttp-tactic-section"><div class="ttp-tactic-header">${_esc(label)}</div>`;
+
+    visParents.forEach(t => {
+      const subList = subs[t.tech_id] || [];
+      const hasSubs = subList.length > 0;
+      const bg = _ttpRowBg(t.rule_count, t.mitigation_entry_count, t.total_mitigations, t.rule_threshold);
+      const bgStyle = bg ? ` style="background:${bg}"` : '';
+      html += `<div class="ttp-tech-row" data-tech-id="${t.tech_id}"${bgStyle}>
+        <span class="ttp-expand${hasSubs?' ttp-has-subs':''}" onclick="ttpToggle('${t.tech_id}','${tactic}')" title="${hasSubs?'Alt teknikleri a\u00e7/kapat':''}">${hasSubs?'\u25ba':''}</span>
+        <span class="ttp-tech-id">${_esc(t.tech_id)}</span>
+        <span class="ttp-tech-name" onclick="openTechDetail('${t.tech_id}')" title="Detay">${_esc(t.name)}</span>
+        <span class="ttp-badge-rule" title="Tespit say\u0131s\u0131">\ud83d\udd0d ${t.rule_count}</span>
+        <span class="ttp-badge-mit" title="Mitigation kapsama">${t.mitigation_entry_count}/${t.total_mitigations} Mitigation</span>
+      </div>`;
+
+      if (hasSubs) {
+        html += `<div class="ttp-subs-container" id="ttp-subs-${t.tech_id}-${tactic}" style="display:none">`;
+        subList
+          .filter(s => !filter || s.tech_id.toLowerCase().includes(filter) || s.name.toLowerCase().includes(filter))
+          .forEach(s => {
+            const sbg = _ttpRowBg(s.rule_count, s.mitigation_entry_count, s.total_mitigations, s.rule_threshold);
+            const sbgStyle = sbg ? ` style="background:${sbg}"` : '';
+            html += `<div class="ttp-tech-row ttp-subtech"${sbgStyle}>
+              <span class="ttp-expand"></span>
+              <span class="ttp-tech-id">${_esc(s.tech_id)}</span>
+              <span class="ttp-tech-name" onclick="openTechDetail('${s.tech_id}')" title="Detay">${_esc(s.name)}</span>
+              <span class="ttp-badge-rule">\ud83d\udd0d ${s.rule_count}</span>
+              <span class="ttp-badge-mit">${s.mitigation_entry_count}/${s.total_mitigations}</span>
+            </div>`;
+          });
+        html += '</div>';
+      }
+    });
+    html += '</div>';
+  });
+
+  el.innerHTML = html || '<div class="ttp-loading">Sonu\u00e7 bulunamad\u0131.</div>';
+}
+
+function ttpToggle(techId, tactic) {
+  const sub = document.getElementById(`ttp-subs-${techId}-${tactic}`);
+  if (!sub) return;
+  const row = sub.previousElementSibling;
+  const expandBtn = row ? row.querySelector('.ttp-expand') : null;
+  if (sub.style.display === 'none') {
+    sub.style.display = '';
+    if (expandBtn) expandBtn.textContent = '\u25bc';
+  } else {
+    sub.style.display = 'none';
+    if (expandBtn) expandBtn.textContent = '\u25ba';
+  }
+}
+
+function openTechDetail(techId) {
+  const detail = techDetailsMap[techId];
+  if (!detail) return;
+  const parentId = detail.isSub ? detail.parentId : techId;
+  const parentDetail = techDetailsMap[parentId] || detail;
+  const rules = enrichRules().filter(r => r.parentId === parentId || r.tid === parentId);
+  openModal(parentId, parentDetail.name, rules);
 }
 

@@ -25,6 +25,7 @@ app.secret_key = os.environ.get("SOC_SECRET_KEY", "change-this-in-production")
 
 MITRE_CACHE = {"mtime": None, "data": None}
 THREAT_ACTOR_CACHE: dict[str, Any] = {"mtime": None, "data": None}
+TTP_LIST_CACHE: dict[str, Any] = {"data": None, "dirty": True}
 ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
 
 _TACTIC_LABEL_MAP: dict[str, str] = {
@@ -962,6 +963,7 @@ def rules():
         target_id=str(cur.lastrowid),
         detail=f"name={name};tech={tech or '-'};source={source}",
     )
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech, "source": source, "techniques": [tech] if tech else []}), 201
 
@@ -1020,6 +1022,7 @@ def rules_bulk():
         target_type="rule",
         detail=f"inserted={inserted};errors={len(errors)}",
     )
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True, "inserted": inserted, "errors": errors})
 
@@ -1031,6 +1034,7 @@ def delete_rule(rule_id: int):
     db.execute("DELETE FROM rule_techniques WHERE rule_id = ?", (rule_id,))
     db.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
     write_audit_log(db, action="delete", target_type="rule", target_id=str(rule_id))
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -1052,6 +1056,7 @@ def add_rule_technique(rule_id: int):
                (rule_id, tech_id))
     write_audit_log(db, action="create", target_type="rule_technique",
                     target_id=str(rule_id), detail=f"tech_id={tech_id}")
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -1064,6 +1069,7 @@ def delete_rule_technique(rule_id: int, tech_id: str):
                (rule_id, tech_id.upper()))
     write_audit_log(db, action="delete", target_type="rule_technique",
                     target_id=str(rule_id), detail=f"tech_id={tech_id}")
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -1286,6 +1292,7 @@ def mitigation_entries():
         target_id=str(cur.lastrowid),
         detail=f"mitigation_id={mitigation_id};team={team}",
     )
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"id": cur.lastrowid, "mitigation_id": mitigation_id, "team": team, "comment": comment}), 201
 
@@ -1301,6 +1308,7 @@ def delete_mitigation_entry(entry_id: int):
         target_type="mitigation_entry",
         target_id=str(entry_id),
     )
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -1412,9 +1420,15 @@ _TACTIC_ORDER = [
 ]
 
 
+def _invalidate_ttp_cache():
+    TTP_LIST_CACHE["dirty"] = True
+
+
 @app.route("/api/ttp-list")
 @role_required("viewer")
 def ttp_list():
+    if not TTP_LIST_CACHE["dirty"] and TTP_LIST_CACHE["data"] is not None:
+        return jsonify(TTP_LIST_CACHE["data"])
     if not MITRE_PATH.exists():
         return jsonify({"error": "MITRE data not found"}), 500
     try:
@@ -1541,6 +1555,8 @@ def ttp_list():
                 "tactic": tactic,
                 "techniques": sorted(techs, key=lambda x: x["tech_id"]),
             })
+    TTP_LIST_CACHE["data"] = result
+    TTP_LIST_CACHE["dirty"] = False
     return jsonify(result)
 
 
@@ -1697,6 +1713,7 @@ def admin_reset():
     db.execute("DELETE FROM mitigation_entries")
     db.execute("DELETE FROM rule_techniques")
     db.execute("DELETE FROM rules")
+    _invalidate_ttp_cache()
     db.commit()
 
     inserted = 0
@@ -1762,6 +1779,7 @@ def update_technique_config(tech_id: str):
         target_id=tech_id.upper(),
         detail=f"importance={importance};rule_threshold={rule_threshold}",
     )
+    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
