@@ -589,24 +589,19 @@ function _ruleRow(r) {
       ${hasRole('editor') ? `<button class="rule-tech-remove" data-rule-id="${r.id}" data-tech-id="${t}" title="Tekniği kaldır">×</button>` : ''}
     </span>`;
   }).join('');
-  const stepperTitle = `${COV_LABEL[level]} — tıkla değiştir`;
-  const stepperHtml = hasRole('editor')
-    ? `<div class="cov-stepper" data-rule-id="${r.id}" data-level="${level}" title="${stepperTitle}">
-        <span class="cov-dot"></span><span class="cov-line"></span>
-        <span class="cov-dot"></span><span class="cov-line"></span>
-        <span class="cov-dot"></span>
+  const sliderHtml = hasRole('editor')
+    ? `<div class="cov-slider" data-rule-id="${r.id}" data-level="${level}">
+        <div class="cov-rail"><div class="cov-fill"></div><div class="cov-thumb"></div></div>
         <span class="cov-lbl">${COV_LABEL[level]}</span>
       </div>`
-    : `<div class="cov-stepper cov-readonly" data-level="${level}">
-        <span class="cov-dot"></span><span class="cov-line"></span>
-        <span class="cov-dot"></span><span class="cov-line"></span>
-        <span class="cov-dot"></span>
+    : `<div class="cov-slider cov-readonly" data-level="${level}">
+        <div class="cov-rail"><div class="cov-fill"></div><div class="cov-thumb"></div></div>
         <span class="cov-lbl">${COV_LABEL[level]}</span>
       </div>`;
   return `
     <div class="rule-list-row" data-rule-id="${r.id}">
       <div class="rl-name">${_esc(r.name)}</div>
-      <div class="rl-cov">${stepperHtml}</div>
+      <div class="rl-cov">${sliderHtml}</div>
       <div class="rl-techs">
         ${techChips}
         ${hasRole('editor') ? `<span class="rule-tech-add">
@@ -754,21 +749,79 @@ function renderRulesList() {
     });
   });
 
-  // Kapsam stepper tıklama
-  container.querySelectorAll('.cov-stepper:not(.cov-readonly)').forEach(el => {
-    el.addEventListener('click', async () => {
-      const ruleId = parseInt(el.dataset.ruleId);
-      const cur = el.dataset.level || 'full';
-      const next = COV_CYCLE[(COV_CYCLE.indexOf(cur) + 1) % COV_CYCLE.length];
+  // Kapsam slider — tıkla veya sürükle
+  container.querySelectorAll('.cov-slider:not(.cov-readonly)').forEach(slider => {
+    const rail  = slider.querySelector('.cov-rail');
+    const fill  = slider.querySelector('.cov-fill');
+    const thumb = slider.querySelector('.cov-thumb');
+    const lbl   = slider.querySelector('.cov-lbl');
+
+    function snapLevel(pct) {
+      return pct < 0.33 ? 'low' : pct < 0.67 ? 'partial' : 'full';
+    }
+    async function persistLevel(level) {
+      const ruleId = parseInt(slider.dataset.ruleId);
+      const rule = userRules.find(r => r.id === ruleId);
+      if (rule && rule.coverage_level === level) return;
       const res = await apiFetch(`/api/rules/${ruleId}/coverage`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ coverage_level: next })
+        body: JSON.stringify({ coverage_level: level })
       });
-      if (!res.ok) return;
-      const rule = userRules.find(r => r.id === ruleId);
-      if (rule) rule.coverage_level = next;
-      renderRulesList();
+      if (res.ok && rule) rule.coverage_level = level;
+    }
+    function applyVisual(level) {
+      slider.dataset.level = level;
+      lbl.textContent = COV_LABEL[level];
+    }
+
+    // Tıklama: rail'in tıklanan noktasına snap
+    rail.addEventListener('click', e => {
+      const rect = rail.getBoundingClientRect();
+      const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const lvl  = snapLevel(pct);
+      applyVisual(lvl);
+      persistLevel(lvl);
+    });
+
+    // Sürükleme: thumb'ı rail boyunca serbestçe taşı, bırakınca snap
+    thumb.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Drag sırasında CSS geçişini kaldır (thumb imleci takip etsin)
+      thumb.style.transition = 'none';
+      fill.style.transition  = 'none';
+
+      const onMove = e2 => {
+        const rect = rail.getBoundingClientRect();
+        const pct  = Math.max(0.0625, Math.min(0.9375, (e2.clientX - rect.left) / rect.width));
+        const lvl  = snapLevel(pct);
+        const clr  = lvl === 'low' ? '#c42b1c' : lvl === 'partial' ? '#ca8a04' : '#2d7d32';
+        // Inline stil ile thumb imleci tam takip eder
+        thumb.style.left       = `${pct * 100}%`;
+        fill.style.width       = `${pct * 100}%`;
+        thumb.style.background = clr;
+        fill.style.background  = clr;
+        lbl.textContent        = COV_LABEL[lvl];
+        lbl.style.color        = clr;
+      };
+
+      const onUp = e2 => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        const rect = rail.getBoundingClientRect();
+        const pct  = Math.max(0, Math.min(1, (e2.clientX - rect.left) / rect.width));
+        const lvl  = snapLevel(pct);
+        // Inline stilleri temizle → CSS snap animasyonu devreye girer
+        thumb.style.cssText = '';
+        fill.style.cssText  = '';
+        lbl.style.color     = '';
+        applyVisual(lvl);
+        persistLevel(lvl);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
     });
   });
 
