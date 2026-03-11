@@ -379,8 +379,18 @@ def init_db() -> None:
         migrate_rule_techniques(db)
         migrate_consolidate_rules(db)
         build_technique_config(db)
+        ensure_rule_coverage_level(db)
     finally:
         db.close()
+
+
+def ensure_rule_coverage_level(db: sqlite3.Connection) -> None:
+    cols = {r[1] for r in db.execute("PRAGMA table_info(rules)").fetchall()}
+    if "coverage_level" not in cols:
+        db.execute(
+            "ALTER TABLE rules ADD COLUMN coverage_level TEXT NOT NULL DEFAULT 'full'"
+        )
+        db.commit()
 
 
 def ensure_products(db: sqlite3.Connection) -> None:
@@ -917,7 +927,7 @@ def rules():
     db = get_db()
     if request.method == "GET":
         rows = db.execute("""
-            SELECT r.id, r.name, r.tactic, r.tech, r.source,
+            SELECT r.id, r.name, r.tactic, r.tech, r.source, r.coverage_level,
                    GROUP_CONCAT(rt.tech_id) as techs
             FROM rules r
             LEFT JOIN rule_techniques rt ON rt.rule_id = r.id
@@ -1025,6 +1035,21 @@ def rules_bulk():
     _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True, "inserted": inserted, "errors": errors})
+
+
+@app.route("/api/rules/<int:rule_id>/coverage", methods=["PATCH"])
+@role_required("editor")
+def update_rule_coverage(rule_id: int):
+    payload = request.get_json(silent=True) or {}
+    level = (payload.get("coverage_level") or "").strip()
+    if level not in ("low", "partial", "full"):
+        return jsonify({"error": "Geçersiz değer: low | partial | full"}), 400
+    db = get_db()
+    db.execute("UPDATE rules SET coverage_level=? WHERE id=?", (level, rule_id))
+    write_audit_log(db, action="update", target_type="rule", target_id=str(rule_id),
+                    detail=f"coverage_level={level}")
+    db.commit()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/rules/<int:rule_id>", methods=["DELETE"])

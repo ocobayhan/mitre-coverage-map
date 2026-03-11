@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
-  <link rel="stylesheet" href="/static/styles.css?v=82" />
+  <link rel="stylesheet" href="/static/styles.css?v=84" />
 </head>
 <body>
   <div class="ms-shell">
@@ -1261,20 +1261,8 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=75"></script>
+  <script src="/static/app.js?v=78"></script>
   <script>
-    // ── Wiki sidebar navigation ──────────────────────────────
-    document.querySelectorAll('.wiki-nav-item').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = btn.dataset.wiki;
-        document.querySelectorAll('.wiki-nav-item').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.wiki-page').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
-        const page = document.getElementById(target);
-        if (page) page.classList.add('active');
-      });
-    });
-
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];
 

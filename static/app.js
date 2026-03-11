@@ -36,6 +36,10 @@ let auditLogs = [];
 // kullanır; seçim re-render sonrasında da korunur (input value / select selected).
 let rulesFilterSearch = '';
 let rulesFilterProduct = '';
+let rulesOpenGroups = null; // null = tümü açık (başlangıç), Set = kullanıcı toggle sonrası
+
+const COV_CYCLE = ['low', 'partial', 'full'];
+const COV_LABEL = { low: 'Düşük', partial: 'Kısmi', full: 'Tam' };
 // Teknik bazlı puanlama konfigürasyonu — /api/technique-config'den yüklenir.
 // { "T1059": { importance, rule_threshold, group_count, tool_count }, ... }
 let techniqueConfig = {};
@@ -572,13 +576,60 @@ function renderMitigationList() {
 //
 // State: userRules (global) + rulesFilterSearch/rulesFilterProduct (sayfa-local).
 // Her re-render'da filtre değerleri input/select'e geri yazılır (state kaybolmaz).
+function _ruleRow(r) {
+  const level = r.coverage_level || 'full';
+  const techs = (r.techniques && r.techniques.length > 0)
+    ? r.techniques
+    : (r.tech && r.tech !== 'None' ? [r.tech] : []);
+  const techChips = techs.map(t => {
+    const details = techDetailsMap[t];
+    const techLabel = details ? `${t} - ${details.name}` : t;
+    return `<span class="rule-tech-chip">
+      <button class="tech-chip" type="button" data-tech-label="${techLabel}">${details?.name || t}</button>
+      ${hasRole('editor') ? `<button class="rule-tech-remove" data-rule-id="${r.id}" data-tech-id="${t}" title="Tekniği kaldır">×</button>` : ''}
+    </span>`;
+  }).join('');
+  const stepperTitle = `${COV_LABEL[level]} — tıkla değiştir`;
+  const stepperHtml = hasRole('editor')
+    ? `<div class="cov-stepper" data-rule-id="${r.id}" data-level="${level}" title="${stepperTitle}">
+        <span class="cov-dot"></span><span class="cov-line"></span>
+        <span class="cov-dot"></span><span class="cov-line"></span>
+        <span class="cov-dot"></span>
+        <span class="cov-lbl">${COV_LABEL[level]}</span>
+      </div>`
+    : `<div class="cov-stepper cov-readonly" data-level="${level}">
+        <span class="cov-dot"></span><span class="cov-line"></span>
+        <span class="cov-dot"></span><span class="cov-line"></span>
+        <span class="cov-dot"></span>
+        <span class="cov-lbl">${COV_LABEL[level]}</span>
+      </div>`;
+  return `
+    <div class="rule-list-row" data-rule-id="${r.id}">
+      <div class="rl-name">${_esc(r.name)}</div>
+      <div class="rl-cov">${stepperHtml}</div>
+      <div class="rl-techs">
+        ${techChips}
+        ${hasRole('editor') ? `<span class="rule-tech-add">
+          <div class="tech-autocomplete-wrapper" data-rule-id="${r.id}">
+            <input class="rule-tech-input" type="text" placeholder="T1059 veya teknik adı" data-rule-id="${r.id}" />
+            <div class="tech-autocomplete-dropdown hidden"></div>
+          </div>
+          <button class="action-btn btn-add rule-tech-add-btn" data-rule-id="${r.id}">+</button>
+        </span>` : ''}
+      </div>
+      <div class="rl-actions">
+        ${hasRole('editor') ? `<button class="action-btn btn-reset rule-delete" data-rule-id="${r.id}">Sil</button>` : ''}
+      </div>
+    </div>`;
+}
+
 function renderRulesList() {
   const container = document.getElementById('rulesList');
   if (!container) return;
 
   const colorMap = productColorMap();
 
-  // Yeni Kural formu (sadece editor+)
+  // Yeni Tespit formu (editor+)
   const sourceOptions = products.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
   const addFormHtml = hasRole('editor') ? `
     <div class="rule-add-form">
@@ -607,7 +658,7 @@ function renderRulesList() {
     </div>
   ` : '';
 
-  // Filter bar HTML
+  // Filtre bar
   const productOptions = products.map(p =>
     `<option value="${p.name}" ${rulesFilterProduct === p.name ? 'selected' : ''}>${p.name}</option>`
   ).join('');
@@ -632,85 +683,104 @@ function renderRulesList() {
   `;
 
   if (userRules.length === 0) {
-    container.innerHTML = addFormHtml + filterBarHtml + '<div class="empty-state"><div class="empty-title">Tespit yok</div><div class="empty-sub">Henüz tespit eklenmemiş.</div></div>';
+    container.innerHTML = addFormHtml + filterBarHtml +
+      '<div class="empty-state"><div class="empty-title">Tespit yok</div><div class="empty-sub">Henüz tespit eklenmemiş.</div></div>';
     wireRulesFilterEvents(container);
     wireAddRuleInline(container);
     container.querySelectorAll('.tech-autocomplete-wrapper').forEach(wireAutocomplete);
     return;
   }
 
-  // Apply filters
+  // Filtre uygula
   const visible = userRules.filter(r =>
     (!rulesFilterSearch || r.name.toLowerCase().includes(rulesFilterSearch.toLowerCase())) &&
     (!rulesFilterProduct || r.source === rulesFilterProduct)
   );
 
-  const rows = visible.map(r => {
-    const techs = (r.techniques && r.techniques.length > 0)
-      ? r.techniques
-      : (r.tech && r.tech !== 'None' ? [r.tech] : []);
-    const techChips = techs.map(t => {
-      const details = techDetailsMap[t];
-      const techLabel = details ? `${t} - ${details.name}` : t;
-      return `<span class="rule-tech-chip">
-        <button class="tech-chip" type="button" data-tech-label="${techLabel}">${details?.name || t}</button>
-        ${hasRole('editor') ? `<button class="rule-tech-remove" data-rule-id="${r.id}" data-tech-id="${t}" title="Tekniği kaldır">×</button>` : ''}
-      </span>`;
-    }).join('');
-    const sourceColor = colorMap[r.source] || '#546e7a';
+  // Ürüne göre grupla
+  const groups = {};
+  const groupOrder = [];
+  visible.forEach(r => {
+    if (!groups[r.source]) { groups[r.source] = []; groupOrder.push(r.source); }
+    groups[r.source].push(r);
+  });
+
+  // Başlangıçta tüm gruplar açık
+  if (rulesOpenGroups === null) rulesOpenGroups = new Set(groupOrder);
+
+  const groupsHtml = groupOrder.map(src => {
+    const color = colorMap[src] || '#546e7a';
+    const rules = groups[src];
+    const isOpen = rulesOpenGroups.has(src);
+    const arrow = isOpen ? '▾' : '▸';
+    const rowsHtml = rules.map(r => _ruleRow(r)).join('');
     return `
-      <div class="mitigation-list-row rule-list-row">
-        <div class="mitigation-list-name">${r.name}</div>
-        <div class="mitigation-list-tech">
-          <span class="source-tag" style="background:${sourceColor}">${r.source}</span>
+      <div class="rule-product-group">
+        <div class="rule-product-header" data-product="${_esc(src)}">
+          <span class="rule-product-toggle">${arrow}</span>
+          <span class="rule-product-dot" style="background:${color}"></span>
+          <span class="rule-product-name">${_esc(src)}</span>
+          <span class="rule-product-count">${rules.length} tespit</span>
         </div>
-        <div class="rule-tech-list">
-          ${techChips}
-          ${hasRole('editor') ? `<span class="rule-tech-add">
-            <div class="tech-autocomplete-wrapper" data-rule-id="${r.id}">
-              <input class="rule-tech-input" type="text" placeholder="T1059 veya teknik adı" data-rule-id="${r.id}" />
-              <div class="tech-autocomplete-dropdown hidden"></div>
-            </div>
-            <button class="action-btn btn-add rule-tech-add-btn" data-rule-id="${r.id}">+</button>
-          </span>` : ''}
+        <div class="rule-product-body ${isOpen ? '' : 'collapsed'}">
+          <div class="rule-list-header">
+            <div>Tespit Adı</div>
+            <div>Kapsam</div>
+            <div>Teknikler</div>
+            <div></div>
+          </div>
+          ${rowsHtml}
         </div>
-        <div class="rule-actions">
-          ${hasRole('editor') ? `<button class="action-btn btn-reset rule-delete" data-rule-id="${r.id}">Sil</button>` : ''}
-        </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 
   const emptyNote = visible.length === 0
-    ? '<div class="empty-state"><div class="empty-title">Sonuç yok</div><div class="empty-sub">Filtre kriterlerine uyan tespit bulunamadı.</div></div>'
+    ? '<div class="empty-state"><div class="empty-title">Sonuç yok</div></div>'
     : '';
 
-  container.innerHTML = `
-    ${addFormHtml}
-    ${filterBarHtml}
-    <div class="mitigation-list-header rule-list-header">
-      <div>Tespit Adı</div>
-      <div>Kaynak</div>
-      <div>Teknikler</div>
-      <div>İşlemler</div>
-    </div>
-    ${rows}
-    ${emptyNote}
-  `;
+  container.innerHTML = addFormHtml + filterBarHtml + groupsHtml + emptyNote;
 
   wireRulesFilterEvents(container);
   wireAddRuleInline(container);
-
   container.querySelectorAll('.tech-autocomplete-wrapper').forEach(wireAutocomplete);
 
-  container.querySelectorAll('.tech-chip[data-tech-label]').forEach(chip => {
-    chip.addEventListener('click', (e) => {
-      const label = e.currentTarget.dataset.techLabel || '';
-      if (!label) return;
-      showTechChipPopover(e.currentTarget, label);
+  // Accordion toggle
+  container.querySelectorAll('.rule-product-header').forEach(hdr => {
+    hdr.addEventListener('click', () => {
+      const src = hdr.dataset.product;
+      if (rulesOpenGroups.has(src)) rulesOpenGroups.delete(src);
+      else rulesOpenGroups.add(src);
+      renderRulesList();
     });
   });
 
+  // Kapsam stepper tıklama
+  container.querySelectorAll('.cov-stepper:not(.cov-readonly)').forEach(el => {
+    el.addEventListener('click', async () => {
+      const ruleId = parseInt(el.dataset.ruleId);
+      const cur = el.dataset.level || 'full';
+      const next = COV_CYCLE[(COV_CYCLE.indexOf(cur) + 1) % COV_CYCLE.length];
+      const res = await apiFetch(`/api/rules/${ruleId}/coverage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coverage_level: next })
+      });
+      if (!res.ok) return;
+      const rule = userRules.find(r => r.id === ruleId);
+      if (rule) rule.coverage_level = next;
+      renderRulesList();
+    });
+  });
+
+  // Tech chip popover
+  container.querySelectorAll('.tech-chip[data-tech-label]').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      const label = e.currentTarget.dataset.techLabel || '';
+      if (label) showTechChipPopover(e.currentTarget, label);
+    });
+  });
+
+  // Teknik kaldır
   container.querySelectorAll('.rule-tech-remove').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       if (!hasRole('editor')) return;
@@ -719,14 +789,13 @@ function renderRulesList() {
       const res = await apiFetch(`/api/rules/${ruleId}/techniques/${techId}`, { method: 'DELETE' });
       if (!res.ok) return;
       const rule = userRules.find(r => r.id == ruleId);
-      if (rule && rule.techniques) {
-        rule.techniques = rule.techniques.filter(t => t !== techId);
-      }
+      if (rule && rule.techniques) rule.techniques = rule.techniques.filter(t => t !== techId);
       renderRulesList();
       renderMatrix();
     });
   });
 
+  // Teknik ekle
   container.querySelectorAll('.rule-tech-add-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       if (!hasRole('editor')) return;
@@ -736,21 +805,14 @@ function renderRulesList() {
       const val = (input.value || '').trim();
       if (!val) return;
       const validation = validateTechniqueInput(val);
-      if (!validation.ok) {
-        alert(validation.message);
-        return;
-      }
+      if (!validation.ok) { alert(validation.message); return; }
       const techId = validation.tid;
       const res = await apiFetch(`/api/rules/${ruleId}/techniques`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tech_id: techId })
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Teknik eklenemedi');
-        return;
-      }
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.error || 'Teknik eklenemedi'); return; }
       const rule = userRules.find(r => r.id == ruleId);
       if (rule) {
         if (!rule.techniques) rule.techniques = [];
@@ -763,6 +825,7 @@ function renderRulesList() {
     });
   });
 
+  // Tespit sil
   container.querySelectorAll('.rule-delete').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       const ruleId = parseInt(e.currentTarget.dataset.ruleId);
@@ -1272,20 +1335,31 @@ function computeScore(techId, rulesCount, mitigationCount, sources) {
 }
 
 // Ortak lerp & renk sabitleri
-// Yeşil: soğuk/sade ton (önceki cırtlak #35c48b yerine daha yumuşak)
+// Gradyan: koyu → kırmızı → turuncu → sarı-yeşil → koyu yeşil (5 durak)
 function _colorLerp(a, b, t) {
   return { r: Math.round(a.r + (b.r - a.r) * t),
            g: Math.round(a.g + (b.g - a.g) * t),
            b: Math.round(a.b + (b.b - a.b) * t) };
 }
-const _SCORE_DARK  = { r: 20,  g: 26,  b: 34  };
-const _SCORE_AMBER = { r: 162, g: 112, b: 26  };  // biraz daha soğuk amber
-const _SCORE_GREEN = { r: 48,  g: 165, b: 122 };  // soğuk/sade yeşil
+const _SCORE_STOPS = [
+  { s: 0.00, r: 20,  g: 26,  b: 34  }, // koyu (0%)
+  { s: 0.30, r: 205, g: 50,  b: 50  }, // kırmızı
+  { s: 0.50, r: 225, g: 135, b: 45  }, // turuncu
+  { s: 0.70, r: 185, g: 205, b: 60  }, // sarı-yeşil
+  { s: 1.00, r: 42,  g: 155, b: 55  }, // koyu yeşil
+];
 
 function _scoreRgb(score) {
-  return score < 0.40
-    ? _colorLerp(_SCORE_DARK, _SCORE_AMBER, score / 0.40)
-    : _colorLerp(_SCORE_AMBER, _SCORE_GREEN, (score - 0.40) / 0.60);
+  const st = _SCORE_STOPS;
+  if (score <= st[0].s) return st[0];
+  if (score >= st[st.length - 1].s) return st[st.length - 1];
+  for (let i = 0; i < st.length - 1; i++) {
+    if (score <= st[i + 1].s) {
+      const t = (score - st[i].s) / (st[i + 1].s - st[i].s);
+      return _colorLerp(st[i], st[i + 1], t);
+    }
+  }
+  return st[st.length - 1];
 }
 
 // Ana kart rengi — %20 saydamlık (dark bg üzerinde ince tint)
@@ -2796,6 +2870,20 @@ function wireThreatActors() {
 // Wire all new panels
 // ══════════════════════════════════════════════════════════════
 function wireNewPanels() {
+  // Wiki sidebar navigation (Bilgilendirme panel)
+  const wikiContent = document.querySelector('.wiki-content');
+  document.querySelectorAll('.wiki-nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.wiki;
+      document.querySelectorAll('.wiki-nav-item').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.wiki-page').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const page = document.getElementById(target);
+      if (page) page.classList.add('active');
+      if (wikiContent) wikiContent.scrollTop = 0;
+    });
+  });
+
   // TTP panel: load data when nav item is clicked
   document.querySelector('.nav-item[data-target="ttpPanel"]')?.addEventListener('click', () => {
     loadTtpList();
@@ -2842,17 +2930,8 @@ function _ttpRowBg(ruleCount, mitEntryCount, totalMits, ruleThreshold) {
   const mitScore  = totalMits > 0 ? Math.min(mitEntryCount / totalMits, 1.0) : 0;
   const score = Math.min(ruleScore * 0.65 + mitScore * 0.35, 1.0);
   if (score < 0.01) return '';
-  function lerp(a, b, t) { return Math.round(a + (b - a) * t); }
-  const dark = [20,26,34], amber = [162,112,26], green = [48,165,122];
-  let c;
-  if (score < 0.4) {
-    const t = score / 0.4;
-    c = [lerp(dark[0],amber[0],t), lerp(dark[1],amber[1],t), lerp(dark[2],amber[2],t)];
-  } else {
-    const t = (score - 0.4) / 0.6;
-    c = [lerp(amber[0],green[0],t), lerp(amber[1],green[1],t), lerp(amber[2],green[2],t)];
-  }
-  return `rgba(${c[0]},${c[1]},${c[2]},0.22)`;
+  const rgb = _scoreRgb(score);
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},0.22)`;
 }
 
 async function loadTtpList() {

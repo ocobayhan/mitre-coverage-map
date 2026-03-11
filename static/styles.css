@@ -902,15 +902,86 @@ button.action-btn {
 /* ── Rules Panel ────────────────────────────────────────── */
 #rulesPanel .info-card { width: 100%; max-width: none; padding: 16px; }
 #rulesPanel .mitigation-list { width: 100%; }
-#rulesPanel .rule-list-header,
-#rulesPanel .rule-list-row {
+.rule-list-header,
+.rule-list-row {
   display: grid;
-  grid-template-columns: 1.5fr 140px 3fr 100px;
-  gap: 14px;
+  grid-template-columns: 2fr 110px 3fr 72px;
+  gap: 12px;
 }
-#rulesPanel .rule-list-header { font-size: 11px; color: var(--d-text-3); text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 6px; border-bottom: 1px solid var(--d-border); }
-#rulesPanel .rule-list-row { padding: 10px 0; border-bottom: 1px solid var(--d-border); align-items: start; }
-#rulesPanel .rule-list-row:last-child { border-bottom: none; }
+.rule-list-header { font-size: 11px; color: var(--d-text-3); text-transform: uppercase; letter-spacing: 0.08em; padding: 6px 8px 6px; border-bottom: 1px solid var(--d-border); }
+.rule-list-row { padding: 8px 8px; border-bottom: 1px solid var(--d-border); align-items: center; }
+.rule-list-row:last-child { border-bottom: none; }
+
+/* ── Coverage Stepper ───────────────────────────────────── */
+.cov-stepper {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+  gap: 0;
+}
+.cov-stepper.cov-readonly { cursor: default; }
+.cov-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--d-border);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.cov-line {
+  width: 14px;
+  height: 2px;
+  background: var(--d-border);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.cov-lbl {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--d-text-3);
+  min-width: 34px;
+  transition: color 0.15s;
+}
+/* low: 1st dot red */
+.cov-stepper[data-level="low"] .cov-dot:nth-child(1) { background: #c42b1c; }
+.cov-stepper[data-level="low"] .cov-lbl { color: #c42b1c; }
+/* partial: 1st + 2nd dots + connecting line amber */
+.cov-stepper[data-level="partial"] .cov-dot:nth-child(1),
+.cov-stepper[data-level="partial"] .cov-dot:nth-child(3) { background: #ca8a04; }
+.cov-stepper[data-level="partial"] .cov-line:nth-child(2) { background: #ca8a04; }
+.cov-stepper[data-level="partial"] .cov-lbl { color: #ca8a04; }
+/* full: all dots + lines green */
+.cov-stepper[data-level="full"] .cov-dot { background: #2d7d32; }
+.cov-stepper[data-level="full"] .cov-line { background: #2d7d32; }
+.cov-stepper[data-level="full"] .cov-lbl { color: #2d7d32; }
+
+/* ── Product group accordion ────────────────────────────── */
+.rule-product-group { margin-bottom: 4px; }
+.rule-product-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  background: var(--d-surface);
+  border: 1px solid var(--d-border);
+  border-radius: 3px;
+  user-select: none;
+}
+.rule-product-header:hover { background: var(--d-hover); }
+.rule-product-toggle { font-size: 11px; color: var(--d-text-3); width: 12px; flex-shrink: 0; }
+.rule-product-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.rule-product-name { font-size: 13px; font-weight: 500; color: var(--d-text-1); flex: 1; }
+.rule-product-count { font-size: 11px; color: var(--d-text-3); }
+.rule-product-body {
+  border: 1px solid var(--d-border);
+  border-top: none;
+  border-radius: 0 0 3px 3px;
+  padding: 0 8px 6px;
+}
+.rule-product-body.collapsed { display: none; }
 
 /* ── Rule filter & search ───────────────────────────────── */
 .rule-search { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
@@ -1374,7 +1445,7 @@ button.action-btn {
 
 /* Gradient bar */
 .wiki-gradient-bar { margin-bottom: 16px; }
-.wgb-track { position: relative; height: 24px; border-radius: 4px; background: linear-gradient(to right, rgb(20,26,34) 0%, rgb(176,124,30) 40%, rgb(53,196,139) 100%); margin-bottom: 24px; border: 1px solid var(--d-border); }
+.wgb-track { position: relative; height: 24px; border-radius: 4px; background: linear-gradient(to right, rgb(20,26,34) 0%, rgb(205,50,50) 30%, rgb(225,135,45) 50%, rgb(185,205,60) 70%, rgb(42,155,55) 100%); margin-bottom: 24px; border: 1px solid var(--d-border); }
 .wgb-marker { position: absolute; top: 100%; transform: translateX(-50%); text-align: center; }
 .wgb-label { font-size: 11px; color: var(--d-text-3); margin-top: 4px; }
 .wgb-zones { display: flex; font-size: 12px; color: var(--d-text-3); }
