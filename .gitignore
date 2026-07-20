@@ -5,3 +5,5 @@ soc.db
 coverage.db
 data/*.db
 .env
+*.log
+NUL

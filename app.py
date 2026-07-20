@@ -27,7 +27,6 @@ DATA_DIR = BASE_DIR / "data"
 DB_PATH = BASE_DIR / "soc.db"
 MITRE_PATH = DATA_DIR / "mitre.json"
 SEED_RULES_PATH = DATA_DIR / "rules_seed.json"
-LEGACY_SOC_HTML = BASE_DIR / "SOC.html"
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
@@ -1453,18 +1452,6 @@ def _load_seed_rules() -> list[dict[str, Any]]:
     if SEED_RULES_PATH.exists():
         try:
             return json.loads(SEED_RULES_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            return []
-
-    if LEGACY_SOC_HTML.exists():
-        try:
-            text = LEGACY_SOC_HTML.read_text(encoding="utf-8", errors="ignore")
-            match = None
-            import re
-            match = re.search(r"let\s+userRules\s*=\s*(\[.*?\]);", text, re.S)
-            if not match:
-                return []
-            return json.loads(match.group(1))
         except Exception:
             return []
 

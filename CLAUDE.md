@@ -86,27 +86,19 @@ Project Instructions
 #### Key Design Documents
 - *Audit Logging:* docs/audit_logging.md — How to add audit logging to routes (patterns, constants, sanitization, checklist)
 - *RBAC:* docs/rbac.md — User roles, permission matrix, backend permission groups, frontend checks
-- *Scheduler:* docs/PLAN_SCHEDULER_REDESIGN.md — JobScheduler engine, ScheduledJob dataclass, how to register new jobs
+
+There is no in-app job scheduler (no `JobScheduler`/`ScheduledJob` in `app.py`) — the only scheduled process is the external `scripts/sync_connectors.py`, intended to run via Windows Task Scheduler (see README's QRadar Connector section). If an in-app scheduler is ever built, add its design doc here.
 
 #### Development Environment
-- *Dev machine (Windows 11):* Where Claude runs (bash shell via Claude Code)
-- *Test server (Ubuntu):* ssh claude@ip
-- *Backend:* http://ip:port
-- *Frontend:* http://ip:port
-
-#### SSH Session Management
-- *Prefer persistent SSH sessions* over repeated one-liner connect/disconnect
-- *ALWAYS logout/exit SSH sessions* when done with a dev run
-- Don't leave orphaned sessions on the server (ip)
+Single machine: Windows 11, everything (dev, test, run) happens locally via `.venv\Scripts\python.exe`. There is no separate Ubuntu test server or SSH deployment target for this project — do not assume one exists.
 
 #### Workflow
-1. *Start by reading* docs/PROGRESS.md, docs/REQUIREMENTS.md, and any relevant DESIGN documents.
-2. *End by updating* those same docs — including submodule docs under docs/<submodule_name>/. If functionality changed, update REQUIREMENTS.md.
-3. Run tests on Ubuntu VM, not locally. Never skip tests or modify them without user approval. Include user-facing visual tests.
-4. Commit after every functional phase.
-5. For multi-step tasks, create a TODO checklist. For larger/complex tasks, use a TODO.md with checkboxes and maintain fine-grained state there.
+1. *Start by reading* `PROJECT_STATE.md` (progress/status) and `README.md` (setup/usage/requirements) before non-trivial changes.
+2. *End by updating* `PROJECT_STATE.md` if functionality, data status, or KPI numbers changed; update `README.md` if setup/usage/API surface changed.
+3. Run tests locally: `.venv\Scripts\python.exe -m unittest discover -s tests -v` and, for UI changes, `scripts\browser_smoke.py`. Never skip tests or modify them without user approval.
+4. Commit after every functional phase (only when the user asks for a commit).
+5. For multi-step tasks, use TaskCreate/TODO tracking; for larger tasks, keep fine-grained state in a tracked plan.
 6. Enter plan mode often — especially if user mentions "plan."
-7. Write every relevant progress to docs/PROGRESS.md
 
 #### Core Principles
 * *Simplicity first.* Always ask: is there a simpler way? But never at the cost of security or functionality.
@@ -125,6 +117,6 @@ Project Instructions
 * Ask yourself: "Would a staff engineer approve this?"
 
 #### Versioning
-- Frontend and backend can iterate at different rates (independent versioning)
-- Suggest updates when there are considerable amount of changes implemented.
-- Version files: ..., ....
+- Frontend and backend can iterate at different rates (independent versioning).
+- `templates/index.html` pins `static/styles.css?v=N` and `static/app.js?v=N` — bump the relevant `v` whenever that file changes, so browsers don't serve a stale cached copy.
+- Suggest a version/changelog note in `PROJECT_STATE.md` when a considerable amount of change has accumulated.
