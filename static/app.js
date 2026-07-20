@@ -32,6 +32,16 @@ let currentUser = null;
 let currentRole = 'viewer';
 let users = [];
 let auditLogs = [];
+let auditPagination = { page: 1, pages: 1, total: 0, per_page: 50 };
+let auditFacetsLoaded = false;
+let dataQuality = null;
+let connectors = [];
+let scopeRegistry = null;
+let selectedEnvironmentId = null;
+let selectedAssetGroupId = null;
+let matrixCoverageMode = 'operational';
+let matrixSocKpi = null;
+let matrixSocByTechnique = {};
 // Kurallar sayfası filtre state'i — renderRulesList() her re-render'da bu değerleri
 // kullanır; seçim re-render sonrasında da korunur (input value / select selected).
 let rulesFilterSearch = '';
@@ -81,6 +91,16 @@ function applyRoleUI() {
   document.getElementById('settingsUsersTab')?.classList.toggle('hidden', !hasRole('admin'));
   document.getElementById('settingsAuditTab')?.classList.toggle('hidden', !hasRole('admin'));
   document.getElementById('settingsTeamsTab')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('settingsConnectorsTab')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('auditNavItem')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('dataQualityRepair')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('socSnapshot')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('socApproveProfile')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('socEditProfile')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('socNewProfile')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('socIncludeVisible')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('socExcludeVisible')?.classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('socNewTelemetry')?.classList.toggle('hidden', !hasRole('editor'));
 }
 
 async function init() {
@@ -96,14 +116,15 @@ async function init() {
       await loadAuditLogs();
     }
 
-    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes, teamsRes] = await Promise.all([
+    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes, teamsRes, socRes] = await Promise.all([
       apiFetch('/api/mitre-min'),
       apiFetch('/api/products'),
       apiFetch('/api/rules'),
       apiFetch('/api/mitigation-notes'),
       apiFetch('/api/mitigation-entries'),
       apiFetch('/api/technique-config'),
-      apiFetch('/api/teams')
+      apiFetch('/api/teams'),
+      apiFetch('/api/soc-kpi')
     ]);
 
     if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
@@ -116,6 +137,8 @@ async function init() {
     mitigationEntries = normalizeEntries(entries);
     techniqueConfig = configRes.ok ? await configRes.json() : {};
     teams = teamsRes.ok ? await teamsRes.json() : [];
+    matrixSocKpi = socRes.ok ? await socRes.json() : null;
+    rebuildMatrixSocLookup();
 
     prepareMitreLookup();
     await loadProducts();
@@ -128,12 +151,13 @@ async function init() {
   }
 }
 async function reloadData() {
-  const [productsRes, rulesRes, notesRes, entriesRes, teamsRes] = await Promise.all([
+  const [productsRes, rulesRes, notesRes, entriesRes, teamsRes, socRes] = await Promise.all([
     apiFetch('/api/products'),
     apiFetch('/api/rules'),
     apiFetch('/api/mitigation-notes'),
     apiFetch('/api/mitigation-entries'),
-    apiFetch('/api/teams')
+    apiFetch('/api/teams'),
+    apiFetch('/api/soc-kpi')
   ]);
   products = productsRes.ok ? await productsRes.json() : [];
   userRules = rulesRes.ok ? await rulesRes.json() : [];
@@ -142,6 +166,8 @@ async function reloadData() {
   const entries = entriesRes.ok ? await entriesRes.json() : [];
   mitigationEntries = normalizeEntries(entries);
   teams = teamsRes.ok ? await teamsRes.json() : [];
+  matrixSocKpi = socRes.ok ? await socRes.json() : matrixSocKpi;
+  rebuildMatrixSocLookup();
   renderLegend();
   renderProductLegend();
   populateSourceSelect();
@@ -1271,27 +1297,233 @@ async function loadUsers() {
 }
 
 function renderAuditLogs() {
-  const list = document.getElementById('auditList');
-  if (!list) return;
-  list.innerHTML = '';
-  auditLogs.forEach(l => {
-    const row = document.createElement('div');
-    row.className = 'audit-item';
+  const body = document.getElementById('auditTableBody');
+  const empty = document.getElementById('auditEmpty');
+  if (!body) return;
+  body.innerHTML = '';
+  auditLogs.forEach(log => {
+    const row = document.createElement('tr');
+    row.tabIndex = 0;
     row.innerHTML = `
-      <div>${l.created_at || ''}</div>
-      <div>${l.username || '-'}</div>
-      <div>${l.action}:${l.target_type}</div>
-      <div>${l.target_id || ''} ${l.detail || ''}</div>
-    `;
-    list.appendChild(row);
+      <td title="${_esc(log.created_at || '')}">${_esc(formatAuditTime(log.created_at))}</td>
+      <td>${_esc(log.username || 'sistem')}</td>
+      <td><span class="audit-action-badge">${_esc(log.action)}</span></td>
+      <td title="${_esc(`${log.target_type}:${log.target_id || ''}`)}">${_esc(log.target_type)}${log.target_id ? ` · ${_esc(log.target_id)}` : ''}</td>
+      <td title="${_esc(log.detail || '')}">${_esc(log.detail || '—')}</td>
+      <td title="${_esc(log.request_id || '')}">${_esc((log.request_id || '—').slice(0, 12))}</td>`;
+    const open = () => showAuditDetail(log);
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', event => { if (event.key === 'Enter') open(); });
+    body.appendChild(row);
   });
+  if (empty) empty.style.display = auditLogs.length ? 'none' : 'block';
+
+  const pageInfo = document.getElementById('auditPageInfo');
+  if (pageInfo) pageInfo.textContent = `${auditPagination.page} / ${auditPagination.pages} · ${auditPagination.total} kayıt`;
+  const prev = document.getElementById('auditPrev');
+  const next = document.getElementById('auditNext');
+  if (prev) prev.disabled = auditPagination.page <= 1;
+  if (next) next.disabled = auditPagination.page >= auditPagination.pages;
 }
 
-async function loadAuditLogs() {
+function formatAuditTime(value) {
+  if (!value) return '—';
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T') + 'Z';
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('tr-TR');
+}
+
+function auditFilterParams(includePage = true) {
+  const params = new URLSearchParams();
+  const fields = {
+    q: 'auditSearch', username: 'auditActor', action: 'auditAction',
+    target_type: 'auditTargetType', date_from: 'auditDateFrom', date_to: 'auditDateTo'
+  };
+  Object.entries(fields).forEach(([key, id]) => {
+    const value = document.getElementById(id)?.value?.trim();
+    if (value) params.set(key, value);
+  });
+  if (includePage) {
+    params.set('page', String(auditPagination.page));
+    params.set('per_page', String(auditPagination.per_page));
+  }
+  return params;
+}
+
+function populateAuditFacets(facets) {
+  if (auditFacetsLoaded || !facets) return;
+  const fill = (id, rows, key) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    rows.forEach(row => {
+      const option = document.createElement('option');
+      option.value = row[key];
+      option.textContent = `${row[key]} (${row.count})`;
+      select.appendChild(option);
+    });
+  };
+  fill('auditAction', facets.actions || [], 'action');
+  fill('auditTargetType', facets.target_types || [], 'target_type');
+  auditFacetsLoaded = true;
+}
+
+function showAuditDetail(log) {
+  const panel = document.getElementById('auditDetail');
+  const body = document.getElementById('auditDetailBody');
+  if (!panel || !body) return;
+  const prettyJson = value => {
+    if (!value) return '—';
+    try { return JSON.stringify(JSON.parse(value), null, 2); } catch (_) { return value; }
+  };
+  const field = (label, value, cls = '') => `
+    <div class="audit-detail-field">
+      <div class="audit-detail-label">${_esc(label)}</div>
+      <div class="audit-detail-value ${cls}">${_esc(value || '—')}</div>
+    </div>`;
+  body.innerHTML = `
+    ${field('Zaman', formatAuditTime(log.created_at))}
+    ${field('Kullanıcı', log.username || 'sistem')}
+    ${field('İşlem', `${log.action} · ${log.target_type}${log.target_id ? ` · ${log.target_id}` : ''}`)}
+    ${field('Detay', log.detail)}
+    ${field('İstek ID', log.request_id)}
+    ${field('IP adresi', log.ip_address)}
+    ${field('User agent', log.user_agent)}
+    <div class="audit-detail-field"><div class="audit-detail-label">Önce</div><pre class="audit-json">${_esc(prettyJson(log.before_json))}</pre></div>
+    <div class="audit-detail-field"><div class="audit-detail-label">Sonra</div><pre class="audit-json">${_esc(prettyJson(log.after_json))}</pre></div>
+    ${field('Önceki kayıt hash', log.prev_hash || 'Zincir başlangıcı')}
+    ${field('Kayıt hash', log.entry_hash)}`;
+  panel.classList.remove('hidden');
+}
+
+async function loadAuditLogs(resetPage = false) {
   if (!hasRole('admin')) return;
-  const res = await apiFetch('/api/audit-logs?limit=200');
-  auditLogs = res.ok ? await res.json() : [];
+  if (resetPage) auditPagination.page = 1;
+  const res = await apiFetch(`/api/audit-logs?${auditFilterParams().toString()}`);
+  if (!res.ok) return;
+  const payload = await res.json();
+  auditLogs = payload.items || [];
+  auditPagination = payload.pagination || auditPagination;
+  populateAuditFacets(payload.facets);
+  const integrity = payload.integrity || {};
+  const badge = document.getElementById('auditIntegrity');
+  if (badge) {
+    badge.className = `integrity-badge ${integrity.valid ? 'valid' : 'invalid'}`;
+    badge.textContent = integrity.valid ? `Bütünlük doğrulandı · ${integrity.checked}` : `Zincir hatası · #${integrity.broken_at_id}`;
+  }
+  const summary = document.getElementById('auditSummary');
+  if (summary) {
+    const failed = (payload.facets?.actions || []).find(item => item.action === 'login_failed')?.count || 0;
+    summary.innerHTML = `
+      <div class="ops-stat"><div class="ops-stat-value">${auditPagination.total}</div><div class="ops-stat-label">Filtrelenen Kayıt</div></div>
+      <div class="ops-stat"><div class="ops-stat-value">${payload.facets?.actions?.length || 0}</div><div class="ops-stat-label">İşlem Türü</div></div>
+      <div class="ops-stat"><div class="ops-stat-value">${payload.facets?.target_types?.length || 0}</div><div class="ops-stat-label">Hedef Türü</div></div>
+      <div class="ops-stat"><div class="ops-stat-value ${failed ? 'warn' : 'good'}">${failed}</div><div class="ops-stat-label">Başarısız Giriş</div></div>
+      <div class="ops-stat"><div class="ops-stat-value ${integrity.valid ? 'good' : 'danger'}">${integrity.valid ? 'Sağlam' : 'Hatalı'}</div><div class="ops-stat-label">Audit Zinciri</div></div>`;
+  }
   renderAuditLogs();
+}
+
+async function downloadAuditEvidence() {
+  const button = document.getElementById('auditEvidenceExport');
+  if (button) button.disabled = true;
+  try {
+    const filters = Object.fromEntries(auditFilterParams(false).entries());
+    const response = await apiFetch('/api/audit-logs/evidence', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(filters),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Kanıt paketi oluşturulamadı.');
+    }
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    downloadBlob(match?.[1] || 'audit-evidence.json', await response.text(), 'application/json;charset=utf-8');
+    auditFacetsLoaded = false;
+    await loadAuditLogs(true);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function renderDataQuality() {
+  if (!dataQuality) return;
+  const summary = dataQuality.summary || {};
+  const scoreClass = summary.quality_score >= 95 ? 'good' : summary.quality_score >= 80 ? 'warn' : 'danger';
+  const summaryEl = document.getElementById('qualitySummary');
+  if (summaryEl) summaryEl.innerHTML = `
+    <div class="ops-stat"><div class="ops-stat-value ${scoreClass}">${summary.quality_score}%</div><div class="ops-stat-label">Güvenilirlik Skoru</div></div>
+    <div class="ops-stat"><div class="ops-stat-value">${summary.total_rules}</div><div class="ops-stat-label">Toplam Tespit</div></div>
+    <div class="ops-stat"><div class="ops-stat-value good">${summary.validly_mapped_rules}</div><div class="ops-stat-label">Geçerli Eşleşen</div></div>
+    <div class="ops-stat"><div class="ops-stat-value danger">${summary.critical_issue_count}</div><div class="ops-stat-label">Kritik Sorun</div></div>
+    <div class="ops-stat"><div class="ops-stat-value warn">${summary.warning_count}</div><div class="ops-stat-label">Uyarı</div></div>`;
+  const dataset = dataQuality.dataset || {};
+  const datasetEl = document.getElementById('qualityDataset');
+  if (datasetEl) datasetEl.innerHTML = `
+    <span><strong>${dataset.technique_count || 0}</strong> teknik</span>
+    <span><strong>${dataset.mitigation_count || 0}</strong> mitigation</span>
+    <span><strong>${((dataset.size_bytes || 0) / 1024 / 1024).toFixed(1)} MB</strong> MITRE veri seti</span>
+    <span>Güncelleme: <strong>${_esc(formatAuditTime(dataset.modified_at))}</strong></span>
+    <span>Gösterilen: <strong>${Math.min(dataQuality.issue_count || 0, 500)} / ${dataQuality.issue_count || 0}</strong></span>`;
+
+  const typeSelect = document.getElementById('qualityType');
+  if (typeSelect && typeSelect.options.length === 1) {
+    [...new Set((dataQuality.issues || []).map(issue => issue.type))].sort().forEach(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = type.replaceAll('_', ' ');
+      typeSelect.appendChild(option);
+    });
+  }
+  renderQualityIssues();
+}
+
+function renderQualityIssues() {
+  const body = document.getElementById('qualityIssuesBody');
+  const empty = document.getElementById('qualityEmpty');
+  if (!body || !dataQuality) return;
+  const severity = document.getElementById('qualitySeverity')?.value || '';
+  const type = document.getElementById('qualityType')?.value || '';
+  const query = (document.getElementById('qualitySearch')?.value || '').trim().toLocaleLowerCase('tr-TR');
+  const rows = (dataQuality.issues || []).filter(issue => {
+    if (severity && issue.severity !== severity) return false;
+    if (type && issue.type !== type) return false;
+    const haystack = `${issue.entity_id} ${issue.value} ${issue.message}`.toLocaleLowerCase('tr-TR');
+    return !query || haystack.includes(query);
+  });
+  body.innerHTML = rows.map(issue => `
+    <tr>
+      <td><span class="severity-badge ${_esc(issue.severity)}">${issue.severity === 'critical' ? 'Kritik' : 'Uyarı'}</span></td>
+      <td>${_esc(issue.type.replaceAll('_', ' '))}</td>
+      <td>#${_esc(issue.entity_id)}</td>
+      <td title="${_esc(issue.value || '')}">${_esc(issue.value || '—')}${issue.suggested_value ? ` → ${_esc(issue.suggested_value)}` : ''}</td>
+      <td title="${_esc(issue.message)}">${_esc(issue.message)}</td>
+    </tr>`).join('');
+  if (empty) empty.style.display = rows.length ? 'none' : 'block';
+}
+
+async function loadDataQuality() {
+  const res = await apiFetch('/api/data-quality');
+  if (!res.ok) return;
+  dataQuality = await res.json();
+  renderDataQuality();
+}
+
+async function repairDataQuality() {
+  if (!hasRole('admin')) return;
+  if (!confirm('Tanımlı güvenli düzeltmeler uygulansın mı? İşlem audit kaydına yazılacaktır.')) return;
+  const res = await apiFetch('/api/data-quality/repair', {method: 'POST'});
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    alert(error.error || 'Veri düzeltme işlemi başarısız.');
+    return;
+  }
+  await reloadData();
+  await loadDataQuality();
+  if (hasRole('admin')) await loadAuditLogs(true);
 }
 
 function populateTacticSelect() {
@@ -1376,12 +1608,20 @@ function getMitigationTotal(techId) {
 //   mitigation   (30%) = min(checkedMit / mitTotal, 1)
 //   çeşitlilik   (20%) = min(productCount / 2, 1)
 // techniqueConfig'ten rule_threshold ve importance alınır; yoksa sabit fallback kullanılır.
-function computeScore(techId, rulesCount, mitigationCount, sources) {
+function ruleCoverageWeight(rule) {
+  return ({low: 0.25, partial: 0.60, full: 1.00})[rule?.coverage_level || 'full'] || 1.00;
+}
+
+function effectiveRuleCount(rules) {
+  return (rules || []).reduce((total, rule) => total + ruleCoverageWeight(rule), 0);
+}
+
+function computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
   const cfg = techniqueConfig[techId] || {};
   const threshold = cfg.rule_threshold || SCORE_RULE_MAX;
   const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
   const sourceSet = new Set(Array.isArray(sources) ? sources : []);
-  const ruleScore = Math.min(rulesCount / threshold, 1.0);
+  const ruleScore = Math.min(weightedRuleCount / threshold, 1.0);
   const mitScore  = Math.min(mitigationCount / mitTotal, 1.0);
   const divScore  = Math.min(sourceSet.size / 2, 1.0);
   return Math.min(ruleScore * 0.50 + mitScore * 0.30 + divScore * 0.20, 1.0);
@@ -1456,8 +1696,79 @@ function applySourceDots(card, sources) {
   card.appendChild(dots);
 }
 
-function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources) {
-  const score = computeScore(techId, rulesCount, mitigationCount, sources);
+function rebuildMatrixSocLookup() {
+  matrixSocByTechnique = {};
+  (matrixSocKpi?.techniques || []).forEach(item => { matrixSocByTechnique[item.tech_id] = item; });
+}
+
+async function refreshMatrixSocKpi() {
+  const profileQuery = matrixSocKpi?.profile?.id ? `?profile_id=${matrixSocKpi.profile.id}` : '';
+  const response = await apiFetch(`/api/soc-kpi${profileQuery}`);
+  if (!response.ok) return;
+  matrixSocKpi = await response.json();
+  rebuildMatrixSocLookup();
+  socLoaded = false;
+}
+
+const MATRIX_MODE_TEXT = {
+  operational: 'Kural, mitigation ve ürün çeşitliliğine göre operasyonel olgunluk',
+  detection: 'Yalnız aktif, kanıtlı ve geçerlilik süresi dolmamış detection’lar',
+  visibility: 'ATT&CK Data Component kapsamı ve beş DeTT&CT kalite boyutu',
+  combined: 'Detection ve visibility birlikte: kontrol, geliştirme fırsatı, risk ve kör nokta'
+};
+
+function matrixSocStateLabel(item) {
+  if (item?.gap_state === 'blind_spot' && item?.mapped) return 'Eşli, kanıt ve visibility eksik';
+  return ({controlled:'Kontrollü',detection_gap:'Detection GAP',visibility_risk:'Visibility riski',blind_spot:'Kör nokta'})[item?.gap_state] || 'Kapsam dışı';
+}
+
+function applyMatrixSocVisual(card, techId) {
+  card.querySelector('.matrix-soc-metrics')?.remove();
+  card.classList.remove('matrix-soc-controlled','matrix-soc-detection-gap','matrix-soc-visibility-risk','matrix-soc-blind-spot','matrix-soc-out');
+  if (matrixCoverageMode === 'operational') return;
+  const item = matrixSocByTechnique[techId];
+  card.classList.remove('critical-gap');
+  if (!item) {
+    card.classList.add('matrix-soc-out');
+    card.style.backgroundColor = 'rgba(59,58,57,.16)';
+    card.style.borderColor = 'var(--d-border)';
+    card.dataset.socData = JSON.stringify({techId, outOfProfile:true});
+    return;
+  }
+  let color = 'rgba(59,58,57,.34)';
+  let border = 'var(--d-border)';
+  let badgeText = '';
+  if (matrixCoverageMode === 'detection') {
+    color = scoreToColor(item.detection_score / 5);
+    border = item.validated ? '#57a300' : item.mapped ? '#ca8a04' : 'var(--d-border)';
+    badgeText = item.validated ? `D ${item.detection_score}/5` : item.mapped ? 'Eşli · kanıt yok' : 'Detection yok';
+  } else if (matrixCoverageMode === 'visibility') {
+    color = scoreToColor(item.visibility_score / 4);
+    border = item.visibility_score >= 2 ? '#57a300' : item.visibility_score > 0 ? '#ca8a04' : 'var(--d-border)';
+    badgeText = `V ${item.visibility_score}/4 · ${item.available_components.length}/${item.required_components.length} DC`;
+  } else {
+    const stateColors = {controlled:'rgba(55,107,24,.55)',detection_gap:'rgba(154,91,0,.55)',visibility_risk:'rgba(164,38,44,.58)',blind_spot:'rgba(59,58,57,.46)'};
+    const stateBorders = {controlled:'#57a300',detection_gap:'#f3a333',visibility_risk:'#f1707b',blind_spot:'var(--d-border)'};
+    color = stateColors[item.gap_state]; border = stateBorders[item.gap_state];
+    if (item.gap_state === 'blind_spot' && item.mapped) {
+      color = 'rgba(105,80,0,.38)';
+      border = '#ca8a04';
+    }
+    badgeText = `${matrixSocStateLabel(item)} · D${item.detection_score} V${item.visibility_score}`;
+    card.classList.add(`matrix-soc-${item.gap_state.replaceAll('_','-')}`);
+  }
+  card.style.backgroundColor = color;
+  card.style.borderColor = border;
+  card.classList.toggle('covered', item.validated || item.visibility_score >= 2);
+  const metrics = document.createElement('div');
+  metrics.className = 'matrix-soc-metrics';
+  metrics.textContent = badgeText;
+  card.appendChild(metrics);
+  card.dataset.socData = JSON.stringify(item);
+}
+
+function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
+  const score = computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount);
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
 
@@ -1469,7 +1780,7 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
   const cfg = techniqueConfig[techId] || {};
   const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
   card.dataset.scoreData = JSON.stringify({
-    techId, rulesCount, mitigationCount,
+    techId, rulesCount, weightedRuleCount: Math.round(weightedRuleCount * 100) / 100, mitigationCount,
     sources: [...new Set(Array.isArray(sources) ? sources : [])],
     score: Math.round(score * 100),
     importance: Math.round(importance * 100),
@@ -1486,12 +1797,14 @@ function updateTechniqueCard(parentId) {
   if (!card) return;
   const rulesCount = currentRulesByParent[parentId] || 0;
   const mitigationCount = getCheckedMitigationCountForTech(parentId);
-  const sources = enrichRules().filter(r => r.parentId === parentId).map(r => r.source);
-  const score = computeScore(parentId, rulesCount, mitigationCount, sources);
+  const linkedRules = enrichRules().filter(r => r.parentId === parentId);
+  const sources = linkedRules.map(r => r.source);
+  const score = computeScore(parentId, rulesCount, mitigationCount, sources, effectiveRuleCount(linkedRules));
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
   const importance = techniqueConfig[parentId]?.importance || 0.5;
   card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
+  applyMatrixSocVisual(card, parentId);
 }
 
 function updateSubtechCard(techId) {
@@ -1501,11 +1814,12 @@ function updateSubtechCard(techId) {
   const rulesCount = enriched.length;
   const mitigationCount = getCheckedMitigationCountForTech(techId);
   const sources = enriched.map(r => r.source);
-  const score = computeScore(techId, rulesCount, mitigationCount, sources);
+  const score = computeScore(techId, rulesCount, mitigationCount, sources, effectiveRuleCount(enriched));
   card.style.backgroundColor = scoreToSubColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
   const importance = techniqueConfig[techId]?.importance || 0.5;
   card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
+  applyMatrixSocVisual(card, techId);
 }
 
 function refreshTechniqueCardsForMitigation(mitId) {
@@ -1535,9 +1849,10 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
     const rulesForSub = enrichedData.filter(r => r.tid == st.id);
     const mitigationCount = getCheckedMitigationCountForTech(st.id);
     const sources = rulesForSub.map(r => r.source);
-    applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources);
+    const weightedCount = effectiveRuleCount(rulesForSub);
+    applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
     // Alt teknikler daha soluk gösterilir — ana tekniğin görsel ağırlığını korur
-    const subScore = computeScore(st.id, rulesForSub.length, mitigationCount, sources);
+    const subScore = computeScore(st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
     subCard.style.backgroundColor = scoreToSubColor(subScore);
 
     const idEl = document.createElement('div');
@@ -1548,6 +1863,7 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
     nameEl.textContent = st.name;
     subCard.appendChild(idEl);
     subCard.appendChild(nameEl);
+    applyMatrixSocVisual(subCard, st.id);
 
     subCard.style.cursor = 'pointer';
     subCard.onclick = (e) => {
@@ -1604,6 +1920,7 @@ async function addRuleDirect(name, tactic, tech, source) {
 
   const created = await res.json();
   userRules.push(created);
+  await refreshMatrixSocKpi();
   renderRulesList();
   renderMatrix();
   alert('Tespit eklendi');
@@ -1632,6 +1949,7 @@ async function deleteRule(ruleId) {
   const res = await apiFetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
   if (!res.ok) return;
   userRules = userRules.filter(r => r.id !== ruleId);
+  await refreshMatrixSocKpi();
   renderRulesList();
   renderMatrix();
   document.getElementById('ruleModal').style.display = 'none';
@@ -1651,6 +1969,22 @@ async function openModal(parentId, parentName, rules) {
   descDiv.className = 'modal-tech-desc';
   descDiv.innerHTML = '<div style="color:var(--d-text-3);font-size:12px;padding:4px 0">Yükleniyor…</div>';
   body.appendChild(descDiv);
+
+  const socItem = matrixSocByTechnique[parentId];
+  if (socItem) {
+    const socSummary = document.createElement('section');
+    socSummary.className = `modal-soc-summary state-${socItem.gap_state.replaceAll('_','-')}`;
+    socSummary.innerHTML = `
+      <div class="modal-soc-head"><strong>SOC-CMM durumu</strong><span>${matrixSocStateLabel(socItem)}</span></div>
+      <div class="modal-soc-grid">
+        <div><span>Detection</span><strong>${socItem.detection_score}/5</strong><small>${socItem.validated_detection_count}/${socItem.detection_count} validated</small></div>
+        <div><span>Visibility</span><strong>${socItem.visibility_score}/4</strong><small>${socItem.available_components.length}/${socItem.required_components.length} Data Component</small></div>
+        <div><span>Profil ağırlığı</span><strong>${socItem.weight}/5</strong><small>${socEsc(socItem.rationale || 'Gerekçe bekliyor')}</small></div>
+      </div>
+      <button type="button" class="action-btn btn-neutral modal-soc-open">KPI kaydını aç</button>`;
+    socSummary.querySelector('.modal-soc-open').addEventListener('click', () => openSocGovernance(parentId));
+    body.appendChild(socSummary);
+  }
 
   apiFetch(`/api/technique-detail/${parentId}`)
     .then(r => r.json())
@@ -1784,10 +2118,14 @@ async function openModal(parentId, parentName, rules) {
     table.className = 'table';
     let tbody = '<tbody>';
     groupRules.forEach(r => {
+      const validationStatus = r.validation_status || 'untested';
+      const validationClass = validationStatus === 'validated' ? 'good' : (validationStatus === 'failed' || validationStatus === 'expired') ? 'bad' : 'warn';
       tbody += `<tr data-rule-name="${r.name.toLowerCase()}">
-        <td>${r.name}</td>
+        <td>${r.name}<small class="matrix-rule-owner">${r.owner ? `Sahip: ${socEsc(r.owner)}` : 'Sahip atanmamış'}</small></td>
         <td style="text-align:right">
           <span class="source-tag" style="background:${colorMap[r.source] || "#546e7a"}">${r.source}</span>
+          <span class="soc-badge ${validationClass}">${validationStatus} · ${r.detection_score || 0}/5</span>
+          ${hasRole('editor') ? `<button class="action-btn btn-neutral matrix-assess-btn" onclick="openRuleAssessmentFromMatrix(${r.id})">Kanıt</button>` : ''}
           ${hasRole('editor') ? `<button class="delete-btn" onclick="deleteRule(${r.id})">Sil</button>` : ''}
         </td>
       </tr>`;
@@ -2032,6 +2370,11 @@ function wireSidebarToggle() {
   const toggle = document.getElementById('sidebarToggle');
   const sidebar = document.querySelector('.sidebar');
   if (!toggle || !sidebar) return;
+  const compactQuery = window.matchMedia('(max-width: 720px)');
+  if (compactQuery.matches) sidebar.classList.add('collapsed');
+  compactQuery.addEventListener('change', event => {
+    if (event.matches) sidebar.classList.add('collapsed');
+  });
   toggle.addEventListener('click', () => {
     sidebar.classList.toggle('collapsed');
   });
@@ -2046,6 +2389,7 @@ function wireNavigation() {
       items.forEach(i => i.classList.remove('active'));
       item.classList.add('active');
       panels.forEach(p => p.classList.toggle('active', p.id === target));
+      if (target === 'matrixPanel' && mitreObjects.length) renderMatrix();
     });
   });
 }
@@ -2136,6 +2480,8 @@ function wireSettings() {
   if (uploadBtn) uploadBtn.addEventListener('click', uploadCsv);
   const addUserBtn = document.getElementById('btnAddUser');
   if (addUserBtn) addUserBtn.addEventListener('click', addUser);
+  document.getElementById('connectorSave')?.addEventListener('click', saveConnector);
+  document.getElementById('connectorCancel')?.addEventListener('click', resetConnectorForm);
   const refreshAuditBtn = document.getElementById('btnRefreshAudit');
   if (refreshAuditBtn) refreshAuditBtn.addEventListener('click', loadAuditLogs);
   wireSettingsTabs();
@@ -2158,8 +2504,152 @@ function wireSettingsTabs() {
       document.querySelectorAll('.settings-tab-panel').forEach(p =>
         p.classList.toggle('active', p.id === btn.dataset.tab)
       );
+      if (btn.dataset.tab === 'stab-connectors') loadConnectors();
     });
   });
+}
+
+function resetConnectorForm() {
+  const values = {
+    connectorId: '', connectorName: '', connectorBaseUrl: '',
+    connectorSecretEnv: 'QRADAR_SEC_TOKEN', connectorProduct: 'QRadar',
+    connectorMappingsPath: '/console/plugins/app_proxy:UseCaseManager_Service/api/mappings',
+    connectorCaBundle: ''
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) input.value = value;
+  });
+  document.getElementById('connectorVerifyTls').checked = true;
+  document.getElementById('connectorImportRules').checked = true;
+  document.getElementById('connectorEnabled').checked = true;
+  document.getElementById('connectorSave').textContent = 'Connector Kaydet';
+  document.getElementById('connectorCancel').classList.add('hidden');
+}
+
+function editConnector(connector) {
+  const fields = {
+    connectorId: connector.id,
+    connectorName: connector.name,
+    connectorBaseUrl: connector.base_url,
+    connectorSecretEnv: connector.secret_env,
+    connectorProduct: connector.product_name,
+    connectorMappingsPath: connector.mappings_path,
+    connectorCaBundle: connector.ca_bundle,
+  };
+  Object.entries(fields).forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) input.value = value ?? '';
+  });
+  document.getElementById('connectorVerifyTls').checked = !!connector.verify_tls;
+  document.getElementById('connectorImportRules').checked = !!connector.import_new_rules;
+  document.getElementById('connectorEnabled').checked = !!connector.enabled;
+  document.getElementById('connectorSave').textContent = 'Değişiklikleri Kaydet';
+  document.getElementById('connectorCancel').classList.remove('hidden');
+  document.getElementById('connectorName').focus();
+}
+
+function renderConnectors() {
+  const host = document.getElementById('connectorList');
+  if (!host) return;
+  if (!connectors.length) {
+    host.innerHTML = '<div class="settings-empty">Henüz QRadar connector tanımlanmadı.</div>';
+    return;
+  }
+  host.innerHTML = connectors.map(connector => {
+    const inv = connector.inventory || {};
+    const run = (connector.recent_runs || [])[0];
+    const status = connector.last_status === 'success' ? 'Başarılı' : connector.last_status === 'failed' ? 'Hatalı' : 'Henüz çalışmadı';
+    const statusClass = connector.last_status === 'success' ? 'good' : connector.last_status === 'failed' ? 'bad' : 'warn';
+    return `<article class="connector-card" data-connector-id="${connector.id}">
+      <div class="connector-card-head">
+        <div><strong>${_esc(connector.name)}</strong><span>${_esc(connector.base_url)}</span></div>
+        <span class="soc-badge ${statusClass}">${status}</span>
+      </div>
+      <div class="connector-metrics">
+        <div><strong>${inv.total || 0}</strong><span>Envanter</span></div>
+        <div><strong>${connector.linked_rules || 0}</strong><span>Bağlı kural</span></div>
+        <div><strong>${inv.active || 0}</strong><span>Aktif</span></div>
+        <div><strong>${inv.stale || 0}</strong><span>Stale</span></div>
+      </div>
+      <div class="connector-meta">
+        <span>Token: <strong class="${connector.token_configured ? 'good-text' : 'danger-text'}">${connector.token_configured ? 'Tanımlı' : 'Eksik'}</strong></span>
+        <span>Son sync: <strong>${connector.last_sync_at ? _esc(formatAuditTime(connector.last_sync_at)) : '—'}</strong></span>
+        <span>Sonuç: <strong>${run ? `${run.received} kayıt · ${run.mapping_count} mapping` : '—'}</strong></span>
+      </div>
+      ${connector.last_error ? `<div class="connector-error">${_esc(connector.last_error)}</div>` : ''}
+      <div class="connector-card-actions">
+        <button class="action-btn btn-neutral" data-action="edit">Düzenle</button>
+        <button class="action-btn btn-neutral" data-action="test">Bağlantıyı Test Et</button>
+        <button class="action-btn btn-add" data-action="sync" ${!connector.enabled ? 'disabled' : ''}>Şimdi Senkronize Et</button>
+      </div>
+    </article>`;
+  }).join('');
+  host.querySelectorAll('.connector-card').forEach(card => {
+    const connector = connectors.find(item => item.id === Number(card.dataset.connectorId));
+    card.querySelector('[data-action="edit"]')?.addEventListener('click', () => editConnector(connector));
+    card.querySelector('[data-action="test"]')?.addEventListener('click', event => runConnectorAction(connector.id, 'test', event.currentTarget));
+    card.querySelector('[data-action="sync"]')?.addEventListener('click', event => runConnectorAction(connector.id, 'sync', event.currentTarget));
+  });
+}
+
+async function loadConnectors() {
+  if (!hasRole('admin')) return;
+  const response = await apiFetch('/api/connectors');
+  if (!response.ok) return;
+  connectors = await response.json();
+  renderConnectors();
+}
+
+async function saveConnector() {
+  if (!hasRole('admin')) return;
+  const id = document.getElementById('connectorId').value;
+  const payload = {
+    name: document.getElementById('connectorName').value.trim(),
+    base_url: document.getElementById('connectorBaseUrl').value.trim(),
+    secret_env: document.getElementById('connectorSecretEnv').value.trim(),
+    product_name: document.getElementById('connectorProduct').value.trim(),
+    mappings_path: document.getElementById('connectorMappingsPath').value.trim(),
+    ca_bundle: document.getElementById('connectorCaBundle').value.trim(),
+    verify_tls: document.getElementById('connectorVerifyTls').checked,
+    import_new_rules: document.getElementById('connectorImportRules').checked,
+    enabled: document.getElementById('connectorEnabled').checked,
+  };
+  const response = await apiFetch(id ? `/api/connectors/${id}` : '/api/connectors', {
+    method: id ? 'PUT' : 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    alert(result.error || 'Connector kaydedilemedi.');
+    return;
+  }
+  resetConnectorForm();
+  await loadConnectors();
+}
+
+async function runConnectorAction(id, action, button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = action === 'sync' ? 'Senkronize ediliyor…' : 'Test ediliyor…';
+  try {
+    const response = await apiFetch(`/api/connectors/${id}/${action}`, {method: 'POST'});
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Connector işlemi başarısız.');
+    if (action === 'test') alert(`Bağlantı başarılı. ${result.mapping_records} mapping kaydı okundu.`);
+    if (action === 'sync') {
+      alert(`Senkronizasyon tamamlandı. ${result.received} kayıt okundu, ${result.rules_created} yeni kural oluşturuldu.`);
+      await reloadData();
+    }
+    await loadConnectors();
+  } catch (error) {
+    alert(error.message);
+    await loadConnectors();
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
 function wireSearch() {
@@ -2230,6 +2720,8 @@ function wireActions() {
   wireSidebarToggle();
   wireSettings();
   wireNewPanels();
+  wireScopeRegistry();
+  wireMatrixCoverageModes();
   const addBtn = document.getElementById('btnAdd');
   if (addBtn) addBtn.addEventListener('click', addNewRule);
   document.getElementById('modalClose').addEventListener('click', () => {
@@ -2335,7 +2827,7 @@ function renderMatrix() {
         rule_count: parentRuleCount,
         mitigation_checked: parentMitCount,
         products: Array.from(new Set(parentSources)),
-        score: computeScore(tech.id, parentRuleCount, parentMitCount, parentSources)
+        score: computeScore(tech.id, parentRuleCount, parentMitCount, parentSources, effectiveRuleCount(parentRules))
       });
       subMatches.forEach(st => {
         const subRules = enrichedData.filter(r => r.tid == st.id);
@@ -2350,7 +2842,7 @@ function renderMatrix() {
           rule_count: subRuleCount,
           mitigation_checked: subMitCount,
           products: Array.from(new Set(subSources)),
-          score: computeScore(st.id, subRuleCount, subMitCount, subSources)
+          score: computeScore(st.id, subRuleCount, subMitCount, subSources, effectiveRuleCount(subRules))
         });
       });
 
@@ -2366,7 +2858,10 @@ function renderMatrix() {
 
       const mitigationCount = getCheckedMitigationCountForTech(tech.id);
       const sources = rulesForCell.map(r => r.source);
-      applyTechniqueVisuals(card, tech.id, rulesForCell.length, mitigationCount, sources);
+      applyTechniqueVisuals(
+        card, tech.id, rulesForCell.length, mitigationCount, sources,
+        effectiveRuleCount(rulesForCell)
+      );
 
       const idEl = document.createElement('div');
       idEl.className = 'technique-id';
@@ -2386,6 +2881,7 @@ function renderMatrix() {
       card.appendChild(idEl);
       card.appendChild(nameEl);
       card.appendChild(detailBtn);
+      applyMatrixSocVisual(card, tech.id);
 
       const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches);
       card.style.cursor = 'pointer';
@@ -2423,11 +2919,17 @@ function renderMatrix() {
   const expBtn = document.getElementById('btnExpandAll');
   if (expBtn) expBtn.textContent = 'Hepsini Aç';
 
+  updateMatrixModeContext();
   updateMatrixStats();
   wireScoreTooltip();
 }
 
 function updateMatrixStats() {
+  if (matrixCoverageMode !== 'operational' && matrixSocKpi) {
+    updateMatrixSocStats();
+    return;
+  }
+  setMatrixStatLabels(['Teknik','Kapsanan','Alt Teknik Kapsama','Teknik Ort.','Genel Ort. %','Kritik Boşluk','Mitigation Girişi']);
   const parents = visibleExportRows.filter(r => r.type === 'technique');
   const subs    = visibleExportRows.filter(r => r.type === 'subtechnique');
 
@@ -2483,17 +2985,41 @@ function wireScoreTooltip() {
     .forEach(card => {
       card.addEventListener('mouseenter', () => {
         if (tip) tip.remove();
+        if (matrixCoverageMode !== 'operational') {
+          let soc;
+          try { soc = JSON.parse(card.dataset.socData || '{}'); } catch { return; }
+          tip = document.createElement('div');
+          tip.className = 'score-tooltip matrix-soc-tooltip';
+          if (soc.outOfProfile) {
+            tip.innerHTML = '<div class="score-tooltip-row"><span class="score-tooltip-label">Profil</span><span class="score-tooltip-val">Kapsam dışı</span></div>';
+          } else {
+            tip.innerHTML = `
+              <div class="score-tooltip-row"><span class="score-tooltip-label">Durum</span><span class="score-tooltip-val">${matrixSocStateLabel(soc)}</span></div>
+              <div class="score-tooltip-divider"></div>
+              <div class="score-tooltip-row"><span class="score-tooltip-label">Detection</span><span class="score-tooltip-val">${soc.detection_score}/5 · ${soc.validated_detection_count}/${soc.detection_count} validated</span></div>
+              <div class="score-tooltip-row"><span class="score-tooltip-label">Visibility</span><span class="score-tooltip-val">${soc.visibility_score}/4</span></div>
+              <div class="score-tooltip-row"><span class="score-tooltip-label">Data Components</span><span class="score-tooltip-val">${soc.available_components.length}/${soc.required_components.length}</span></div>
+              <div class="score-tooltip-row"><span class="score-tooltip-label">Profil ağırlığı</span><span class="score-tooltip-val">${soc.weight}/5</span></div>
+              ${soc.rationale ? `<div class="score-tooltip-divider"></div><div class="matrix-tooltip-note">${socEsc(soc.rationale)}</div>` : ''}`;
+          }
+          const rect = card.getBoundingClientRect();
+          tip.style.left = `${Math.min(rect.left, window.innerWidth - 250)}px`;
+          tip.style.top = `${rect.bottom + 4}px`;
+          document.body.appendChild(tip);
+          return;
+        }
         let d;
         try { d = JSON.parse(card.dataset.scoreData || '{}'); } catch { return; }
         if (!d.techId) return;
-        const ruleBar  = Math.min(d.rulesCount / Math.max(d.threshold, 1), 1) * 100;
+        const weightedRules = d.weightedRuleCount ?? d.rulesCount;
+        const ruleBar  = Math.min(weightedRules / Math.max(d.threshold, 1), 1) * 100;
         const mitBar   = d.mitTotal > 0 ? Math.min(d.mitigationCount / d.mitTotal, 1) * 100 : 0;
         tip = document.createElement('div');
         tip.className = 'score-tooltip';
         tip.innerHTML = `
           <div class="score-tooltip-row">
             <span class="score-tooltip-label">Tespit</span>
-            <span class="score-tooltip-val">${d.rulesCount}/${d.threshold}</span>
+            <span class="score-tooltip-val">${d.rulesCount} adet · ${weightedRules}/${d.threshold} etkin</span>
           </div>
           <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${ruleBar.toFixed(0)}%;background:#4f86c6"></div></div>
           <div class="score-tooltip-row">
@@ -2574,6 +3100,9 @@ function renderGapDashboard(data) {
   const total   = ov.total_techniques || 0;
   const covered = ov.covered_techniques || 0;
   const pct     = ov.coverage_pct || 0;
+  const mature = ov.mature_techniques || 0;
+  const maturityPct = ov.maturity_pct || 0;
+  const averageScore = ov.average_score_pct || 0;
   const critCount = ov.critical_gap_count || 0;
   const parentTotal   = ov.parent_total   || 0;
   const parentCovered = ov.parent_covered || 0;
@@ -2598,9 +3127,19 @@ function renderGapDashboard(data) {
       <div class="gap-stat-sub">${parentTotal} ana · ${subTotal} alt</div>
     </div>
     <div class="gap-stat-card">
-      <div class="gap-stat-val good">${covered} <span style="font-size:16px">(%${pct})</span></div>
-      <div class="gap-stat-lbl">Kapsanan (tespit zorunlu)</div>
+      <div class="gap-stat-val good">${covered} <span style="font-size:16px">(${pct}%)</span></div>
+      <div class="gap-stat-lbl">Tespit Bulunan</div>
       <div class="gap-stat-sub">${parentCovered} ana · ${subCovered} alt teknik</div>
+    </div>
+    <div class="gap-stat-card">
+      <div class="gap-stat-val good">${mature} <span style="font-size:16px">(${maturityPct}%)</span></div>
+      <div class="gap-stat-lbl">Olgun Kapsama</div>
+      <div class="gap-stat-sub">Skor ≥ %70</div>
+    </div>
+    <div class="gap-stat-card">
+      <div class="gap-stat-val">${averageScore}%</div>
+      <div class="gap-stat-lbl">Ortalama Kapsama Skoru</div>
+      <div class="gap-stat-sub">Tespit · mitigation · ürün çeşitliliği</div>
     </div>
     <div class="gap-stat-card">
       <div class="gap-stat-val danger">${critCount}</div>
@@ -2612,18 +3151,18 @@ function renderGapDashboard(data) {
   // Tactic progress bars
   html += '<div class="gap-section-title">Taktik Bazlı Kapsama</div>';
   (data.by_tactic || []).forEach(t => {
-    const barPct = t.pct || 0;
+    const barPct = t.average_score_pct || 0;
     const cls = barPct < 30 ? 'low' : barPct < 60 ? 'mid' : '';
     html += `<div class="gap-tactic-row">
       <div class="gap-tactic-name">${_esc(t.label || t.tactic)}</div>
       <div class="gap-bar-wrap"><div class="gap-bar-fill ${cls}" style="width:${barPct}%"></div></div>
-      <div class="gap-tactic-pct">%${barPct}</div>
-      <div class="gap-tactic-count">${t.covered}/${t.total}</div>
+      <div class="gap-tactic-pct">${barPct}%</div>
+      <div class="gap-tactic-count" title="Tespit bulunan">${t.covered}/${t.total}</div>
     </div>`;
   });
 
   // Critical gaps
-  html += '<div class="gap-section-title" style="margin-top:20px">Kritik Boşluklar (Önem ≥ 4, Kapsanmamış)</div>';
+  html += '<div class="gap-section-title" style="margin-top:20px">Kritik Boşluklar (Önem ≥ 4, Skor &lt; %35)</div>';
   const gaps = data.critical_gaps || [];
   if (gaps.length === 0) {
     html += '<div style="color:var(--d-text-3);font-size:12px;padding:10px 0">Kritik boşluk yok.</div>';
@@ -2637,6 +3176,7 @@ function renderGapDashboard(data) {
         <div class="gap-critical-id">${_esc(g.tech_id)}</div>
         <div class="gap-critical-name">${_esc(g.name)}</div>
         <div class="gap-critical-tactic">${_esc(tacticLabel)}</div>
+        <div class="gap-critical-score">${Math.round((g.coverage_score || 0) * 100)}%</div>
         ${hasRole('editor') ? `<button class="gap-critical-add" onclick="event.stopPropagation();openNewActionForTech('${_esc(g.tech_id)}','${safeName}')" title="Aksiyon ekle">+ Aksiyon</button>` : ''}
       </div>`;
     });
@@ -2693,8 +3233,8 @@ function renderActionItems() {
       <td>
         <div class="action-item-actions">
           ${hasRole('editor') ? `
-            <button class="action-item-btn" title="Düzenle" data-edit="${item.id}">✏️</button>
-            <button class="action-item-btn del" title="Sil" data-del="${item.id}">🗑️</button>
+            <button class="action-item-btn" title="Düzenle" aria-label="Düzenle" data-edit="${item.id}">&#9998;</button>
+            <button class="action-item-btn del" title="Sil" aria-label="Sil" data-del="${item.id}">&#x2715;</button>
           ` : ''}
         </div>
       </td>`;
@@ -2922,6 +3462,201 @@ function wireThreatActors() {
 // ══════════════════════════════════════════════════════════════
 // Wire all new panels
 // ══════════════════════════════════════════════════════════════
+const SCOPE_STATUS_LABELS = { unknown: 'Değerlendirilmedi', none: 'İzlenmiyor', partial: 'Kısmi izleme', full: 'Tam izleme' };
+const SCOPE_MODE_LABELS = { agent: 'Ajan', log_forwarding: 'Log yönlendirme', api: 'API', network: 'Ağ gözlemi', hybrid: 'Hibrit', other: 'Diğer' };
+
+function selectedScopeEnvironment() {
+  return scopeRegistry?.environments.find(item => item.id === selectedEnvironmentId) || null;
+}
+
+function selectedScopeGroup() {
+  return selectedScopeEnvironment()?.groups.find(item => item.id === selectedAssetGroupId) || null;
+}
+
+async function loadScopeRegistry() {
+  const survey = document.getElementById('scopeSurvey');
+  if (survey && !scopeRegistry) survey.innerHTML = '<div class="scope-empty"><strong>Kapsam yükleniyor</strong><span>Ortam ve varlık grupları hazırlanıyor.</span></div>';
+  const res = await apiFetch('/api/scope-registry');
+  if (!res.ok) {
+    if (survey) survey.innerHTML = '<div class="scope-empty scope-error"><strong>Kapsam yüklenemedi</strong><span>Sayfayı yenileyip tekrar deneyin.</span></div>';
+    return;
+  }
+  scopeRegistry = await res.json();
+  const environments = scopeRegistry.environments || [];
+  if (!environments.some(item => item.id === selectedEnvironmentId)) selectedEnvironmentId = (environments.find(item => item.active) || environments[0])?.id || null;
+  const groups = selectedScopeEnvironment()?.groups || [];
+  if (!groups.some(item => item.id === selectedAssetGroupId)) selectedAssetGroupId = (groups.find(item => item.active) || groups[0])?.id || null;
+  renderScopeRegistry();
+}
+
+function renderScopeRegistry() {
+  if (!scopeRegistry) return;
+  const summary = scopeRegistry.summary || {};
+  document.getElementById('scopeSummary').innerHTML = [
+    ['Aktif ortam', summary.environment_count || 0], ['Varlık grubu', summary.group_count || 0],
+    ['Kayıtlı varlık', Number(summary.asset_count || 0).toLocaleString('tr-TR')], ['Değerlendirilen ürün', summary.reviewed_deployments || 0]
+  ].map(([label, value]) => `<div class="ops-stat"><strong>${value}</strong><span>${label}</span></div>`).join('');
+  const envSelect = document.getElementById('scopeEnvironmentSelect');
+  envSelect.innerHTML = scopeRegistry.environments.length
+    ? scopeRegistry.environments.map(env => `<option value="${env.id}" ${env.id === selectedEnvironmentId ? 'selected' : ''}>${_esc(env.name)}${env.active ? '' : ' (pasif)'}</option>`).join('')
+    : '<option value="">Henüz ortam yok</option>';
+  const groups = selectedScopeEnvironment()?.groups || [];
+  const groupSelect = document.getElementById('scopeGroupSelect');
+  groupSelect.disabled = !groups.length;
+  groupSelect.innerHTML = groups.length
+    ? groups.map(group => `<option value="${group.id}" ${group.id === selectedAssetGroupId ? 'selected' : ''}>${_esc(group.name)}${group.active ? '' : ' (pasif)'}</option>`).join('')
+    : '<option value="">Varlık grubu yok</option>';
+  document.getElementById('scopeAddEnvironment').classList.toggle('hidden', !hasRole('admin'));
+  document.getElementById('scopeEditEnvironment').classList.toggle('hidden', !hasRole('admin') || !selectedScopeEnvironment());
+  document.getElementById('scopeAddGroup').classList.toggle('hidden', !hasRole('admin') || !selectedScopeEnvironment());
+  document.getElementById('scopeEditGroup').classList.toggle('hidden', !hasRole('admin') || !selectedScopeGroup());
+  renderMonitoringSurvey();
+}
+
+function openScopeEnvironmentEditor(environment = null) {
+  document.getElementById('scopeGroupEditor').classList.add('hidden');
+  document.getElementById('scopeEnvironmentId').value = environment?.id || '';
+  document.getElementById('scopeEnvironmentName').value = environment?.name || '';
+  document.getElementById('scopeEnvironmentCode').value = environment?.code || '';
+  document.getElementById('scopeEnvironmentOwner').value = environment?.owner || '';
+  document.getElementById('scopeEnvironmentCriticality').value = environment?.criticality || 3;
+  document.getElementById('scopeEnvironmentDescription').value = environment?.description || '';
+  document.getElementById('scopeEnvironmentActive').checked = environment ? Boolean(environment.active) : true;
+  document.getElementById('scopeEnvironmentEditor').classList.remove('hidden');
+  document.getElementById('scopeEnvironmentName').focus();
+}
+
+function openScopeGroupEditor(group = null) {
+  if (!selectedScopeEnvironment()) return;
+  document.getElementById('scopeEnvironmentEditor').classList.add('hidden');
+  document.getElementById('scopeGroupId').value = group?.id || '';
+  document.getElementById('scopeGroupName').value = group?.name || '';
+  document.getElementById('scopeGroupPlatform').value = group?.platform || 'Linux';
+  document.getElementById('scopeGroupType').value = group?.asset_type || 'Server';
+  document.getElementById('scopeGroupCount').value = group?.asset_count || 0;
+  document.getElementById('scopeGroupOwner').value = group?.owner || '';
+  document.getElementById('scopeGroupCriticality').value = group?.criticality || 3;
+  document.getElementById('scopeGroupActive').checked = group ? Boolean(group.active) : true;
+  document.getElementById('scopeGroupEditor').classList.remove('hidden');
+  document.getElementById('scopeGroupName').focus();
+}
+
+async function saveScopeEnvironment() {
+  const id = document.getElementById('scopeEnvironmentId').value;
+  const payload = {
+    name: document.getElementById('scopeEnvironmentName').value.trim(), code: document.getElementById('scopeEnvironmentCode').value.trim(),
+    owner: document.getElementById('scopeEnvironmentOwner').value.trim(), criticality: Number(document.getElementById('scopeEnvironmentCriticality').value),
+    description: document.getElementById('scopeEnvironmentDescription').value.trim(), active: document.getElementById('scopeEnvironmentActive').checked
+  };
+  const res = await apiFetch(id ? `/api/environments/${id}` : '/api/environments', { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return alert(data.error || 'Ortam kaydedilemedi');
+  if (!id && data.id) selectedEnvironmentId = data.id;
+  selectedAssetGroupId = null;
+  document.getElementById('scopeEnvironmentEditor').classList.add('hidden');
+  await loadScopeRegistry();
+}
+
+async function saveScopeGroup() {
+  const environment = selectedScopeEnvironment();
+  if (!environment) return;
+  const id = document.getElementById('scopeGroupId').value;
+  const payload = {
+    name: document.getElementById('scopeGroupName').value.trim(), platform: document.getElementById('scopeGroupPlatform').value,
+    asset_type: document.getElementById('scopeGroupType').value, asset_count: Number(document.getElementById('scopeGroupCount').value),
+    owner: document.getElementById('scopeGroupOwner').value.trim(), criticality: Number(document.getElementById('scopeGroupCriticality').value),
+    active: document.getElementById('scopeGroupActive').checked
+  };
+  const res = await apiFetch(id ? `/api/asset-groups/${id}` : `/api/environments/${environment.id}/asset-groups`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return alert(data.error || 'Varlık grubu kaydedilemedi');
+  if (!id && data.id) selectedAssetGroupId = data.id;
+  document.getElementById('scopeGroupEditor').classList.add('hidden');
+  await loadScopeRegistry();
+}
+
+function renderMonitoringSurvey() {
+  const target = document.getElementById('scopeSurvey');
+  const environment = selectedScopeEnvironment();
+  const group = selectedScopeGroup();
+  if (!environment || !group) {
+    target.innerHTML = `<div class="scope-empty"><strong>${environment ? 'Varlık grubu gerekli' : 'İlk ortamı oluşturun'}</strong><span>${environment ? 'Bu ortam için bir varlık grubu ekleyin.' : 'KPI kapsamını tanımlamak için ortam ve varlık grubu kaydı gerekir.'}</span></div>`;
+    return;
+  }
+  const deployments = new Map((group.deployments || []).map(item => [item.product_id, item]));
+  const canEdit = hasRole('editor');
+  const rows = (scopeRegistry.products || []).map(product => {
+    const item = deployments.get(product.id) || {};
+    const status = item.monitoring_status || 'unknown';
+    const mode = item.monitoring_mode || 'other';
+    const compatible = (scopeRegistry.connectors || []).filter(connector => connector.product_name === product.name && connector.enabled);
+    const connectorOptions = ['<option value="">Connector seçilmedi</option>', ...compatible.map(connector => `<option value="${connector.id}" ${connector.id === item.connector_id ? 'selected' : ''}>${_esc(connector.name)}${connector.last_status === 'success' ? '' : ' · doğrulanmadı'}</option>`)].join('');
+    const disabled = canEdit ? '' : 'disabled';
+    return `<div class="scope-monitor-row" data-product-id="${product.id}">
+      <div class="scope-product"><i style="background:${_esc(product.color || '#64748b')}"></i><div><strong>${_esc(product.name)}</strong><small>${item.reviewed_at ? `${_esc(item.reviewed_by || '')} · ${_esc(item.reviewed_at)}` : 'Henüz değerlendirilmedi'}</small></div></div>
+      <label><span>İzleme durumu</span><select class="scope-monitor-status" ${disabled}>${Object.entries(SCOPE_STATUS_LABELS).map(([value,label]) => `<option value="${value}" ${value === status ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label><span>Yöntem</span><select class="scope-monitor-mode" ${disabled}>${Object.entries(SCOPE_MODE_LABELS).map(([value,label]) => `<option value="${value}" ${value === mode ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label><span>Kapsam %</span><input class="scope-monitor-percent" type="number" min="0" max="100" value="${item.coverage_percent || 0}" ${disabled}></label>
+      <label><span>Connector</span><select class="scope-monitor-connector" ${disabled}>${connectorOptions}</select></label>
+      <label><span>Sorumlu</span><input class="scope-monitor-owner" value="${_esc(item.owner || '')}" placeholder="SOC ekibi" ${disabled}></label>
+      <label><span>Not / sınır</span><input class="scope-monitor-notes" value="${_esc(item.notes || '')}" placeholder="Hariç kalan cihazlar, log kapsamı..." ${disabled}></label>
+      <div class="scope-evidence"><strong>${Number(item.connector_detection_count || 0).toLocaleString('tr-TR')}</strong><span>bağlı dış tespit</span></div>
+    </div>`;
+  }).join('');
+  target.innerHTML = `<div class="scope-survey-head"><div><span class="scope-path">${_esc(environment.name)} / ${_esc(group.name)}</span><h2>Ürün İzleme Anketi</h2><p>${_esc(group.platform)} · ${_esc(group.asset_type)} · ${Number(group.asset_count).toLocaleString('tr-TR')} varlık · Kritiklik ${group.criticality}/5</p></div><div class="scope-trust-note"><strong>KPI kanıt kuralı</strong><span>Ürünün bulunması tek başına MITRE coverage değildir. Connector tespitleri ayrıca eşlenip doğrulanır.</span></div></div>
+    <div class="scope-monitor-list">${rows || '<div class="scope-empty"><strong>Ürün bulunamadı</strong><span>Önce Ayarlar bölümünden ürün ekleyin.</span></div>'}</div>
+    ${canEdit && rows ? '<div class="scope-survey-actions"><span>Her kaydetme işlemi kullanıcı ve zaman bilgisiyle audit loga yazılır.</span><button class="action-btn btn-add" id="scopeSaveMonitoring">Anketi Kaydet</button></div>' : ''}`;
+  target.querySelectorAll('.scope-monitor-status').forEach(select => {
+    const sync = () => {
+      const row = select.closest('.scope-monitor-row');
+      const percent = row.querySelector('.scope-monitor-percent');
+      const connector = row.querySelector('.scope-monitor-connector');
+      if (select.value === 'full') percent.value = 100;
+      if (select.value === 'none' || select.value === 'unknown') percent.value = 0;
+      if (select.value === 'partial' && (Number(percent.value) < 1 || Number(percent.value) > 99)) percent.value = 50;
+      percent.disabled = !canEdit || select.value !== 'partial';
+      connector.disabled = !canEdit || select.value === 'none' || select.value === 'unknown';
+      if (connector.disabled && canEdit) connector.value = '';
+    };
+    select.addEventListener('change', sync);
+    sync();
+  });
+  document.getElementById('scopeSaveMonitoring')?.addEventListener('click', saveScopeMonitoring);
+}
+
+async function saveScopeMonitoring() {
+  const group = selectedScopeGroup();
+  if (!group) return;
+  const deployments = [...document.querySelectorAll('.scope-monitor-row')].map(row => ({
+    product_id: Number(row.dataset.productId), monitoring_status: row.querySelector('.scope-monitor-status').value,
+    monitoring_mode: row.querySelector('.scope-monitor-mode').value, coverage_percent: Number(row.querySelector('.scope-monitor-percent').value),
+    connector_id: row.querySelector('.scope-monitor-connector').value || null, owner: row.querySelector('.scope-monitor-owner').value.trim(),
+    notes: row.querySelector('.scope-monitor-notes').value.trim()
+  }));
+  const button = document.getElementById('scopeSaveMonitoring');
+  button.disabled = true;
+  const res = await apiFetch(`/api/asset-groups/${group.id}/monitoring`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({deployments}) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { button.disabled = false; return alert(data.error || 'İzleme anketi kaydedilemedi'); }
+  await loadScopeRegistry();
+}
+
+function wireScopeRegistry() {
+  document.getElementById('scopeAddEnvironment')?.addEventListener('click', () => openScopeEnvironmentEditor());
+  document.getElementById('scopeEditEnvironment')?.addEventListener('click', () => openScopeEnvironmentEditor(selectedScopeEnvironment()));
+  document.getElementById('scopeAddGroup')?.addEventListener('click', () => openScopeGroupEditor());
+  document.getElementById('scopeEditGroup')?.addEventListener('click', () => openScopeGroupEditor(selectedScopeGroup()));
+  document.getElementById('scopeSaveEnvironment')?.addEventListener('click', saveScopeEnvironment);
+  document.getElementById('scopeSaveGroup')?.addEventListener('click', saveScopeGroup);
+  document.querySelectorAll('[data-scope-cancel]').forEach(button => button.addEventListener('click', () => button.closest('.scope-editor').classList.add('hidden')));
+  document.getElementById('scopeEnvironmentSelect')?.addEventListener('change', event => {
+    selectedEnvironmentId = Number(event.target.value) || null;
+    selectedAssetGroupId = (selectedScopeEnvironment()?.groups.find(item => item.active) || selectedScopeEnvironment()?.groups[0])?.id || null;
+    renderScopeRegistry();
+  });
+  document.getElementById('scopeGroupSelect')?.addEventListener('change', event => { selectedAssetGroupId = Number(event.target.value) || null; renderScopeRegistry(); });
+}
+
 function wireNewPanels() {
   // Wiki sidebar navigation (Bilgilendirme panel)
   const wikiContent = document.querySelector('.wiki-content');
@@ -2948,6 +3683,47 @@ function wireNewPanels() {
   // Actions panel: load data when nav item is clicked
   document.querySelector('.nav-item[data-target="actionsPanel"]')?.addEventListener('click', () => {
     loadActionsPanel();
+  });
+  document.querySelector('.nav-item[data-target="dataQualityPanel"]')?.addEventListener('click', () => {
+    loadDataQuality();
+  });
+  document.querySelector('.nav-item[data-target="auditPanel"]')?.addEventListener('click', () => {
+    loadAuditLogs();
+  });
+  document.querySelector('.nav-item[data-target="socKpiPanel"]')?.addEventListener('click', () => {
+    loadSocWorkspace();
+  });
+  document.querySelector('.nav-item[data-target="scopePanel"]')?.addEventListener('click', loadScopeRegistry);
+
+  document.getElementById('dataQualityRefresh')?.addEventListener('click', loadDataQuality);
+  document.getElementById('dataQualityRepair')?.addEventListener('click', repairDataQuality);
+  document.getElementById('qualitySeverity')?.addEventListener('change', renderQualityIssues);
+  document.getElementById('qualityType')?.addEventListener('change', renderQualityIssues);
+  document.getElementById('qualitySearch')?.addEventListener('input', renderQualityIssues);
+
+  document.getElementById('auditRefresh')?.addEventListener('click', () => loadAuditLogs());
+  document.getElementById('auditExport')?.addEventListener('click', () => {
+    window.location.href = `/api/audit-logs/export?${auditFilterParams(false).toString()}`;
+  });
+  document.getElementById('auditEvidenceExport')?.addEventListener('click', downloadAuditEvidence);
+  document.getElementById('auditPrev')?.addEventListener('click', () => {
+    if (auditPagination.page > 1) { auditPagination.page -= 1; loadAuditLogs(); }
+  });
+  document.getElementById('auditNext')?.addEventListener('click', () => {
+    if (auditPagination.page < auditPagination.pages) { auditPagination.page += 1; loadAuditLogs(); }
+  });
+  document.getElementById('auditDetailClose')?.addEventListener('click', () => {
+    document.getElementById('auditDetail')?.classList.add('hidden');
+  });
+  ['auditAction', 'auditTargetType', 'auditDateFrom', 'auditDateTo'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => loadAuditLogs(true));
+  });
+  let auditSearchTimer = null;
+  ['auditSearch', 'auditActor'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      clearTimeout(auditSearchTimer);
+      auditSearchTimer = setTimeout(() => loadAuditLogs(true), 300);
+    });
   });
 
   wireActionsPanel();
@@ -2983,8 +3759,9 @@ function _ttpRowBg(ruleCount, mitEntryCount, totalMits, ruleThreshold) {
   const mitScore  = totalMits > 0 ? Math.min(mitEntryCount / totalMits, 1.0) : 0;
   const score = Math.min(ruleScore * 0.65 + mitScore * 0.35, 1.0);
   if (score < 0.01) return '';
-  const rgb = _scoreRgb(score);
-  return `rgba(${rgb.r},${rgb.g},${rgb.b},0.22)`;
+  if (score < 0.30) return 'rgba(209,52,56,0.07)';
+  if (score < 0.60) return 'rgba(202,112,16,0.09)';
+  return 'rgba(57,135,37,0.14)';
 }
 
 async function loadTtpList() {
@@ -3108,4 +3885,405 @@ function openTechDetail(techId) {
   const rules = enrichRules().filter(r => r.parentId === parentId || r.tid === parentId);
   openModal(parentId, parentDetail.name, rules);
 }
+
+function updateMatrixModeContext() {
+  const description = document.getElementById('matrixModeDescription');
+  if (description) description.textContent = MATRIX_MODE_TEXT[matrixCoverageMode];
+  const context = document.getElementById('matrixModeContext');
+  if (!context) return;
+  if (matrixCoverageMode === 'operational' || !matrixSocKpi) {
+    context.textContent = 'Tüm ATT&CK kataloğu · mevcut kural ve mitigation verisi';
+    return;
+  }
+  const profile = matrixSocKpi.profile;
+  const legend = matrixCoverageMode === 'combined'
+    ? '<span class="matrix-key controlled"></span>Kontrollü <span class="matrix-key mapped-pending"></span>Eşli, kanıt yok <span class="matrix-key detection-gap"></span>Detection GAP <span class="matrix-key visibility-risk"></span>Visibility riski <span class="matrix-key blind-spot"></span>Kör nokta'
+    : matrixCoverageMode === 'detection'
+      ? '<span class="matrix-key controlled"></span>Validated <span class="matrix-key detection-gap"></span>Eşli, kanıt yok <span class="matrix-key blind-spot"></span>Detection yok'
+      : '<span class="matrix-key controlled"></span>Görünür ≥2 <span class="matrix-key detection-gap"></span>Kısmi <span class="matrix-key blind-spot"></span>Visibility yok';
+  context.innerHTML = `<strong>${socEsc(profile.name)} · v${profile.version} · ${profile.status === 'approved' ? 'Onaylı' : 'Taslak'}</strong>${legend}`;
+}
+
+function wireMatrixCoverageModes() {
+  document.querySelectorAll('[data-matrix-mode]').forEach(button => button.addEventListener('click', () => {
+    const mode = button.dataset.matrixMode;
+    if (mode !== 'operational' && !matrixSocKpi) {
+      alert('SOC-CMM KPI verisi yüklenemedi. Sayfayı yenileyin.');
+      return;
+    }
+    matrixCoverageMode = mode;
+    document.querySelectorAll('[data-matrix-mode]').forEach(item => item.classList.toggle('active', item === button));
+    updateMatrixModeContext();
+    renderMatrix();
+  }));
+}
+
+function setMatrixStatLabels(labels) {
+  document.querySelectorAll('#matrixStatBar .mstat-lbl').forEach((element, index) => {
+    element.textContent = labels[index] || '';
+  });
+}
+
+function updateMatrixSocStats() {
+  const m = matrixSocKpi.metrics;
+  const techniques = matrixSocKpi.techniques || [];
+  const counts = {controlled:0,detection_gap:0,visibility_risk:0,blind_spot:0};
+  techniques.forEach(item => { counts[item.gap_state] = (counts[item.gap_state] || 0) + 1; });
+  const values = [];
+  let labels = [];
+  if (matrixCoverageMode === 'detection') {
+    labels = ['Profil Tekniği','Validated','Mapped','Weighted Detection','Validated Coverage','Detection GAP','Profil Durumu'];
+    values.push(m.denominator, `${m.validated_techniques} (${m.validated_coverage}%)`, `${m.mapped_techniques} (${m.mapped_coverage}%)`, `${m.weighted_detection}%`, `${m.validated_coverage}%`, m.denominator - m.validated_techniques, matrixSocKpi.profile.status === 'approved' ? 'Onaylı' : 'Taslak');
+  } else if (matrixCoverageMode === 'visibility') {
+    labels = ['Profil Tekniği','Görünür ≥2','Visibility','Data Component','Threshold Coverage','Visibility GAP','Profil Durumu'];
+    values.push(m.denominator, m.visible_techniques, `${m.visibility}%`, matrixSocKpi.catalog.component_count, `${m.visible_threshold_coverage}%`, m.denominator - m.visible_techniques, matrixSocKpi.profile.status === 'approved' ? 'Onaylı' : 'Taslak');
+  } else {
+    labels = ['Profil Tekniği','Mapped','Kontrollü','Detection GAP','Visibility Riski','Kör Nokta','Validated / Visible'];
+    values.push(m.denominator, `${m.mapped_techniques} (${m.mapped_coverage}%)`, counts.controlled, counts.detection_gap, counts.visibility_risk, counts.blind_spot, `${m.validated_coverage}% / ${m.visible_threshold_coverage}%`);
+  }
+  setMatrixStatLabels(labels);
+  ['ms-total','ms-covered','ms-sub','ms-score','ms-avg-all','ms-gap','ms-mitentry'].forEach((id,index) => {
+    const element = document.getElementById(id);
+    element.textContent = values[index];
+    element.className = 'mstat-val';
+    if ((matrixCoverageMode === 'combined' && index === 2) || (matrixCoverageMode !== 'combined' && [1,2,3,4].includes(index))) element.classList.add('good');
+    if ((matrixCoverageMode === 'combined' && [3,4,5].includes(index)) || (matrixCoverageMode !== 'combined' && index === 5)) element.classList.add('bad');
+  });
+}
+
+
+// SOC-CMM KPI workspace
+let socProfiles = [];
+let socKpi = null;
+let socProfileDetail = null;
+let socTelemetry = [];
+let socComponents = [];
+let socDetections = [];
+let socHeatmapMode = 'combined';
+let socLoaded = false;
+let socDrawerSubmit = null;
+
+function socEsc(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function socDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? socEsc(value) : date.toLocaleDateString('tr-TR');
+}
+
+async function socJson(url, options) {
+  const res = await apiFetch(url, options);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function activeSocProfileId() {
+  return Number(document.getElementById('socProfileSelect')?.value || socKpi?.profile?.id || 0);
+}
+
+async function loadSocWorkspace(force = false) {
+  if (socLoaded && !force) return;
+  const select = document.getElementById('socProfileSelect');
+  if (!select) return;
+  try {
+    socProfiles = await socJson('/api/soc-profiles');
+    const currentId = Number(select.value) || socProfiles.find(p => p.is_active)?.id || socProfiles[0]?.id;
+    select.innerHTML = socProfiles.map(profile => `<option value="${profile.id}">${socEsc(profile.name)} · v${profile.version}</option>`).join('');
+    if (currentId) select.value = String(currentId);
+    const profileId = Number(select.value);
+    const [kpi, detail, telemetry, components, detections] = await Promise.all([
+      socJson(`/api/soc-kpi?profile_id=${profileId}`),
+      socJson(`/api/soc-profiles/${profileId}`),
+      socJson('/api/telemetry-sources'),
+      socJson('/api/attack-data-components'),
+      socJson('/api/detection-assessments')
+    ]);
+    socKpi = kpi;
+    matrixSocKpi = kpi;
+    rebuildMatrixSocLookup();
+    socProfileDetail = detail;
+    socTelemetry = telemetry;
+    socComponents = components.components || [];
+    socDetections = detections;
+    socLoaded = true;
+    renderSocWorkspace();
+  } catch (error) {
+    document.getElementById('socKpiCards').innerHTML = `<div class="soc-kpi-card"><div class="soc-kpi-label">Yükleme hatası</div><div class="soc-kpi-meta">${socEsc(error.message)}</div></div>`;
+  }
+}
+
+function renderSocWorkspace() {
+  const profile = socKpi.profile;
+  const status = document.getElementById('socProfileStatus');
+  status.textContent = profile.status === 'approved' ? 'Onaylı' : profile.status === 'retired' ? 'Arşiv' : 'Taslak';
+  status.classList.toggle('approved', profile.status === 'approved');
+  document.getElementById('socSnapshot').disabled = profile.status !== 'approved';
+  renderSocKpiCards();
+  renderSocHeatmap();
+  renderSocTrend();
+  renderSocProfile();
+  renderSocTelemetry();
+  renderSocDetections();
+}
+
+async function openSocGovernance(techId) {
+  document.getElementById('ruleModal').style.display = 'none';
+  document.querySelector('.nav-item[data-target="socKpiPanel"]')?.click();
+  await loadSocWorkspace();
+  openSocTechnique(techId);
+}
+
+async function openRuleAssessmentFromMatrix(ruleId) {
+  document.getElementById('ruleModal').style.display = 'none';
+  document.querySelector('.nav-item[data-target="socKpiPanel"]')?.click();
+  await loadSocWorkspace();
+  document.querySelector('.soc-tab[data-soc-tab="detections"]')?.click();
+  openDetectionDrawer(ruleId);
+}
+
+function renderSocKpiCards() {
+  const m = socKpi.metrics;
+  const cards = [
+    ['Mapped coverage', `${m.mapped_coverage}%`, `${m.mapped_techniques}/${m.denominator} teknikte eşleme`],
+    ['Validated detection coverage', `${m.validated_coverage}%`, `${m.validated_techniques}/${m.denominator} doğrulanmış`],
+    ['Weighted detection', `${m.weighted_detection}%`, 'Risk ağırlıklı, detection skoru 0-5'],
+    ['MITRE visibility', `${m.visibility}%`, 'Risk ağırlıklı, visibility skoru 0-4'],
+    ['Visibility threshold', `${m.visible_threshold_coverage}%`, `${m.visible_techniques}/${m.denominator} teknikte skor ≥ 2`]
+  ];
+  document.getElementById('socKpiCards').innerHTML = cards.map(card => `
+    <div class="soc-kpi-card"><div class="soc-kpi-label">${card[0]}</div><div class="soc-kpi-value">${card[1]}</div><div class="soc-kpi-meta">${card[2]}</div></div>`).join('');
+  document.getElementById('socHeatmapSummary').textContent = `En yüksek öncelikli 30 teknik · Toplam ${m.denominator} profil tekniği`;
+}
+
+function renderSocHeatmap() {
+  const legendSets = {
+    combined: [['controlled','Görünür + doğrulanmış'],['mapped_pending','Eşli, kanıt bekliyor'],['detection_gap','Görünür, detection yok'],['visibility_risk','Detection var, visibility zayıf'],['blind_spot','Kör nokta']],
+    detection: [['det-0','0 / doğrulanmamış'],['det-1','1'],['det-2','2'],['det-3','3'],['det-4','4'],['det-5','5']],
+    visibility: [['vis-0','0 / yok'],['vis-1','1 minimal'],['vis-2','2 medium'],['vis-3','3 good'],['vis-4','4 excellent']]
+  };
+  document.getElementById('socHeatmapLegend').innerHTML = legendSets[socHeatmapMode].map(([cls,label]) => `<span class="soc-legend-item"><i class="soc-legend-swatch soc-tech-cell ${cls}"></i>${label}</span>`).join('');
+  const statePriority = {visibility_risk:0,detection_gap:1,blind_spot:2,controlled:3};
+  const techniques = [...socKpi.techniques].sort((a,b) => {
+    if (socHeatmapMode === 'detection') return Number(a.validated) - Number(b.validated) || b.weight - a.weight || a.detection_score - b.detection_score;
+    if (socHeatmapMode === 'visibility') return a.visibility_score - b.visibility_score || b.weight - a.weight;
+    return statePriority[a.gap_state] - statePriority[b.gap_state] || Number(b.mapped) - Number(a.mapped) || b.weight - a.weight || a.name.localeCompare(b.name);
+  }).slice(0, 30);
+  document.getElementById('socHeatmap').innerHTML = techniques.map(item => {
+    const score = socHeatmapMode === 'detection' ? item.detection_score : Math.round(item.visibility_score);
+    const cls = socHeatmapMode === 'combined' ? (item.gap_state === 'blind_spot' && item.mapped ? 'mapped_pending' : item.gap_state) : socHeatmapMode === 'detection' ? `det-${score}` : `vis-${score}`;
+    const meta = socHeatmapMode === 'combined' ? `D:${item.detection_score}/5 · V:${item.visibility_score}/4` : `${score}/${socHeatmapMode === 'detection' ? 5 : 4}`;
+    return `<button class="soc-tech-cell ${cls}" data-soc-tech="${item.tech_id}" title="${socEsc(item.name)}"><strong>${item.tech_id}</strong><span>${socEsc(item.name)}</span><span>${meta}</span></button>`;
+  }).join('');
+  document.querySelectorAll('[data-soc-tech]').forEach(button => button.addEventListener('click', () => openSocTechnique(button.dataset.socTech)));
+}
+
+function renderSocTrend() {
+  const snapshots = (socKpi.snapshots || []).slice(-8).reverse();
+  const host = document.getElementById('socTrend');
+  if (!snapshots.length) {
+    host.innerHTML = '<div class="soc-trend-empty">Henüz onaylı KPI snapshot’ı yok.</div>';
+    return;
+  }
+  host.innerHTML = snapshots.map(item => `<div class="soc-trend-row">
+    <div class="soc-trend-date"><span>${socDate(item.created_at)} · v${item.profile_version}</span><strong>D ${item.validated_coverage}% · V ${item.visibility}%</strong></div>
+    <div class="soc-trend-bars"><div class="soc-trend-bar"><i style="width:${item.validated_coverage}%"></i></div><div class="soc-trend-bar visibility"><i style="width:${item.visibility}%"></i></div></div>
+  </div>`).join('');
+}
+
+function renderSocProfile() {
+  const p = socProfileDetail.profile;
+  document.getElementById('socProfileMeta').innerHTML = `
+    <div><span>Profil</span><strong>${socEsc(p.name)}</strong></div><div><span>Kapsam</span><strong>${socEsc(p.scope)}</strong></div>
+    <div><span>Sürüm</span><strong>v${p.version} · ATT&amp;CK ${socEsc(p.attack_version || '-')}</strong></div><div><span>Onay</span><strong>${p.approved_by ? `${socEsc(p.approved_by)} · ${socDate(p.approved_at)}` : 'Bekliyor'}</strong></div>`;
+  const query = (document.getElementById('socProfileSearch')?.value || '').toLowerCase();
+  const filter = document.getElementById('socProfileFilter')?.value || 'included';
+  const rows = socProfileDetail.techniques.filter(item => {
+    if (filter === 'included' && !item.included) return false;
+    if (filter === 'excluded' && item.included) return false;
+    return `${item.tech_id} ${item.name} ${(item.tactics || []).join(' ')} ${(item.platforms || []).join(' ')}`.toLowerCase().includes(query);
+  });
+  document.getElementById('socProfileBody').innerHTML = rows.map(item => `<tr>
+    <td><input type="checkbox" data-profile-included="${item.tech_id}" ${item.included ? 'checked' : ''} ${hasRole('admin') ? '' : 'disabled'}></td>
+    <td><strong>${item.tech_id}</strong><small>${socEsc(item.name)}</small></td>
+    <td>${socEsc((item.tactics || []).join(', ') || '-')}<small>${socEsc((item.platforms || []).join(', ') || '-')}</small></td>
+    <td><input type="number" min="1" max="5" value="${item.weight}" data-profile-weight="${item.tech_id}" ${hasRole('admin') ? '' : 'disabled'}></td>
+    <td><input type="text" value="${socEsc(item.rationale)}" data-profile-rationale="${item.tech_id}" placeholder="Risk / kapsam gerekçesi" ${hasRole('admin') ? '' : 'disabled'}></td>
+    <td>${hasRole('admin') ? `<button class="action-btn btn-neutral" data-profile-save="${item.tech_id}">Kaydet</button>` : ''}</td>
+  </tr>`).join('');
+  document.querySelectorAll('[data-profile-save]').forEach(button => button.addEventListener('click', () => saveSocProfileTechnique(button.dataset.profileSave)));
+}
+
+async function saveSocProfileTechnique(techId) {
+  const included = document.querySelector(`[data-profile-included="${techId}"]`).checked;
+  const weight = Number(document.querySelector(`[data-profile-weight="${techId}"]`).value);
+  const rationale = document.querySelector(`[data-profile-rationale="${techId}"]`).value.trim();
+  try {
+    await socJson(`/api/soc-profiles/${activeSocProfileId()}/techniques`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({techniques:[{tech_id:techId,included,weight,rationale}]})});
+    socLoaded = false; await loadSocWorkspace(true);
+  } catch (error) { alert(error.message); }
+}
+
+function renderSocTelemetry() {
+  const host = document.getElementById('socTelemetryBody');
+  document.getElementById('socTelemetryEmpty').style.display = socTelemetry.length ? 'none' : 'block';
+  host.innerHTML = socTelemetry.map(item => `<tr>
+    <td><strong>${socEsc(item.name)}</strong><small>${socEsc(item.producer || '-')} · Sahip: ${socEsc(item.owner || '-')}</small></td>
+    <td>${socEsc(item.scope)}<small>${socEsc(item.destination || '-')}</small></td>
+    <td>${item.components.slice(0,4).map(id => `<span class="soc-tag">${id}</span>`).join('')}${item.components.length > 4 ? `<small>+${item.components.length - 4} component</small>` : ''}</td>
+    <td><strong>${item.quality_score}%</strong><small>D/F/T/C/R: ${QUALITY_LABEL(item)}</small></td>
+    <td><span class="soc-badge ${item.active && item.analytics_ready ? 'good' : 'warn'}">${item.active ? (item.analytics_ready ? 'Analytics hazır' : 'Toplanıyor') : 'Pasif'}</span><small>Son veri: ${socDate(item.last_event_at)}</small></td>
+    <td>${hasRole('editor') ? `<button class="action-btn btn-neutral" data-telemetry-edit="${item.id}">Düzenle</button>` : ''}</td>
+  </tr>`).join('');
+  document.querySelectorAll('[data-telemetry-edit]').forEach(button => button.addEventListener('click', () => openTelemetryDrawer(Number(button.dataset.telemetryEdit))));
+}
+
+function QUALITY_LABEL(item) { return [item.device_completeness,item.field_completeness,item.timeliness,item.consistency,item.retention].join('/'); }
+
+function renderSocDetections() {
+  const query = (document.getElementById('socDetectionSearch')?.value || '').toLowerCase();
+  const filter = document.getElementById('socDetectionFilter')?.value || '';
+  const rows = socDetections.filter(item => {
+    const status = item.validation_status || 'untested';
+    return (!filter || status === filter) && `${item.name} ${item.source} ${item.tech_ids || ''} ${item.owner || ''}`.toLowerCase().includes(query);
+  });
+  document.getElementById('socDetectionBody').innerHTML = rows.map(item => {
+    const validation = item.validation_status || 'untested';
+    const badgeClass = validation === 'validated' ? 'good' : validation === 'failed' || validation === 'expired' ? 'bad' : 'warn';
+    return `<tr><td><strong>${socEsc(item.name)}</strong><small>${socEsc(item.source)}</small></td><td>${socEsc(item.tech_ids || '-')}</td>
+      <td>${socEsc(item.lifecycle_status || 'active')}</td><td><span class="soc-badge ${badgeClass}">${socEsc(validation)}</span></td><td>${item.detection_score ?? 0}/5</td>
+      <td>${socEsc(item.owner || '-')}</td><td>${socDate(item.expires_at)}</td><td>${hasRole('editor') ? `<button class="action-btn btn-neutral" data-detection-edit="${item.rule_id}">Değerlendir</button>` : ''}</td></tr>`;
+  }).join('');
+  document.querySelectorAll('[data-detection-edit]').forEach(button => button.addEventListener('click', () => openDetectionDrawer(Number(button.dataset.detectionEdit))));
+}
+
+function openSocDrawer(title, html, onSubmit) {
+  document.getElementById('socDrawerTitle').textContent = title;
+  document.getElementById('socDrawerBody').innerHTML = html;
+  document.getElementById('socDrawer').classList.remove('hidden');
+  socDrawerSubmit = onSubmit;
+}
+
+function closeSocDrawer() { document.getElementById('socDrawer').classList.add('hidden'); socDrawerSubmit = null; }
+
+function fieldHtml(label, name, value = '', type = 'text', wide = false) {
+  return `<div class="soc-field ${wide ? 'wide' : ''}"><label for="soc-field-${name}">${label}</label><input id="soc-field-${name}" name="${name}" type="${type}" value="${socEsc(value)}"></div>`;
+}
+
+function openTelemetryDrawer(id = null) {
+  const item = socTelemetry.find(row => row.id === id) || {active:1,analytics_ready:0,scope:'Kurum geneli',components:[]};
+  const selected = new Set(item.components || []);
+  const picker = socComponents.map(component => `<label class="soc-component-option"><input type="checkbox" name="components" value="${component.id}" ${selected.has(component.id) ? 'checked' : ''}><span><strong>${component.id}</strong> ${socEsc(component.name)}</span></label>`).join('');
+  openSocDrawer(id ? 'Telemetri Kaynağını Düzenle' : 'Yeni Telemetri Kaynağı', `<div class="soc-form-grid">
+    ${fieldHtml('Kaynak adı','name',item.name || '')}${fieldHtml('Üreten sistem','producer',item.producer || '')}${fieldHtml('Veri platformu','destination',item.destination || '')}${fieldHtml('Sistem kapsamı','scope',item.scope || '')}${fieldHtml('Sahip','owner',item.owner || '')}${fieldHtml('Bağlantı tarihi','connected_at',item.connected_at || '','date')}${fieldHtml('Son veri zamanı','last_event_at',item.last_event_at || '','datetime-local')}
+    <div class="soc-field"><label><input type="checkbox" name="active" ${item.active ? 'checked' : ''}> Aktif</label></div><div class="soc-field"><label><input type="checkbox" name="analytics_ready" ${item.analytics_ready ? 'checked' : ''}> Analytics için kullanılabilir</label></div>
+    ${['device_completeness','field_completeness','timeliness','consistency','retention'].map(name => fieldHtml(name.replaceAll('_',' '),name,item[name] ?? 0,'number')).join('')}
+    <div class="soc-field wide"><label>ATT&amp;CK Data Components</label><div class="soc-component-picker">${picker}</div></div>
+    <div class="soc-field wide"><label>Notlar</label><textarea name="notes">${socEsc(item.notes || '')}</textarea></div></div>`, async form => {
+      const formData = new FormData(form); const payload = Object.fromEntries(formData.entries());
+      payload.active = form.elements.active.checked; payload.analytics_ready = form.elements.analytics_ready.checked;
+      payload.components = formData.getAll('components');
+      ['device_completeness','field_completeness','timeliness','consistency','retention'].forEach(name => payload[name] = Number(payload[name]));
+      await socJson(id ? `/api/telemetry-sources/${id}` : '/api/telemetry-sources', {method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    });
+}
+
+function openDetectionDrawer(ruleId) {
+  const item = socDetections.find(row => row.rule_id === ruleId);
+  const option = (value, label, selected) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`;
+  openSocDrawer('Detection Değerlendirmesi', `<div class="soc-form-grid"><div class="soc-field wide"><label>Detection</label><strong>${socEsc(item.name)}</strong><small>${socEsc(item.source)} · ${socEsc(item.tech_ids || '-')}</small></div>
+    <div class="soc-field"><label>Yaşam döngüsü</label><select name="lifecycle_status">${option('draft','Taslak',item.lifecycle_status)}${option('active','Aktif',item.lifecycle_status || 'active')}${option('disabled','Devre dışı',item.lifecycle_status)}</select></div>
+    <div class="soc-field"><label>Doğrulama</label><select name="validation_status">${option('untested','Test edilmedi',item.validation_status || 'untested')}${option('validated','Doğrulandı',item.validation_status)}${option('failed','Başarısız',item.validation_status)}${option('expired','Süresi doldu',item.validation_status)}</select></div>
+    ${fieldHtml('Detection skoru (-1..5)','detection_score',item.detection_score ?? 0,'number')}${fieldHtml('Sistem kapsamı','applicable_scope',item.applicable_scope || 'Kurum geneli')}${fieldHtml('Sahip','owner',item.owner || '')}${fieldHtml('Doğrulama yöntemi','validation_method',item.validation_method || '')}${fieldHtml('Son doğrulama','last_validated_at',item.last_validated_at || '','date')}${fieldHtml('Geçerlilik sonu','expires_at',item.expires_at || '','date')}${fieldHtml('Kanıt / kayıt bağlantısı','evidence_ref',item.evidence_ref || '','text',true)}${fieldHtml('Veri bağımlılıkları','data_dependencies',item.data_dependencies || '','text',true)}</div>`, async form => {
+      const payload = Object.fromEntries(new FormData(form).entries()); payload.detection_score = Number(payload.detection_score);
+      const updated = await socJson(`/api/detection-assessments/${ruleId}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      userRules = userRules.map(rule => rule.id === ruleId ? {...rule, ...updated} : rule);
+    });
+}
+
+function openSocTechnique(techId) {
+  const item = socKpi.techniques.find(row => row.tech_id === techId);
+  const components = item.required_components.map(id => `<span class="soc-tag">${id}${item.available_components.includes(id) ? ' ✓' : ''}</span>`).join('') || '<span class="soc-badge warn">ATT&amp;CK component eşlemesi yok</span>';
+  const override = hasRole('admin') ? `<div class="soc-field"><label>Visibility override (0-4)</label><input name="score" type="number" min="0" max="4" value="${Math.round(item.visibility_score)}"></div><div class="soc-field wide"><label>Override gerekçesi</label><textarea name="reason">${socEsc(item.visibility_reason || '')}</textarea></div>` : '';
+  openSocDrawer(`${techId} · ${item.name}`, `<div class="soc-form-grid"><div class="soc-field"><label>Detection</label><strong>${item.detection_score}/5</strong><small>${item.validated_detection_count}/${item.detection_count} doğrulanmış</small></div><div class="soc-field"><label>Visibility</label><strong>${item.visibility_score}/4</strong><small>${socEsc(item.visibility_source)}</small></div><div class="soc-field"><label>Profil ağırlığı</label><strong>${item.weight}/5</strong></div><div class="soc-field"><label>GAP durumu</label><strong>${socEsc(item.gap_state)}</strong></div><div class="soc-field wide"><label>Gerekli Data Components</label>${components}</div>${override}</div>`, hasRole('admin') ? async form => {
+    const payload = Object.fromEntries(new FormData(form).entries()); payload.score = Number(payload.score);
+    await socJson(`/api/soc-profiles/${activeSocProfileId()}/visibility/${techId}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  } : null);
+}
+
+function openProfileDrawer() {
+  const p = socProfileDetail.profile;
+  openSocDrawer('Kurum Profilini Düzenle', `<div class="soc-form-grid">${fieldHtml('Profil adı','name',p.name,'text',true)}${fieldHtml('Sistem kapsamı','scope',p.scope,'text',true)}<div class="soc-field wide"><label>Açıklama ve kapsam kararı</label><textarea name="description">${socEsc(p.description || '')}</textarea></div><div class="soc-field wide"><label><input type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''}> Aktif profil</label></div></div>`, async form => {
+    const payload = Object.fromEntries(new FormData(form).entries()); payload.is_active = form.elements.is_active.checked;
+    await socJson(`/api/soc-profiles/${p.id}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  });
+}
+
+function openNewProfileDrawer() {
+  openSocDrawer('Yeni Kurum Profili', `<div class="soc-form-grid">${fieldHtml('Profil adı','name','','text',true)}${fieldHtml('Sistem kapsamı','scope','Kurum geneli','text',true)}<div class="soc-field wide"><label>Açıklama ve kapsam kararı</label><textarea name="description"></textarea></div></div>`, async form => {
+    const payload = Object.fromEntries(new FormData(form).entries());
+    await socJson('/api/soc-profiles', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  });
+}
+
+async function bulkSetVisibleProfileTechniques(included) {
+  const rows = [...document.querySelectorAll('[data-profile-included]')].map(checkbox => {
+    const techId = checkbox.dataset.profileIncluded;
+    return {tech_id:techId,included,weight:Number(document.querySelector(`[data-profile-weight="${techId}"]`).value),rationale:document.querySelector(`[data-profile-rationale="${techId}"]`).value.trim()};
+  });
+  if (!rows.length) return;
+  if (!confirm(`${rows.length} teknik ${included ? 'kapsama alınsın' : 'kapsam dışı bırakılsın'} mı?`)) return;
+  try {
+    await socJson(`/api/soc-profiles/${activeSocProfileId()}/techniques`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({techniques:rows})});
+    socLoaded=false; await loadSocWorkspace(true);
+  } catch(error) { alert(error.message); }
+}
+
+function wireSocKpi() {
+  document.getElementById('socProfileSelect')?.addEventListener('change', async () => { socLoaded = false; await loadSocWorkspace(true); });
+  document.getElementById('socRefresh')?.addEventListener('click', async () => { socLoaded = false; await loadSocWorkspace(true); });
+  document.getElementById('socLayerExport')?.addEventListener('click', async () => {
+    try {
+      const layer = await socJson(`/api/soc-kpi/layer?profile_id=${activeSocProfileId()}&mode=${socHeatmapMode}`);
+      downloadBlob(`soc-cmm-${socHeatmapMode}-layer.json`, JSON.stringify(layer, null, 2), 'application/json');
+    } catch(error) { alert(error.message); }
+  });
+  document.querySelectorAll('.soc-tab').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll('.soc-tab').forEach(item => item.classList.toggle('active', item === button));
+    document.querySelectorAll('.soc-tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `soc-${button.dataset.socTab}`));
+  }));
+  document.querySelectorAll('#socHeatmapMode button[data-mode]:not([data-mode="matrix"])').forEach(button => button.addEventListener('click', () => {
+    socHeatmapMode = button.dataset.mode; document.querySelectorAll('#socHeatmapMode button').forEach(item => item.classList.toggle('active', item === button)); renderSocHeatmap();
+  }));
+  document.getElementById('socOpenMatrix')?.addEventListener('click', () => {
+    document.querySelector('.nav-item[data-target="matrixPanel"]')?.click();
+    document.querySelector(`[data-matrix-mode="${socHeatmapMode}"]`)?.click();
+  });
+  document.getElementById('socProfileSearch')?.addEventListener('input', renderSocProfile);
+  document.getElementById('socProfileFilter')?.addEventListener('change', renderSocProfile);
+  document.getElementById('socDetectionSearch')?.addEventListener('input', renderSocDetections);
+  document.getElementById('socDetectionFilter')?.addEventListener('change', renderSocDetections);
+  document.getElementById('socNewTelemetry')?.addEventListener('click', () => openTelemetryDrawer());
+  document.getElementById('socEditProfile')?.addEventListener('click', openProfileDrawer);
+  document.getElementById('socNewProfile')?.addEventListener('click', openNewProfileDrawer);
+  document.getElementById('socIncludeVisible')?.addEventListener('click', () => bulkSetVisibleProfileTechniques(true));
+  document.getElementById('socExcludeVisible')?.addEventListener('click', () => bulkSetVisibleProfileTechniques(false));
+  document.getElementById('socApproveProfile')?.addEventListener('click', async () => {
+    try { await socJson(`/api/soc-profiles/${activeSocProfileId()}/approve`, {method:'POST'}); socLoaded=false; await loadSocWorkspace(true); } catch(error) { alert(error.message); }
+  });
+  document.getElementById('socSnapshot')?.addEventListener('click', async () => {
+    try { const result=await socJson('/api/soc-kpi/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:activeSocProfileId()})}); alert(`Snapshot oluşturuldu. Hash: ${result.payload_hash.slice(0,16)}…`); socLoaded=false; await loadSocWorkspace(true); } catch(error) { alert(error.message); }
+  });
+  document.getElementById('socDrawerClose')?.addEventListener('click', closeSocDrawer);
+  document.getElementById('socDrawerCancel')?.addEventListener('click', closeSocDrawer);
+  document.getElementById('socDrawerForm')?.addEventListener('submit', async event => {
+    event.preventDefault(); if (!socDrawerSubmit) { closeSocDrawer(); return; }
+    try { await socDrawerSubmit(event.currentTarget); closeSocDrawer(); socLoaded=false; await loadSocWorkspace(true); } catch(error) { alert(error.message); }
+  });
+}
+
+wireSocKpi();
 

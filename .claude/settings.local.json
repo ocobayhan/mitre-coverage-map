@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(powershell -command:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(dir:*)",
+      "Bash(python3:*)",
+      "Bash(node --check:*)",
+      "Bash(node:*)",
+      "Bash(cmd /c:*)",
+      "Bash(curl:*)",
+      "Bash(source:*)"
+    ]
+  }
+}

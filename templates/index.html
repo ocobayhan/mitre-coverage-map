@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
-  <link rel="stylesheet" href="/static/styles.css?v=85" />
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css?v=97" />
 </head>
 <body>
   <div class="ms-shell">
@@ -53,6 +54,19 @@
             <rect x="11" y="11" width="6" height="6" rx="1" fill="currentColor"/>
           </svg>
           <span class="nav-label">Matrix</span>
+        </button>
+        <button class="nav-item" data-target="socKpiPanel" id="socKpiNavItem">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M3 16V9M8 16V5M13 16v-4M17 16V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M2.5 16.5h15" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+          <span class="nav-label">SOC-CMM KPI</span>
+        </button>
+        <button class="nav-item" data-target="scopePanel" id="scopeNavItem">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="11" y="3" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="11" width="14" height="6" rx="1" stroke="currentColor" stroke-width="1.4"/>
+          </svg>
+          <span class="nav-label">Kapsam Envanteri</span>
         </button>
         <button class="nav-item" data-target="infoPanel">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -111,6 +125,20 @@
           </svg>
           <span class="nav-label">Aksiyon Planı</span>
         </button>
+        <button class="nav-item" data-target="dataQualityPanel">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M3 10.5l4 4L17 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 2.5a7.5 7.5 0 1 0 7.5 7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <span class="nav-label">Veri Kalitesi</span>
+        </button>
+        <button class="nav-item" data-target="auditPanel" id="auditNavItem">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="4" y="3" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M7 7h6M7 10h6M7 13h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <span class="nav-label">Audit</span>
+        </button>
       </nav>
 
       <!-- ── Content ──────────────────────────────────── -->
@@ -119,7 +147,10 @@
         <!-- Matrix Panel -->
         <div id="matrixPanel" class="panel active">
           <div class="ms-page-header">
-            <h1 class="ms-page-title">Coverage Matrix</h1>
+            <div class="matrix-title-block">
+              <h1 class="ms-page-title">ATT&amp;CK Coverage Matrix</h1>
+              <span id="matrixModeDescription">Kural, mitigation ve ürün çeşitliliğine göre operasyonel olgunluk</span>
+            </div>
             <div class="ms-command-bar">
               <div class="legend" id="legendContainer"></div>
               <div class="ms-command-divider"></div>
@@ -139,6 +170,15 @@
                 <button class="action-btn btn-add" id="btnExportLayer" title="MITRE Layer JSON">Layer JSON</button>
               </div>
             </div>
+          </div>
+          <div class="matrix-mode-bar">
+            <div class="soc-segmented" id="matrixCoverageMode" aria-label="Matrix görünüm modu">
+              <button class="active" data-matrix-mode="operational">Operasyonel</button>
+              <button data-matrix-mode="detection">Validated Detection</button>
+              <button data-matrix-mode="visibility">Data Visibility</button>
+              <button data-matrix-mode="combined">Birleşik GAP</button>
+            </div>
+            <div class="matrix-mode-context" id="matrixModeContext">Tüm ATT&amp;CK kataloğu</div>
           </div>
           <div class="filter-bar">
             <div class="filter-group">
@@ -191,6 +231,64 @@
           </div>
         </div>
 
+        <!-- Scope Registry Panel -->
+        <div id="scopePanel" class="panel">
+          <div class="scope-page">
+            <div class="scope-header">
+              <div><h1>Kapsam Envanteri</h1><p>Ortamları, varlık gruplarını ve hangi ürünlerin bu kapsamları izlediğini yönetin.</p></div>
+              <div class="scope-header-actions"><button class="action-btn btn-add" id="scopeAddEnvironment">+ Ortam</button></div>
+            </div>
+            <div class="ops-summary scope-summary" id="scopeSummary"></div>
+
+            <div class="scope-selectors">
+              <section class="scope-selector">
+                <div><span>1</span><div><label for="scopeEnvironmentSelect">Ortam</label><small>Örn. DIAS Lumos</small></div></div>
+                <select id="scopeEnvironmentSelect"><option value="">Ortam seçin</option></select>
+                <button class="icon-btn" id="scopeEditEnvironment" title="Seçili ortamı düzenle" aria-label="Ortamı düzenle">&#9998;</button>
+              </section>
+              <section class="scope-selector">
+                <div><span>2</span><div><label for="scopeGroupSelect">Varlık Grubu</label><small>Örn. Linux Serverler</small></div></div>
+                <select id="scopeGroupSelect" disabled><option value="">Varlık grubu seçin</option></select>
+                <button class="icon-btn" id="scopeAddGroup" title="Varlık grubu ekle" aria-label="Varlık grubu ekle">+</button>
+                <button class="icon-btn" id="scopeEditGroup" title="Seçili grubu düzenle" aria-label="Varlık grubunu düzenle">&#9998;</button>
+              </section>
+            </div>
+
+            <section class="scope-editor hidden" id="scopeEnvironmentEditor">
+              <div class="scope-section-head"><div><h2>Ortam Bilgileri</h2><span>KPI kapsamının üst seviye sınırı</span></div></div>
+              <input type="hidden" id="scopeEnvironmentId" />
+              <div class="scope-form-grid">
+                <div class="input-wrapper"><label for="scopeEnvironmentName">Ortam Adı</label><input id="scopeEnvironmentName" placeholder="DIAS Lumos" /></div>
+                <div class="input-wrapper"><label for="scopeEnvironmentCode">Kod</label><input id="scopeEnvironmentCode" placeholder="DIAS-LUMOS" /></div>
+                <div class="input-wrapper"><label for="scopeEnvironmentOwner">Sahip Ekip</label><input id="scopeEnvironmentOwner" placeholder="Platform Ekibi" /></div>
+                <div class="input-wrapper"><label for="scopeEnvironmentCriticality">Kritiklik</label><select id="scopeEnvironmentCriticality"><option value="1">1 - Düşük</option><option value="2">2</option><option value="3" selected>3 - Orta</option><option value="4">4</option><option value="5">5 - Kritik</option></select></div>
+                <div class="input-wrapper scope-form-wide"><label for="scopeEnvironmentDescription">Açıklama</label><textarea id="scopeEnvironmentDescription" placeholder="Ortamın iş kapsamı ve sınırları"></textarea></div>
+                <label class="connector-check"><input id="scopeEnvironmentActive" type="checkbox" checked /> Ortam aktif</label>
+              </div>
+              <div class="scope-editor-actions"><button class="action-btn btn-add" id="scopeSaveEnvironment">Kaydet</button><button class="action-btn btn-neutral" data-scope-cancel>İptal</button></div>
+            </section>
+
+            <section class="scope-editor hidden" id="scopeGroupEditor">
+              <div class="scope-section-head"><div><h2>Varlık Grubu</h2><span>Benzer platform ve izleme yapısına sahip sistemler</span></div></div>
+              <input type="hidden" id="scopeGroupId" />
+              <div class="scope-form-grid">
+                <div class="input-wrapper"><label for="scopeGroupName">Grup Adı</label><input id="scopeGroupName" placeholder="Linux Serverler" /></div>
+                <div class="input-wrapper"><label for="scopeGroupPlatform">Platform</label><select id="scopeGroupPlatform"><option>Windows</option><option>Linux</option><option>macOS</option><option>Network</option><option>Cloud</option><option>Identity</option><option>SaaS</option><option>Container</option><option>Other</option></select></div>
+                <div class="input-wrapper"><label for="scopeGroupType">Varlık Tipi</label><select id="scopeGroupType"><option>Client</option><option>Server</option><option>Network Device</option><option>Identity</option><option>Cloud Workload</option><option>Container</option><option>Application</option><option>Other</option></select></div>
+                <div class="input-wrapper"><label for="scopeGroupCount">Yaklaşık Varlık Sayısı</label><input id="scopeGroupCount" type="number" min="0" value="0" /></div>
+                <div class="input-wrapper"><label for="scopeGroupOwner">Sahip Ekip</label><input id="scopeGroupOwner" placeholder="Linux Ekibi" /></div>
+                <div class="input-wrapper"><label for="scopeGroupCriticality">Kritiklik</label><select id="scopeGroupCriticality"><option value="1">1 - Düşük</option><option value="2">2</option><option value="3" selected>3 - Orta</option><option value="4">4</option><option value="5">5 - Kritik</option></select></div>
+                <label class="connector-check"><input id="scopeGroupActive" type="checkbox" checked /> Grup aktif</label>
+              </div>
+              <div class="scope-editor-actions"><button class="action-btn btn-add" id="scopeSaveGroup">Kaydet</button><button class="action-btn btn-neutral" data-scope-cancel>İptal</button></div>
+            </section>
+
+            <section class="scope-survey" id="scopeSurvey">
+              <div class="scope-empty"><strong>İzleme anketi</strong><span>Önce ortam ve varlık grubu seçin.</span></div>
+            </section>
+          </div>
+        </div>
+
         <!-- Info Panel -->
         <div id="infoPanel" class="panel">
           <div class="wiki-shell">
@@ -238,6 +336,15 @@
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l1.8 3.6 4 .6-2.9 2.8.7 4L8 10.5l-3.6 2 .7-4L2.2 5.7l4-.6L8 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
                 Önem &amp; Ekipler
               </button>
+              <div class="wiki-nav-title wiki-nav-section-title">SOC-CMM</div>
+              <button class="wiki-nav-item" data-wiki="w-soc-kpi">KPI Sözlüğü</button>
+              <button class="wiki-nav-item" data-wiki="w-soc-matrix">Matrix Modları</button>
+              <button class="wiki-nav-item" data-wiki="w-soc-profile">Profil &amp; Snapshot</button>
+              <button class="wiki-nav-item" data-wiki="w-soc-detection">Detection Kanıtı</button>
+              <button class="wiki-nav-item" data-wiki="w-soc-visibility">Data Visibility</button>
+              <button class="wiki-nav-item" data-wiki="w-soc-audit">Audit &amp; Veri Kalitesi</button>
+              <button class="wiki-nav-item" data-wiki="w-scope-registry">Kapsam Envanteri</button>
+              <button class="wiki-nav-item" data-wiki="w-qradar-connector">QRadar Connector</button>
             </nav>
 
             <!-- Wiki Content -->
@@ -254,7 +361,7 @@
                   </div>
                   <div>
                     <h1 class="wiki-hero-title">SOC Coverage Map</h1>
-                    <p class="wiki-hero-sub">MITRE ATT&amp;CK çerçevesine dayalı güvenlik kapsama görselleştirme aracı</p>
+                    <p class="wiki-hero-sub">MITRE ATT&amp;CK tabanlı operasyonel kapsama, doğrulanmış tespit ve veri görünürlüğü yönetimi</p>
                   </div>
                 </div>
 
@@ -456,6 +563,7 @@
               <div class="wiki-page" id="w-scoring">
                 <h1 class="wiki-page-title">Puanlama Sistemi</h1>
                 <p class="wiki-page-lead">Her teknik için 0–1 arasında bir skor hesaplanır. Bu skor kart rengini ve "kritik boşluk" etiketini belirler.</p>
+                <div class="wiki-warning"><strong>Bu puan operasyonel olgunluk göstergesidir.</strong> SOC-CMM Validated Detection veya Data Visibility KPI sonucu olarak kullanılmaz. Resmi tanımlar için KPI Sözlüğü bölümüne bakın.</div>
 
                 <div class="wiki-section">
                   <h2 class="wiki-h2">Formül</h2>
@@ -533,6 +641,7 @@
               <div class="wiki-page" id="w-colors">
                 <h1 class="wiki-page-title">Renk Kodu</h1>
                 <p class="wiki-page-lead">Teknik kartlarının arka plan rengi, o tekniğin hesaplanan skoruna göre 3 bölgeli bir geçiş izler.</p>
+                <div class="wiki-warning">Aşağıdaki geçiş <strong>Operasyonel</strong> Matrix modu içindir. Validated Detection, Data Visibility ve Combined modları kendi lejantlarını kullanır.</div>
 
                 <div class="wiki-section">
                   <div class="wiki-gradient-bar">
@@ -949,6 +1058,262 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
                 </div>
               </div>
 
+              <!-- SOC-CMM KPI Sözlüğü -->
+              <div class="wiki-page" id="w-soc-kpi">
+                <h1 class="wiki-page-title">SOC-CMM KPI Sözlüğü</h1>
+                <p class="wiki-page-lead">Uygulama iki resmi L2 metriği ayrı hesaplar. Operasyonel kapsama puanı bu KPI'ların yerine geçmez.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">MITRE ATT&amp;CK Coverage</h2>
+                  <div class="wiki-formula">Doğrulanmış Coverage (%) = Doğrulanmış teknik sayısı / Profildeki teknik sayısı × 100</div>
+                  <div class="wiki-info-box">
+                    <p>Bir teknik ancak aktif bir detection kaydı varsa, doğrulama durumu <strong>Validated</strong> ise, puanı en az 1 ise ve doğrulaması sona ermemişse paya dahil olur. <strong>Mapped Coverage</strong> yalnızca eşleştirme varlığını gösterir; resmi doğrulanmış coverage değildir.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">MITRE ATT&amp;CK Visibility</h2>
+                  <div class="wiki-formula">Visibility (%) = Görünür teknik sayısı / Profildeki teknik sayısı × 100</div>
+                  <div class="wiki-info-box">
+                    <p>Teknik görünürlük skoru 0–4 arasındadır. Skoru <strong>2 veya üzeri</strong> olan teknik görünür kabul edilir. Sonuç; telemetry kaynakları, ATT&amp;CK data component eşleşmeleri, kalite puanları ve varsa yetkili override üzerinden üretilir.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Sonuç Nasıl Okunur?</h2>
+                  <table class="wiki-table">
+                    <thead><tr><th>Gösterge</th><th>Anlamı</th><th>KPI Durumu</th></tr></thead>
+                    <tbody>
+                      <tr><td>Mapped Coverage</td><td>Tekniğe en az bir aktif kural eşlenmiş</td><td>Hazırlık göstergesi</td></tr>
+                      <tr><td>Validated Coverage</td><td>Kanıtlı ve süresi geçmemiş detection mevcut</td><td>Resmi coverage KPI</td></tr>
+                      <tr><td>Data Visibility</td><td>Gerekli verinin yeterli kaliteyle mevcut olma potansiyeli</td><td>Resmi visibility KPI</td></tr>
+                      <tr><td>Weighted Coverage</td><td>Profil ağırlıklarıyla önceliklendirilmiş doğrulanmış sonuç</td><td>Yönetim göstergesi</td></tr>
+                    </tbody>
+                  </table>
+                  <div class="wiki-warning"><strong>Sıfır sonuç hata değildir.</strong> Kural eşleştirmesi olsa bile doğrulama kanıtı veya telemetry envanteri yoksa resmi KPI doğru biçimde sıfır görünür.</div>
+                </div>
+              </div>
+
+              <!-- Matrix Modları -->
+              <div class="wiki-page" id="w-soc-matrix">
+                <h1 class="wiki-page-title">Matrix Modları</h1>
+                <p class="wiki-page-lead">Aynı ATT&amp;CK matrisi dört ayrı karar görünümü sunar. Üstteki mod seçici bütün kartların anlamını ve lejandı değiştirir.</p>
+
+                <div class="wiki-section">
+                  <table class="wiki-table">
+                    <thead><tr><th>Mod</th><th>Ne Gösterir?</th><th>Ne İçin Kullanılır?</th></tr></thead>
+                    <tbody>
+                      <tr><td><strong>Operasyonel</strong></td><td>Kural, mitigation ve ürün çeşitliliğinden oluşan mevcut olgunluk puanı</td><td>Günlük iyileştirme ve içerik yoğunluğu</td></tr>
+                      <tr><td><strong>Validated Detection</strong></td><td>Kanıtla doğrulanmış detection durumu ve puanı</td><td>SOC-CMM coverage KPI</td></tr>
+                      <tr><td><strong>Data Visibility</strong></td><td>Telemetry ve data component kaynaklı görünürlük</td><td>SOC-CMM visibility KPI</td></tr>
+                      <tr><td><strong>Combined</strong></td><td>Detection ve visibility ilişkisini tek renkte birleştirir</td><td>Öncelik ve kök neden analizi</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Combined Renklerinin Anlamı</h2>
+                  <ul class="wiki-ul">
+                    <li><strong>Yeşil — Kontrollü:</strong> doğrulanmış detection ve yeterli visibility birlikte mevcut.</li>
+                    <li><strong>Koyu amber — Eşlenmiş, bekliyor:</strong> kural var ama doğrulama tamamlanmamış; KPI'ya dahil değildir.</li>
+                    <li><strong>Amber — Görünür, detection yok:</strong> veri hazır fakat kanıtlı detection eksik.</li>
+                    <li><strong>Kırmızı — Detection var, visibility zayıf:</strong> doğrulama mevcut ancak veri sürekliliği riski var.</li>
+                    <li><strong>Gri — Kör nokta:</strong> doğrulanmış detection ve yeterli visibility yok.</li>
+                  </ul>
+                  <div class="wiki-tip">Kartın üzerine gelerek bileşen değerlerini görün; karta tıklayarak eşleşmiş kural, mitigation ve teknik ayrıntılarına geçin.</div>
+                </div>
+              </div>
+
+              <!-- Profil ve Snapshot -->
+              <div class="wiki-page" id="w-soc-profile">
+                <h1 class="wiki-page-title">Profil &amp; Snapshot</h1>
+                <p class="wiki-page-lead">Profil ölçümün paydasını, snapshot ise belirli bir tarihteki değiştirilemez KPI sonucunu tanımlar.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Profil Yönetimi</h2>
+                  <div class="wiki-info-box">
+                    <p>Her profilde kapsam adı, açıklama, ATT&amp;CK sürümü ve dahil edilen teknikler bulunur. Teknik ağırlığı 1–5 arasında belirlenir; ağırlık gerekçesi denetlenebilirlik için yazılmalıdır.</p>
+                    <p>Durumlar <strong>Draft</strong>, <strong>Approved</strong> ve <strong>Retired</strong> şeklindedir. Onaylanmış bir profil değiştirildiğinde yeniden onay gerekir; böylece payda sessizce değişmez.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Resmi Ölçüm Akışı</h2>
+                  <div class="wiki-steps">
+                    <div class="wiki-step"><div class="wiki-step-num">1</div><div>Kurum kapsamına uygun teknikleri ve ağırlıkları belirleyin.</div></div>
+                    <div class="wiki-step"><div class="wiki-step-num">2</div><div>Profil gerekçelerini kontrol edip profili onaylayın.</div></div>
+                    <div class="wiki-step"><div class="wiki-step-num">3</div><div>Detection kanıtları ile telemetry kalite kayıtlarını tamamlayın.</div></div>
+                    <div class="wiki-step"><div class="wiki-step-num">4</div><div>Snapshot oluşturun; trendi aynı profil ve formül sürümüyle karşılaştırın.</div></div>
+                  </div>
+                  <div class="wiki-info-box"><p>Snapshot; profil, ATT&amp;CK sürümü, formül sürümü, sayaçlar ve bütünlük hash'ini saklar. Oluşturulduktan sonra düzenlenemez; düzeltme gerekiyorsa yeni snapshot alınır.</p></div>
+                </div>
+              </div>
+
+              <!-- Detection Kanıtı -->
+              <div class="wiki-page" id="w-soc-detection">
+                <h1 class="wiki-page-title">Detection Kanıtı</h1>
+                <p class="wiki-page-lead">Kural eşleştirmesi bir başlangıçtır. KPI'ya dahil olmak için detection'ın test edilmesi, kanıtlanması ve güncel tutulması gerekir.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Gerekli Kayıtlar</h2>
+                  <ul class="wiki-ul">
+                    <li><strong>Lifecycle:</strong> Draft, Active veya Disabled.</li>
+                    <li><strong>Validation:</strong> Untested, Validated, Failed veya Expired.</li>
+                    <li><strong>Kanıt:</strong> test yöntemi, kanıt referansı, doğrulayan kişi ve doğrulama tarihi.</li>
+                    <li><strong>Süreklilik:</strong> geçerlilik bitişi, sahip, kapsam ve telemetry bağımlılıkları.</li>
+                  </ul>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Detection Puanı</h2>
+                  <table class="wiki-table">
+                    <thead><tr><th>Puan</th><th>Yorum</th></tr></thead>
+                    <tbody>
+                      <tr><td>-1</td><td>Teknik bu kapsamda uygulanabilir değil</td></tr>
+                      <tr><td>0</td><td>Yok, bilinmiyor veya kanıtlanmamış</td></tr>
+                      <tr><td>1–2</td><td>Temel ya da sınırlı detection</td></tr>
+                      <tr><td>3</td><td>Orta düzey, kullanılabilir detection</td></tr>
+                      <tr><td>4–5</td><td>İyi veya çok güçlü detection</td></tr>
+                    </tbody>
+                  </table>
+                  <div class="wiki-warning">İçe aktarılan mevcut kurallar başlangıçta <strong>Untested</strong> kabul edilir. Sadece eşlenmiş olmaları doğrulanmış coverage oluşturmaz.</div>
+                </div>
+              </div>
+
+              <!-- Data Visibility -->
+              <div class="wiki-page" id="w-soc-visibility">
+                <h1 class="wiki-page-title">Data Visibility</h1>
+                <p class="wiki-page-lead">Visibility, bir güvenlik ürününün lisanslı olmasını değil; gerekli verinin gerçekten toplanmasını, kaliteli olmasını ve ATT&amp;CK data component'lerine bağlanmasını ölçer.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Telemetry Envanteri</h2>
+                  <div class="wiki-info-box"><p>Her kaynak için sahip, kaynak türü, kapsam, saklama süresi, gecikme ve aktiflik bilgisi tutulur. Kaynak daha sonra ATT&amp;CK data component'lerine bağlanır; teknik görünürlüğü bu eşleşmelerden türetilir.</p></div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Kalite Boyutları (0–5)</h2>
+                  <table class="wiki-table">
+                    <thead><tr><th>Boyut</th><th>Kontrol Sorusu</th></tr></thead>
+                    <tbody>
+                      <tr><td>Cihaz kapsamı</td><td>Hedef cihazların ne kadarı veri gönderiyor?</td></tr>
+                      <tr><td>Alan bütünlüğü</td><td>Detection için gereken alanlar dolu mu?</td></tr>
+                      <tr><td>Zamanlılık</td><td>Veri kabul edilebilir gecikmeyle geliyor mu?</td></tr>
+                      <tr><td>Tutarlılık</td><td>Şema ve değerler kaynaklar arasında kararlı mı?</td></tr>
+                      <tr><td>Saklama</td><td>İnceleme için gereken tarih aralığı korunuyor mu?</td></tr>
+                    </tbody>
+                  </table>
+                  <div class="wiki-tip">Teknik visibility skoru 0–4'tür ve varsayılan olarak bağlı telemetry kalitesinden türetilir. Yetkili override kullanılırsa gerekçe zorunlu tutulmalıdır.</div>
+                </div>
+              </div>
+
+              <!-- Audit ve Veri Kalitesi -->
+              <div class="wiki-page" id="w-soc-audit">
+                <h1 class="wiki-page-title">Audit &amp; Veri Kalitesi</h1>
+                <p class="wiki-page-lead">KPI'nın güvenilirliği yalnızca sonuçtan değil, sonuca götüren değişikliklerin izlenebilirliğinden gelir.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Audit Zinciri</h2>
+                  <div class="wiki-info-box">
+                    <p>Kritik işlemler; kullanıcı, zaman, istek kimliği, işlem türü, hedef kayıt, önceki/yeni değer ve zincir hash'i ile kaydedilir. Her kayıt önceki kaydın hash'ine bağlıdır; zincir doğrulama ekranı olası bütünlük sorunlarını gösterir.</p>
+                    <p>Audit kayıtları ve snapshot'lar normal uygulama akışında güncellenmez veya silinmez. Düzeltmeler yeni bir işlem olarak iz bırakır.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Veri Kalitesi Kontrolleri</h2>
+                  <ul class="wiki-ul">
+                    <li>Kanıtsız veya süresi geçmiş doğrulamalar.</li>
+                    <li>Sahipsiz detection ve telemetry kayıtları.</li>
+                    <li>Eksik data component eşleşmeleri ve düşük kalite puanları.</li>
+                    <li>Onaysız profil, ATT&amp;CK/formül sürümü uyumsuzluğu ve snapshot bütünlüğü.</li>
+                  </ul>
+                  <div class="wiki-warning"><strong>Önerilen yönetişim:</strong> ölçümü hazırlayan ile profili onaylayan kişi farklı olmalı; kritik açıklar Aksiyon Planı'nda sahip ve hedef tarihle takip edilmelidir.</div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Kanıt Paketi</h2>
+                  <div class="wiki-info-box">
+                    <p><strong>Audit → Kanıt Paketi</strong>, ekrandaki filtreleri kullanarak JSON formatında bir denetim paketi üretir. Paket; manifest, kayıtlar, kaynak zincirin doğrulama sonucu, zincir başı hash'i ve paket SHA-256 hash'ini içerir.</p>
+                    <p>Bağımsız doğrulamada önce <code>export_hash</code> alanı hariç paket içeriği anahtarları sıralı ve boşluksuz JSON olarak serileştirilir; ardından SHA-256 hesaplanır. Sonuç dosyadaki <code>export_hash</code> ile aynı olmalıdır.</p>
+                  </div>
+                  <div class="wiki-warning">Filtrelenmiş paket zincirin yalnızca seçilen kayıtlarını taşır. Manifestteki <strong>audit_chain</strong> alanı ise paket oluşturulduğu anda kaynak veritabanındaki tam zincirin durumunu bildirir.</div>
+                </div>
+              </div>
+
+              <div class="wiki-page" id="w-scope-registry">
+                <h1 class="wiki-page-title">Kapsam Envanteri</h1>
+                <p class="wiki-page-lead">KPI ölçümünün hangi ortam ve varlık grubu için geçerli olduğunu, o grubu hangi ürünlerin nasıl izlediğini kayıt altına alır.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Sınıflandırma</h2>
+                  <table class="wiki-table">
+                    <thead><tr><th>Seviye</th><th>Örnek</th><th>Amaç</th></tr></thead>
+                    <tbody>
+                      <tr><td>Ortam</td><td>DIAS Lumos</td><td>İş ve teknoloji sınırını, sahibi ve kritikliği tanımlar.</td></tr>
+                      <tr><td>Varlık grubu</td><td>Linux Serverler</td><td>Aynı platform, varlık tipi ve izleme yapısındaki sistemleri toplar.</td></tr>
+                      <tr><td>Ürün izleme</td><td>QRadar / Tam / Log yönlendirme</td><td>Ürünün gruptaki bulunurluğunu ve yaklaşık cihaz kapsamını kaydeder.</td></tr>
+                    </tbody>
+                  </table>
+                  <div class="wiki-info-box"><p><strong>Örnek:</strong> DIAS Lumos / Linux Serverler için QRadar <em>Tam</em>, Defender <em>İzlenmiyor</em> seçilebilir. DIAS / Client Cihazları ayrı bir grup olmalıdır; çünkü ürün, telemetri ve teknik kapsamı farklıdır.</p></div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Anket Durumları</h2>
+                  <ul class="wiki-ul">
+                    <li><strong>Değerlendirilmedi:</strong> Kapsam hakkında henüz güvenilir beyan yoktur.</li>
+                    <li><strong>İzlenmiyor:</strong> Ürün bu varlık grubunda kullanılmıyor; kapsam yüzde 0'dır.</li>
+                    <li><strong>Kısmi izleme:</strong> Yüzde 1-99 arasında cihaz, log veya sensör kapsamı vardır; hariç kalan sınır nota yazılmalıdır.</li>
+                    <li><strong>Tam izleme:</strong> Tanımlı varlık grubunun tamamı ürün kapsamındadır; yüzde 100 kabul edilir.</li>
+                  </ul>
+                  <div class="wiki-warning"><strong>Önemli:</strong> Tam izleme, MITRE detection coverage anlamına gelmez. Önce ilgili QRadar connector'ından tespitler alınır; teknik eşleme, aktiflik ve kontrollü test kanıtı doğrulandıktan sonra detection KPI'ına katkı verir.</div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Yetki ve Audit</h2>
+                  <p>Viewer kayıtları okur. Editor ürün izleme anketini doldurur. Admin ortam ve varlık gruplarını oluşturur veya düzenler. Her anket kaydı değerlendiren kullanıcı, tarih, önceki ve sonraki değerlerle Audit zincirine eklenir.</p>
+                </div>
+              </div>
+
+              <div class="wiki-page" id="w-qradar-connector">
+                <h1 class="wiki-page-title">QRadar Connector</h1>
+                <p class="wiki-page-lead">Use Case Manager mapping envanterini salt-okunur olarak alır, native rule ID üzerinden mevcut detection kayıtlarıyla birleştirir.</p>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Kurulum</h2>
+                  <div class="wiki-steps">
+                    <div class="wiki-step"><div class="wiki-step-num">1</div><div>QRadar'da yalnız görüntüleme yetkilerine sahip bir <strong>Authorized Service</strong> ve SEC token oluşturun.</div></div>
+                    <div class="wiki-step"><div class="wiki-step-num">2</div><div>Token'ı uygulama sunucusunda ortam değişkeni olarak tanımlayın; token değerini arayüze girmeyin.</div></div>
+                    <div class="wiki-step"><div class="wiki-step-num">3</div><div><strong>Ayarlar → Connector'lar</strong> ekranında QRadar HTTPS adresini, environment adını ve mappings API path'ini kaydedin.</div></div>
+                    <div class="wiki-step"><div class="wiki-step-num">4</div><div>Önce <strong>Bağlantıyı Test Et</strong>, ardından <strong>Şimdi Senkronize Et</strong> komutunu çalıştırın.</div></div>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Birleştirme Kuralları</h2>
+                  <ul class="wiki-ul">
+                    <li>Birincil kimlik QRadar native rule UUID/ID değeridir.</li>
+                    <li>İlk senkronizasyonda aynı ürün ve aynı ada sahip tek kayıt varsa mevcut detection'a bağlanır.</li>
+                    <li>Eşleşme yoksa ve import açıksa yeni kayıt <strong>Untested</strong> ve düşük güvenle oluşturulur.</li>
+                    <li>Manuel ATT&amp;CK eşleşmeleri ve doğrulama kanıtları connector tarafından silinmez.</li>
+                    <li>QRadar yanıtında görünmeyen kayıt hemen silinmez; üç ardışık sync sonrasında <strong>Stale</strong> olur.</li>
+                  </ul>
+                  <div class="wiki-warning">Senkronizasyon detection'ı doğrulanmış yapmaz. QRadar mapping'i envanter kanıtıdır; resmi KPI için kontrollü test, yöntem, kanıt ve doğrulama tarihi gerekir.</div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Durumlar</h2>
+                  <table class="wiki-table">
+                    <thead><tr><th>Alan</th><th>Anlamı</th></tr></thead>
+                    <tbody>
+                      <tr><td>Envanter</td><td>Connector tarafından görülen toplam native QRadar kuralı</td></tr>
+                      <tr><td>Bağlı kural</td><td>Uygulamadaki detection kaydıyla ilişkilendirilmiş native kural</td></tr>
+                      <tr><td>Aktif</td><td>Son sync'te görülen ve QRadar tarafında etkin olan kayıt</td></tr>
+                      <tr><td>Stale</td><td>Üç ardışık sync boyunca QRadar yanıtında bulunmayan kayıt</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
             </div><!-- /.wiki-content -->
           </div><!-- /.wiki-shell -->
         </div>
@@ -957,12 +1322,13 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
         <div id="settingsPanel" class="panel">
           <div class="info-card">
             <h2>Ayarlar</h2>
+            <p class="page-lead">Ürünleri, kullanıcıları, ekipleri, connector'ları ve veri aktarımını tek yerden yönetin.</p>
             <div class="settings-tabs" id="settingsTabBar">
               <button class="settings-tab-btn active" data-tab="stab-product">Ürün Yönetimi</button>
               <button class="settings-tab-btn" data-tab="stab-csv" id="settingsCsvTab">CSV Yükleme</button>
               <button class="settings-tab-btn" data-tab="stab-users" id="settingsUsersTab">Kullanıcılar</button>
-              <button class="settings-tab-btn" data-tab="stab-audit" id="settingsAuditTab">Audit Log</button>
               <button class="settings-tab-btn" data-tab="stab-teams" id="settingsTeamsTab">Ekipler</button>
+              <button class="settings-tab-btn" data-tab="stab-connectors" id="settingsConnectorsTab">Connector'lar</button>
             </div>
 
             <div id="stab-product" class="settings-tab-panel active">
@@ -1019,13 +1385,6 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
               <div class="user-list" id="userList"></div>
             </div>
 
-            <div id="stab-audit" class="settings-tab-panel">
-              <div class="settings-row">
-                <button class="action-btn btn-add" id="btnRefreshAudit">Yenile</button>
-              </div>
-              <div class="audit-list" id="auditList"></div>
-            </div>
-
             <div id="stab-teams" class="settings-tab-panel">
               <div class="settings-row">
                 <div class="input-wrapper">
@@ -1036,6 +1395,50 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
               </div>
               <div class="settings-subtitle">Mevcut Ekipler</div>
               <div class="team-list" id="teamList"></div>
+            </div>
+
+            <div id="stab-connectors" class="settings-tab-panel">
+              <div class="connector-intro">
+                <strong>QRadar Use Case Manager</strong>
+                <span>Salt-okunur mapping envanteri; token değeri uygulamada saklanmaz.</span>
+              </div>
+              <input type="hidden" id="connectorId" />
+              <div class="connector-form-grid">
+                <div class="input-wrapper">
+                  <label for="connectorName">Bağlantı Adı</label>
+                  <input id="connectorName" type="text" placeholder="Örn: QRadar PROD" />
+                </div>
+                <div class="input-wrapper connector-wide">
+                  <label for="connectorBaseUrl">QRadar Base URL</label>
+                  <input id="connectorBaseUrl" type="url" placeholder="https://qradar.example.local" />
+                </div>
+                <div class="input-wrapper">
+                  <label for="connectorSecretEnv">Token Environment</label>
+                  <input id="connectorSecretEnv" type="text" value="QRADAR_SEC_TOKEN" />
+                </div>
+                <div class="input-wrapper">
+                  <label for="connectorProduct">Ürün Etiketi</label>
+                  <input id="connectorProduct" type="text" value="QRadar" />
+                </div>
+                <div class="input-wrapper connector-path">
+                  <label for="connectorMappingsPath">Mappings API Path</label>
+                  <input id="connectorMappingsPath" type="text" value="/console/plugins/app_proxy:UseCaseManager_Service/api/mappings" />
+                </div>
+                <div class="input-wrapper connector-path">
+                  <label for="connectorCaBundle">Özel CA Bundle (opsiyonel)</label>
+                  <input id="connectorCaBundle" type="text" placeholder="C:\certs\qradar-ca.pem" />
+                </div>
+                <label class="connector-check"><input id="connectorEnabled" type="checkbox" checked /> Connector etkin</label>
+                <label class="connector-check"><input id="connectorVerifyTls" type="checkbox" checked /> TLS sertifikasını doğrula</label>
+                <label class="connector-check"><input id="connectorImportRules" type="checkbox" checked /> Yeni QRadar kurallarını envantere ekle</label>
+              </div>
+              <div class="connector-form-actions">
+                <button class="action-btn btn-add" id="connectorSave">Connector Kaydet</button>
+                <button class="action-btn btn-neutral hidden" id="connectorCancel">İptal</button>
+              </div>
+              <div class="connector-env-note">Sunucuyu başlatmadan önce token'ı örneğin <code>$env:QRADAR_SEC_TOKEN='...'</code> olarak tanımlayın. QRadar'da yalnız görüntüleme yetkili Authorized Service kullanın.</div>
+              <div class="settings-subtitle">Tanımlı Connector'lar</div>
+              <div class="connector-list" id="connectorList"><div class="settings-empty">Connector yükleniyor.</div></div>
             </div>
           </div>
         </div>
@@ -1081,7 +1484,7 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
           <div class="gap-shell">
             <div class="gap-toolbar">
               <h2 class="gap-title">GAP Analizi</h2>
-              <a href="/report" target="_blank" class="action-btn btn-add" style="text-decoration:none">&#128196; Yönetici Raporu</a>
+              <a href="/report" target="_blank" class="action-btn btn-add" style="text-decoration:none">Yönetici Raporu</a>
             </div>
             <div class="gap-content" id="gapContent">
               <div style="color:var(--d-text-3);padding:20px">Yükleniyor…</div>
@@ -1175,6 +1578,196 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
           </div>
         </div>
 
+        <div id="socKpiPanel" class="panel">
+          <div class="soc-page">
+            <header class="soc-header">
+              <div>
+                <h1>SOC-CMM KPI</h1>
+                <div class="ops-subtitle">Detection coverage ve data source visibility</div>
+              </div>
+              <div class="soc-header-actions">
+                <select id="socProfileSelect" aria-label="Kurum profili"></select>
+                <span class="soc-status" id="socProfileStatus">Taslak</span>
+                <button class="action-btn btn-neutral" id="socNewProfile">Yeni Profil</button>
+                <button class="action-btn btn-neutral" id="socRefresh" title="KPI verisini yenile">Yenile</button>
+                <button class="action-btn btn-neutral" id="socLayerExport">Layer JSON</button>
+                <button class="action-btn btn-add" id="socSnapshot">Snapshot Oluştur</button>
+              </div>
+            </header>
+
+            <div class="soc-tabs" role="tablist" aria-label="SOC-CMM çalışma alanı">
+              <button class="soc-tab active" data-soc-tab="dashboard">KPI Dashboard</button>
+              <button class="soc-tab" data-soc-tab="profile">Kurum Profili</button>
+              <button class="soc-tab" data-soc-tab="telemetry">Visibility Envanteri</button>
+              <button class="soc-tab" data-soc-tab="detections">Detection Kanıtları</button>
+            </div>
+
+            <section class="soc-tab-panel active" id="soc-dashboard">
+              <div class="soc-kpi-grid" id="socKpiCards"></div>
+              <div class="soc-dashboard-grid">
+                <section class="soc-section soc-heatmap-section">
+                  <div class="soc-section-head">
+                    <div><h2>Öncelikli GAP Kuyruğu</h2><span id="socHeatmapSummary"></span></div>
+                    <div class="soc-segmented" id="socHeatmapMode">
+                      <button class="active" data-mode="combined">Birleşik GAP</button>
+                      <button data-mode="detection">Detection</button>
+                      <button data-mode="visibility">Visibility</button>
+                      <button id="socOpenMatrix" data-mode="matrix">Matrixte Aç</button>
+                    </div>
+                  </div>
+                  <div class="soc-legend" id="socHeatmapLegend"></div>
+                  <div class="soc-heatmap" id="socHeatmap"></div>
+                </section>
+                <section class="soc-section soc-trend-section">
+                  <div class="soc-section-head"><div><h2>Tarihsel Trend</h2><span>Onaylı snapshot serisi</span></div></div>
+                  <div id="socTrend"></div>
+                </section>
+              </div>
+            </section>
+
+            <section class="soc-tab-panel" id="soc-profile">
+              <div class="soc-workbar">
+                <div class="soc-profile-meta" id="socProfileMeta"></div>
+                <div class="soc-work-actions">
+                  <button class="action-btn btn-neutral" id="socIncludeVisible">Görünenleri Dahil Et</button>
+                  <button class="action-btn btn-neutral" id="socExcludeVisible">Görünenleri Hariç Tut</button>
+                  <button class="action-btn btn-neutral" id="socEditProfile">Profili Düzenle</button>
+                  <button class="action-btn btn-add" id="socApproveProfile">Profili Onayla</button>
+                </div>
+              </div>
+              <div class="soc-toolbar">
+                <input type="search" id="socProfileSearch" placeholder="Teknik ID, ad, taktik veya platform" />
+                <select id="socProfileFilter"><option value="included">Kapsamdakiler</option><option value="all">Tümü</option><option value="excluded">Kapsam dışı</option></select>
+              </div>
+              <div class="soc-table-wrap"><table class="soc-table"><thead><tr><th>Kapsam</th><th>Teknik</th><th>Taktik / Platform</th><th>Ağırlık</th><th>Gerekçe</th><th></th></tr></thead><tbody id="socProfileBody"></tbody></table></div>
+            </section>
+
+            <section class="soc-tab-panel" id="soc-telemetry">
+              <div class="soc-workbar">
+                <div><h2>Telemetri ve Data Component Envanteri</h2><span class="ops-subtitle">DeTT&amp;CT kalite boyutları 0-5</span></div>
+                <button class="action-btn btn-add" id="socNewTelemetry">Yeni Kaynak</button>
+              </div>
+              <div class="soc-table-wrap"><table class="soc-table"><thead><tr><th>Kaynak</th><th>Kapsam / Hedef</th><th>Data Component</th><th>Kalite</th><th>Durum</th><th></th></tr></thead><tbody id="socTelemetryBody"></tbody></table><div class="ops-empty" id="socTelemetryEmpty">Telemetri kaydı bulunmuyor.</div></div>
+            </section>
+
+            <section class="soc-tab-panel" id="soc-detections">
+              <div class="soc-workbar"><div><h2>Detection Doğrulama Envanteri</h2><span class="ops-subtitle">Aktiflik, test kanıtı, skor ve geçerlilik</span></div></div>
+              <div class="soc-toolbar"><input type="search" id="socDetectionSearch" placeholder="Detection, ürün, teknik veya sahip" /><select id="socDetectionFilter"><option value="">Tüm durumlar</option><option value="validated">Doğrulandı</option><option value="untested">Test edilmedi</option><option value="failed">Başarısız</option><option value="expired">Süresi doldu</option></select></div>
+              <div class="soc-table-wrap"><table class="soc-table"><thead><tr><th>Detection</th><th>Teknik</th><th>Yaşam Döngüsü</th><th>Doğrulama</th><th>Skor</th><th>Sahip</th><th>Geçerlilik</th><th></th></tr></thead><tbody id="socDetectionBody"></tbody></table></div>
+            </section>
+          </div>
+
+          <aside class="soc-drawer hidden" id="socDrawer" aria-live="polite">
+            <div class="soc-drawer-head"><h2 id="socDrawerTitle"></h2><button class="icon-btn" id="socDrawerClose" title="Kapat" aria-label="Kapat">&#x2715;</button></div>
+            <form id="socDrawerForm"><div id="socDrawerBody"></div><div class="soc-drawer-actions"><button type="button" class="action-btn btn-reset" id="socDrawerCancel">İptal</button><button type="submit" class="action-btn btn-add">Kaydet</button></div></form>
+          </aside>
+        </div>
+
+        <div id="dataQualityPanel" class="panel">
+          <div class="ops-page">
+            <div class="ops-header">
+              <div>
+                <h2>Veri Kalitesi</h2>
+                <div class="ops-subtitle">MITRE eşlemeleri ve kurumsal veri kataloğu</div>
+              </div>
+              <div class="ops-actions">
+                <button class="action-btn btn-neutral" id="dataQualityRefresh" title="Veriyi yeniden denetle">Yenile</button>
+                <button class="action-btn btn-add" id="dataQualityRepair">Güvenli Düzeltmeleri Uygula</button>
+              </div>
+            </div>
+            <div class="quality-summary" id="qualitySummary"></div>
+            <div class="dataset-strip" id="qualityDataset"></div>
+            <div class="ops-toolbar">
+              <div class="filter-group">
+                <label for="qualitySeverity">Önem</label>
+                <select id="qualitySeverity">
+                  <option value="">Tümü</option>
+                  <option value="critical">Kritik</option>
+                  <option value="warning">Uyarı</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="qualityType">Sorun türü</label>
+                <select id="qualityType"><option value="">Tümü</option></select>
+              </div>
+              <div class="filter-group ops-search">
+                <label for="qualitySearch">Ara</label>
+                <input id="qualitySearch" type="search" placeholder="Tespit, değer veya kayıt ID" />
+              </div>
+            </div>
+            <div class="ops-table-wrap">
+              <table class="ops-table">
+                <thead><tr><th>Seviye</th><th>Sorun</th><th>Kayıt</th><th>Değer</th><th>Açıklama</th></tr></thead>
+                <tbody id="qualityIssuesBody"></tbody>
+              </table>
+              <div class="ops-empty" id="qualityEmpty">Veri kalitesi sorunu bulunamadı.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="auditPanel" class="panel">
+          <div class="ops-page">
+            <div class="ops-header">
+              <div>
+                <h2>Audit</h2>
+                <div class="ops-subtitle">Değiştirilemez işlem geçmişi ve bütünlük doğrulaması</div>
+              </div>
+              <div class="ops-actions">
+                <span class="integrity-badge" id="auditIntegrity">Kontrol ediliyor</span>
+                <button class="action-btn btn-neutral" id="auditRefresh" title="Kayıtları yenile">Yenile</button>
+                <button class="action-btn btn-add" id="auditExport">CSV Dışa Aktar</button>
+                <button class="action-btn btn-neutral" id="auditEvidenceExport" title="Filtrelenen kayıtları doğrulanabilir JSON kanıt paketi olarak indir">Kanıt Paketi</button>
+              </div>
+            </div>
+            <div class="audit-summary" id="auditSummary"></div>
+            <div class="ops-toolbar audit-filters">
+              <div class="filter-group ops-search">
+                <label for="auditSearch">Ara</label>
+                <input id="auditSearch" type="search" placeholder="Hedef, detay veya istek ID" />
+              </div>
+              <div class="filter-group">
+                <label for="auditActor">Kullanıcı</label>
+                <input id="auditActor" type="text" placeholder="kullanıcı adı" />
+              </div>
+              <div class="filter-group">
+                <label for="auditAction">İşlem</label>
+                <select id="auditAction"><option value="">Tümü</option></select>
+              </div>
+              <div class="filter-group">
+                <label for="auditTargetType">Hedef türü</label>
+                <select id="auditTargetType"><option value="">Tümü</option></select>
+              </div>
+              <div class="filter-group">
+                <label for="auditDateFrom">Başlangıç</label>
+                <input id="auditDateFrom" type="date" />
+              </div>
+              <div class="filter-group">
+                <label for="auditDateTo">Bitiş</label>
+                <input id="auditDateTo" type="date" />
+              </div>
+            </div>
+            <div class="ops-table-wrap audit-table-wrap">
+              <table class="ops-table audit-table">
+                <thead><tr><th>Zaman</th><th>Kullanıcı</th><th>İşlem</th><th>Hedef</th><th>Detay</th><th>İstek ID</th></tr></thead>
+                <tbody id="auditTableBody"></tbody>
+              </table>
+              <div class="ops-empty" id="auditEmpty">Audit kaydı bulunamadı.</div>
+            </div>
+            <div class="ops-pagination">
+              <button class="icon-btn" id="auditPrev" title="Önceki sayfa" aria-label="Önceki sayfa">&#x2039;</button>
+              <span id="auditPageInfo"></span>
+              <button class="icon-btn" id="auditNext" title="Sonraki sayfa" aria-label="Sonraki sayfa">&#x203A;</button>
+            </div>
+          </div>
+          <aside class="audit-detail hidden" id="auditDetail" aria-live="polite">
+            <div class="audit-detail-header">
+              <h3>Kayıt Detayı</h3>
+              <button class="icon-btn" id="auditDetailClose" title="Kapat" aria-label="Kapat">&#x2715;</button>
+            </div>
+            <div id="auditDetailBody"></div>
+          </aside>
+        </div>
+
       </main>
     </div><!-- /.app-shell -->
   </div><!-- /.ms-shell -->
@@ -1261,7 +1854,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=79"></script>
+  <script src="/static/app.js?v=96"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];
@@ -1285,7 +1878,7 @@ td small{color:#555}
       }
       el.innerHTML = _teamsCache.map(t =>
         `<div class="product-item">
-          <span class="product-name">${_esc(t.name)}</span>
+          <span class="product-name">${_teamEsc(t.name)}</span>
           <button class="action-btn btn-reset" onclick="deleteTeam(${t.id})" title="Sil">×</button>
         </div>`
       ).join('');
@@ -1320,7 +1913,7 @@ td small{color:#555}
       });
     });
 
-    function _esc(s) {
+    function _teamEsc(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 

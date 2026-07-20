@@ -1,289 +1,115 @@
-# PROJECT STATE - MITRE Coverage Map
+# Project State
 
-Last updated: 2026-02-23
+Son güncelleme: 2026-07-19
 
-## Purpose
-Lightweight, server-based SOC coverage manager with MITRE ATT&CK mapping, mitigations tracking, product-based coverage, and persistent storage.
+## Ürün Amacı
 
-## Current Status
-- Backend: Flask + SQLite
-- Frontend: Single HTML + JS + CSS served by Flask
-- MITRE data: loaded from `data/mitre.json` (manual updates)
-- Rules: stored in `soc.db`
-- Mitigation notes: stored in `soc.db` (includes `team` field)
-- Mitigation entries: stored in `soc.db` (per mitigation, multiple teams/comments)
-- Products: stored in `soc.db` (name + color)
-- Reset/reseed: available via `/api/admin/reset`
-- MITRE minified endpoint is cached in-memory on backend
+SOC Coverage Map, kurum genelindeki tespit teknolojilerini, MITRE ATT&CK tekniklerini, mitigation uygulamalarını, sorumlu ekipleri ve iyileştirme aksiyonlarını tek bir güvenilir envanterde birleştirir.
 
-## How To Run (Windows)
-1. `python -m venv .venv`
-2. `\.venv\Scripts\Activate.ps1`
-3. `pip install -r requirements.txt`
-4. `python app.py`
-5. Open `http://localhost:8000`
+## Teknik Yapı
 
-If PowerShell execution policy blocks activation:
-- `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+- Backend: Flask 3 + SQLite
+- Üretim WSGI: Waitress
+- Frontend: sunucu tarafından sunulan HTML, vanilla JavaScript ve CSS
+- Yetkilendirme: `viewer`, `editor`, `admin`
+- Veri kaynağı: yerel MITRE Enterprise ATT&CK STIX JSON
+- Test: Python `unittest` ve Selenium tarayıcı smoke testi
 
-## Data Files
-- MITRE JSON: `data/mitre.json`
-- Seed rules: `data/rules_seed.json`
-- DB: `soc.db` (excluded from git)
+## Güncel Veri Durumu
 
-## Key Endpoints
-- `GET /api/mitre`
-- `GET /api/mitre-min`
-- `GET/POST /api/rules`                          — GET: rules + techniques[]; POST: 409 if duplicate (name,source)
-- `DELETE /api/rules/<id>`
-- `POST /api/rules/bulk` (CSV import)
-- `POST /api/rules/<id>/techniques`              — bir kurala yeni MITRE tekniği ekler
-- `DELETE /api/rules/<id>/techniques/<tech_id>`  — bir kuraldan teknik kaldırır
-- `GET/POST /api/mitigation-notes`
-- `GET/POST /api/mitigation-entries`
-- `DELETE /api/mitigation-entries/<id>`
-- `GET/POST /api/products`
-- `PUT /api/products/<id>`
-- `DELETE /api/products/<id>`
-- `POST /api/admin/reset` with `{ "confirm": "RESET", "reseed": true }`
+2026-07-19 veri standardizasyonu sonrasında:
 
-## Admin Reset Behavior
-- Clears `rules` and `mitigation_notes`
-- Clears `mitigation_global` and `mitigation_entries`
-- Reseeds from `data/rules_seed.json`
-- If seed missing, fallback to parsing `SOC.html` (legacy)
+- 438 tespit kaydı
+- 433 tespit geçerli MITRE tekniğine bağlı
+- 5 tespit analist eşlemesi bekliyor
+- Veri güvenilirlik skoru: %99,5
+- Geçersiz teknik ilişkisi: 0
+- Tespit bulunan teknik oranı: %15,6
+- Olgun kapsama oranı: %8,1
+- Ortalama kapsam skoru: %20,4
+- Kritik GAP: 92
 
-## UI Features Implemented
-- MITRE matrix layout (horizontal tactics)
-- Technique card color gradient based on coverage score
-- Sub-techniques expand inline under technique card
-- Technique modal: rules + mitigations + notes
-- Mitigation info popover + checkbox + entries list (team + comment) + "Onayla" (checkbox save + closes modal)
-- Mitigations are global across techniques (same entries appear everywhere)
-- Modal has tabs: Mitigations / Kurallar
-- New panel: Mitigation Listesi (mitigation -> techniques list)
-- Mitigation Listesi now includes global team/comment entries with add/remove actions
-- Technique IDs in Mitigation Listesi are interactive chips (hover state + click popover with full technique name)
-- Left sidebar with Matrix / Bilgilendirme / Ayarlar / Mitigation Listesi / Kurallar
-- Product legend and multi-color stripe on technique cards
-- Product management in Settings (add/delete/update color)
-- CSV bulk upload in Settings
-- Search bar on Matrix (ID or name)
-- Product filtering via legend toggle (click product name to hide/show)
-- Matrix now fills the remaining page height (no resizer or bottom form)
-- **Kurallar sayfası** (Rules panel): her kural için technique chip listesi, × kaldır, + ekle (autocomplete)
-- **Kurallar filtre bar**: ad araması + ürün dropdown + temizle butonu
-- **Teknik autocomplete**: 2+ char'da dark-theme dropdown (T-kod+isim), arrow/enter/escape navigasyonu
-- **Ayarlar sekme yapısı**: 4 sekme (Ürün/CSV/Kullanıcılar/Audit); CSV editor+, Kullanıcılar/Audit admin-only
+Eski teknik adlarıyla saklanan 479 ilişki standart MITRE ID'lerine dönüştürüldü. 46 adet `None` placeholder ilişkisi kaldırıldı ve 436 taktik değeri canonical slug formatına çevrildi. İşlemler audit kaydına yazıldı. Migrasyon öncesi veritabanı yedeği sistem geçici klasöründe tutuluyor.
 
-## Filters & Validation
-- Search: only matching techniques remain visible
-- Product filter: legend items toggle inclusion
-- Technique validation on add: checks `Txxxx` or `Txxxx.xxx` and existence in MITRE map
+## Audit Güvenceleri
 
-## Known Issues / Notes
-- Turkish encoding in `templates/index.html` was fixed (2026-02-19); all UI strings now use proper UTF-8 characters.
-- `static/app.js` encoding is clean; if "?" appears elsewhere, hard refresh and restart server.
-- `soc.db` is excluded from git — on a fresh clone, run admin reset to reseed rules: `POST /api/admin/reset { "confirm": "RESET", "reseed": true }` (requires admin session). Default admin credentials on fresh DB: `admin` / `Admin123!`.
+- Audit kayıtları append-only veritabanı trigger'larıyla korunuyor.
+- Her kayıt önceki hash'e bağlı SHA-256 zincir hash'i taşıyor.
+- Başarılı, başarısız ve bloke edilen giriş denemeleri kaydediliyor.
+- Kayıtlarda request ID, IP, user-agent ve desteklenen işlemlerde önce/sonra veri bulunuyor.
+- Audit ekranı filtreleme, sayfalama, detay, bütünlük kontrolü ve CSV export sunuyor.
+- Aynı kullanıcı/IP için 5 dakikada 5 başarısız girişten sonra geçici rate-limit uygulanıyor.
 
-## Git / Repo Hygiene
-- `.gitignore` excludes: `.venv/`, `soc.db`, `__pycache__/`, `.env`
-- Untracked files often include `Error.jpg`, `Mitre.jpg` (do not commit)
+## Veri Güvenilirliği
 
-## Session 4 — Bug Fix & UX İyileştirme Turu (2026-02-23)
+Veri Kalitesi ekranı aşağıdaki sorunları denetliyor:
 
-### Birleşik modal (techDetailModal kaldırıldı)
-- `#techDetailModal` HTML'i ve tüm JS kodu (`openTechDetail`, `closeTechDetail`, `saveTechImportance`, `_ensureRole`) silindi.
-- TTP listesindeki teknik adı tıklaması artık doğrudan `openModal()` çağırıyor (index.html'deki yeni basit `openTechDetail()` wrapper'ı ile).
-- Böylece tek bir modal (`#ruleModal`) kullanılıyor, iki ayrı popup ortadan kalktı.
+- Geçersiz veya eski MITRE teknik eşlemeleri
+- MITRE tekniğine bağlanmamış tespitler
+- Silinmiş tespite bağlı orphan ilişkiler
+- Ürün kataloğunda bulunmayan kaynaklar
+- Geçersiz taktik ve güven seviyesi değerleri
+- MITRE veri setinin boyutu, tarihi ve katalog sayıları
 
-### Matrix modal yeniden tasarımı (openModal)
-- **Checkbox kaldırıldı** → yerine `.mit-status-indicator` span (✓ / ○); entry varsa otomatik ✓ gösteriyor.
-- **"Onayla" butonu kaldırıldı** → entry ekleyince/silince matrix kartları anında güncelleniyor (`refreshTechniqueCardsForMitigation`).
-- **Ekip text input → `<select>`** → `buildTeamSelectEl(mitId)` helper'ı, `teams` global'inden seçenek üretiyor.
-- **Teknik açıklaması eklendi** → modal açılınca async `/api/technique-detail/<id>` fetch; description, platform, önem seviyesi ve MITRE linki gösteriliyor.
-- `pendingMitigationEdits` sistemi kaldırıldı (artık gereksiz).
+GAP analizi artık üç farklı metriği ayırıyor:
 
-### Teams entegrasyonu (app.js)
-- `let teams = []` global eklendi.
-- `init()` ve `reloadData()`'ya `/api/teams` fetch eklendi.
-- `applyRoleUI()` içine `settingsTeamsTab` hidden toggle eklendi.
-- `buildTeamSelectEl(mitId)` fonksiyonu: `<select>` DOM elementi döndürür, teams global'ini kullanır.
+- Tespit kapsamı: en az bir tespit bulunan teknikler
+- Olgun kapsam: birleşik skoru en az %70 olan teknikler
+- Ortalama skor: tespit güven seviyesi, teknik eşiği, mitigation ve ürün çeşitliliği
 
-### getCheckedMitigationCountForTech düzeltmesi
-- Eski: sadece `note.checked` olan mitigationları sayıyordu → matrix rengi entry eklenince değişmiyordu.
-- Yeni: `note.checked || mitigationEntries[m.id]?.length > 0` → entry eklenince matrix kartı anında renk alıyor.
+## Güvenlik
 
-### renderMitigationList güncellemesi
-- Ekip input → `<select>` (buildTeamSelectEl ile).
-- Entry ekle/sil handler'larına matrix refresh eklendi.
+- Session cookie: `HttpOnly`, `SameSite=Lax`, opsiyonel `Secure`
+- Güvenlik başlıkları: frame engeli, MIME sniffing engeli, referrer ve permissions policy
+- Üretim sunucusu `SOC_SECRET_KEY` olmadan başlamıyor.
+- Son aktif admin pasifleştirilemiyor veya rolü düşürülemiyor.
+- Kullanılan ürün ve ekip kayıtları ilişkili veri varken silinemiyor.
+- Yeni ve değiştirilen kullanıcı parolaları en az 10 karakter olmalı.
 
-### renderMitigationEntries güncellemesi
-- Entry sil handler'ına matrix refresh eklendi.
+## Doğrulanan Akışlar
 
-### TTP listesi CSS düzeltmesi (kritik layout bug)
-- **Sorun**: `.ttp-content` (flex column) içindeki `.ttp-tactic-section` öğeleri `flex-shrink:1` ile küçüldüğü için `overflow:hidden` tarafından kesiliyordu; teknikler görünmüyordu.
-- **Düzeltme 1**: `.ttp-content { min-height: 0 }` → scroll aktif hale geldi.
-- **Düzeltme 2**: `.ttp-tactic-section { flex-shrink: 0 }` → her bölüm kendi doğal yüksekliğini korudu.
-- **Düzeltme 3**: `#ttpPanel.panel.active { display: flex; flex-direction: column }` + `.ttp-shell { flex: 1; min-height: 0 }` → flex zinciri tamamlandı.
+- Login ve rol sınırları
+- Audit zincir bütünlüğü ve append-only koruma
+- Başarısız giriş rate-limit'i
+- Veri kalitesi hata tespiti ve güvenli onarım
+- Tespit güven seviyesine göre kapsam skoru
+- Son admin koruması
+- Matrix, Veri Kalitesi ve Audit ekranlarının masaüstü/mobil yüklenmesi
+- Tarayıcı konsolunda sıfır severe hata
 
-### Skor renklendirme sistemi yeniden tasarımı
-**Matrix kartları (app.js):**
-- Ortak `_scoreRgb()` yardımcı fonksiyon oluşturuldu; renk sabitleri merkezi tanımlandı.
-- Yeşil tonu soğutuldu ve sönükleştirildi: `rgb(53,196,139)` → `rgb(48,165,122)` (cırtlak değil, sage-teal).
-- Amber de soğutuldu: `rgb(176,124,30)` → `rgb(162,112,26)`.
-- `scoreToColor()` → `rgba(r,g,b,0.20)` (ana kartlar, %80 şeffaf).
-- `scoreToSubColor()` → `rgba(r,g,b,0.13)` (alt teknikler, daha sönük).
-- Beyaz border override kaldırıldı (saydamlıkla uyumsuzdu).
+## SOC-CMM KPI Durumu
 
-**TTP listesi (index.html):**
-- `_ttpRowBg()` eklendi: aynı gradyan mantığı, `rgba(r,g,b,0.22)` — her satır kapsamına göre ince renk tonu alıyor.
-- Aynı renk sabitleri kullanıldı (matrix ile tutarlı).
+2026-07-19 itibarıyla ürün iki resmi KPI hattını ayrı hesaplar:
 
-**CSS hover güncellemesi (styles.css):**
-- `.technique-card:hover`, `.subtech-card:hover`, `.ttp-tech-row:hover` → `background:` override yerine `filter: brightness(1.4)` — inline rgba üzerine class background yazamaz, filter her durumda çalışır.
+- ATT&CK 18.1 tabanlı, sürümlü ve onaylanabilir kurum profili
+- Mapped, validated ve risk ağırlıklı detection coverage
+- ATT&CK Data Components ve beş DeTT&CT kalite boyutundan türetilen visibility
+- Detection / visibility / birleşik GAP heatmap modları
+- Mevcut taktik sütunlu ATT&CK Matrix ile SOC-CMM KPI verisinin tek kart ve teknik detay akışında birleşimi
+- Detection yaşam döngüsü, 0-5 skor, test yöntemi, kanıt, sahip ve geçerlilik takibi
+- Telemetri kaynağı, kapsam, hedef platform, 0-5 kalite ve son veri takibi
+- Formül sürümlü, hash'li ve append-only KPI snapshot'ları
+- Snapshot trend görünümü ve ATT&CK Navigator Layer JSON export
+- Profil, değerlendirme, override, telemetri ve snapshot işlemlerinin tam audit kaydı
 
-### Badge temizliği
-- **Önem badge'leri** (1-5 renkli sayı yuvarlakları) matrix kartlarından kaldırıldı: `_addImportanceBadges` MutationObserver silindi.
-- **"OK{n}" mitigation badge'leri** matrix kartlarından kaldırıldı: `applyTechniqueVisuals`, `updateTechniqueCard`, `updateSubtechCard` içinden badge DOM kodu çıkarıldı.
-- **TTP listesindeki importance-badge `<span>`'ları** kaldırıldı; renk satırı bilgiyi görsel olarak taşıyor.
-- `.mitigation-badge` ve `.ttp-tech-row .importance-badge` CSS kuralları temizlendi.
+Gerçek veri migrasyonu sonrasında taslak profil 691 ATT&CK tekniği içerir. 438 detection `active / untested` olarak envantere alınmıştır. Bu nedenle başlangıç KPI'ları mapped coverage `%15,6`, validated detection coverage `%0` ve visibility `%0` değerindedir. Bu sıfır değerler eksik kanıt ve telemetri envanterini açıkça gösterir; sistem kanıtsız coverage üretmez.
 
-### MutationObserver temizliği (index.html)
-- `_replaceTeamInputs()` + `_modalObs` bloğu kaldırıldı (teams artık app.js'de doğrudan yerleştiriliyor).
+## Sonraki Öncelikler
 
-### Cache bust versiyonları
-- `styles.css`: v=72 → v=77
-- `app.js`: v=63 → v=66
+1. Kapsam Envanteri'nde gerçek ortam/varlık gruplarının ve ürün izleme anketlerinin doldurulması
+2. QRadar connector'ın kurum test instance'ında read-only SEC token ile kabul testi
+3. Connector tespitlerinin bağlı varlık grubuna uygulanabilirliğini belirleyen scope doğrulama akışı
+4. Kalan 5 tespitin analist tarafından MITRE tekniklerine bağlanması
+5. Kurumsal ATT&CK profil kapsamının risk ekipleriyle gözden geçirilip onaylanması
+6. İlk 25 detection için kanıt ve kontrollü doğrulama kampanyası
+7. Kurumsal SSO/OIDC ve merkezi kullanıcı yaşam döngüsü
+8. PostgreSQL geçişi ve çoklu uygulama instance desteği
+9. CI pipeline ve test veritabanıyla otomatik release kontrolü
+10. MITRE veri seti sürümleme ve kontrollü güncelleme iş akışı
 
----
+## Connector Yol Haritası
 
-## Recent Work (High Level)
-- Removed bottom "Yeni Kural" form and draggable resizer (matrix is full-height now)
-- Removed slide-in rule panel (kept modal + existing add flow)
-- Modal "Onayla" now saves mitigations and closes modal
-- Fixed navigation switching between Matrix / Bilgilendirme / Ayarlar
-- Cleaned Turkish characters in templates and UI strings
-- Added MITRE minified API + in-memory cache (performance)
-- Added `team` field to mitigation notes (DB + API)
-- Mitigation popover text shortened and labeled (summary + detail toggle)
-- UI polish pass: hover elevation, button transitions, modal typography
-- Color palette updated and all text forced to light colors (no black on dark)
-- Mitigation entries now global per mitigation (same entry appears across all techniques)
-- Mitigation modal now uses tabs (Mitigations / Kurallar)
-- Added `mitigation_global` backend storage and migration/seed logic for global mitigation state
-- Added `mitigation_entries` API + persistence for multi-team implementation notes per mitigation
-- Synced Matrix modal and Mitigation Listesi page so add/remove entries reflect both views
-- Reworked Mitigation Listesi layout: wider Ekip/Yorum column, compact technique chips, toggle for full list
-- Added technique chip hover/tooltip popover with full `Txxxx - name` text
-
-## Open Roadmap
-Milestone 2:
-- Export: CSV and PDF (active filtrelere göre)
-
-Milestone 3:
-- MITRE Navigator Layer JSON export (score-based)
-
-Deferred:
-- Kurallar sayfası responsive düzen (dar ekran)
-- UX final polish (spacing, tipografi, tutarlılık)
-
-## Commit Tracking
-- Latest commit: (this session) — Rules page + 4 improvements (2026-02-20)
-- Previous: `ad47748` — PROJECT_STATE RBAC/audit update (2026-02-19)
-- User pushes to private GitHub repo manually
-
-
-## New Context Quick Start
-1. Read `PROJECT_STATE.md` (this file) for current state and roadmap.
-2. Check `git status -sb` for pending changes.
-3. Run app: `python app.py` and open `http://localhost:8000` for UI verification.
-
-## Last Verified Flows
-- Matrix renders with horizontal tactics
-- Legend click toggles product filter
-- Search input filters techniques by ID/name
-- Add rule validates technique ID/name
-- Product CRUD + color update applies to legend/stripe
-- CSV bulk import works and refreshes matrix
-- Mitigation entries added in Matrix are visible in Mitigation Listesi
-- Mitigation entries added/removed in Mitigation Listesi are visible in Matrix
-- Shared mitigation checkbox/comment/team state is global by mitigation ID
-
-## Action Checklist
-- [x] Matrix + Mitigation Listesi global mitigation senkronu
-- [x] Mitigation ekip/yorum ekle-sil (iki tarafta da)
-- [x] Teknik chip hover + tıklama popover (tam teknik adı)
-- [x] Mitigation Listesi genişlik/UI düzeni
-- [x] Modal sekmeler (Mitigations / Kurallar)
-
-- [x] RBAC altyapısı (`users` tablosu + `viewer/editor/admin`)
-- [x] Login/logout ve session yönetimi
-- [x] Endpoint bazlı yetki kontrolü (role guard)
-- [x] UI role bazlı buton görünürlüğü/kısıtlama
-- [x] Admin kullanıcı yönetimi ekranı
-- [x] Basit audit log (kim-ne-zaman-ne yaptı)
-
-- [x] Türkçe karakter/encoding temizliği (`templates/index.html`) — 8 string düzeltildi
-- [x] CSS çakışma/sadeleştirme (tekrarlı kuralların temizlenmesi) — 18 duplicate kural temizlendi, 2 tanımsız CSS değişkeni düzeltildi
-
-- [x] Kurallar sayfası (rule_techniques join tablosu + çoklu teknik desteği)
-- [x] Kurallar DB birleştirme (duplicate name+source → tek kural, UNIQUE index)
-- [x] Kurallar filtre bar (ad araması + ürün dropdown)
-- [x] Teknik autocomplete (dark-theme dropdown, klavye navigasyonu)
-- [x] Ayarlar sekme yapısı (4 sekme + role bazlı gizleme)
-
-- [x] Teams yönetimi: Ayarlar > Ekipler sekmesi, API, app.js entegrasyonu
-- [x] TTP Listesi paneli: /api/ttp-list, renderTtpList, skor renklendirme, flex scroll düzeltmesi
-- [x] Teknik detay modal birleştirildi (techDetailModal → openModal)
-- [x] Matrix modal: checkbox kaldırıldı, status indicator, Onayla kaldırıldı, teams select, description section
-- [x] Matrix renk sistemi: RGBA saydamlık (%20), soğuk/sade renk tonu, badge temizliği
-- [x] TTP listesi renk sistemi: aynı gradyan, %22 saydamlık, matrixle tutarlı
-
-- [ ] Mitigation Listesi responsive düzen (dar ekran)
-- [ ] UX final polish (spacing, tipografi, tutarlılık)
-- [ ] Export: CSV / PDF / MITRE Layer JSON
-
-## Suggested Order
-1. RBAC backend (tablo + login + endpoint guard)
-2. RBAC frontend (role bazlı görünürlük/kısıtlama)
-3. Audit log (kritik işlemler)
-4. Encoding + CSS refactor
-5. Responsive/UX polish
-
-
-## RBAC & Audit Update (2026-02-20)
-- RBAC guards are now active across API endpoints.
-- Login/session endpoints active: `/login`, `/api/login`, `/api/logout`, `/api/me`.
-- Admin user management added:
-  - `GET/POST /api/users`
-  - `PUT /api/users/<id>`
-- Audit logging added:
-  - DB table: `audit_logs`
-  - API: `GET /api/audit-logs` (admin)
-  - Logged actions include login/logout and key create/update/delete/reset actions.
-- Settings page now includes Admin-only `Kullanıcı Yönetimi` and `Audit Log` sections.
-
-## Encoding & CSS Cleanup (2026-02-19) — commit 0b37b19
-### templates/index.html — 8 Türkçe karakter düzeltmesi
-- `Cikis` → `Çıkış`
-- `Kullanici Yonetimi (Admin)` → `Kullanıcı Yönetimi (Admin)`
-- `Kullanici Adi` → `Kullanıcı Adı`
-- `orn: analyst1` → `Örn: analyst1`
-- `Sifre` / `sifre` → `Şifre` / `şifre`
-- `Kullanici Ekle` → `Kullanıcı Ekle`
-- `Mevcut Kullanicilar` → `Mevcut Kullanıcılar`
-
-### static/styles.css — 18 duplicate/hata temizliği
-- `body`: çift `background-color` ve tanımsız `--text-color` kaldırıldı
-- `input:focus`: tanımsız `--color-dfe` → `var(--accent-blue)` düzeltildi (aktif bug fix)
-- `.legend`, `.legend-item` (cursor: pointer'a güncellendi), `.legend-box`: tekrar eden bloklar kaldırıldı
-- `.detail-btn`, `.tactic-header`, `.technique-card`: iç duplicate özellikler temizlendi
-- `.tech-chip`: 2 blok → 1 blok birleştirildi
-- `.sidebar`, `.brand`: çift `background`/`color` kaldırıldı
-- `.nav-item`: 2 blok → 1 blok birleştirildi (flex layout eklendi)
-- `.content`: 3 blok → 1 blok birleştirildi (`padding: 20px` + `transition` korundu)
-- `.info-card`: 2 blok → 1 blok birleştirildi (`width: 100%; max-width: none`)
-- `.sidebar.collapsed` + `.sidebar.collapsed .nav-item`: tekrarlar kaldırıldı
-- `.mitigation-list-entries`, `.mitigation-entry`, `.mitigation-entry-form`: duplicate bloklar birleştirildi
-- Tüm değişiklikler 16/16 user POV testi ile doğrulandı.
+- **Faz 1 — QRadar:** Use Case Manager mapping API, native rule ID uzlaştırma, sync geçmişi, stale yönetimi ve Audit tamamlandı. Mock QRadar HTTP servisiyle duplicate önleme doğrulandı; kurum QRadar instance kabul testi bekliyor.
+- **Faz 2 — QRadar genişletme:** log source activity/coverage, tuning findings, offense count ve son aktivite metrikleri.
+- **Faz 3 — Defender (beklemede):** Microsoft Graph `alerts_v2` ile built-in aktivite; custom detection envanteri için Git/JSON öncelikli model. QRadar kabulü tamamlanana kadar uygulanmayacak.
+- **Faz 4 — Detection as Code:** custom detection repository, sürüm ve deployment durumunun connector kayıtlarına bağlanması.
