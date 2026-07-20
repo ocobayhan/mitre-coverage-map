@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=97" />
+  <link rel="stylesheet" href="/static/styles.css?v=98" />
 </head>
 <body>
   <div class="ms-shell">
@@ -1329,6 +1329,7 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
               <button class="settings-tab-btn" data-tab="stab-users" id="settingsUsersTab">Kullanıcılar</button>
               <button class="settings-tab-btn" data-tab="stab-teams" id="settingsTeamsTab">Ekipler</button>
               <button class="settings-tab-btn" data-tab="stab-connectors" id="settingsConnectorsTab">Connector'lar</button>
+              <button class="settings-tab-btn" data-tab="stab-account">Hesabım</button>
             </div>
 
             <div id="stab-product" class="settings-tab-panel active">
@@ -1439,6 +1440,22 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
               <div class="connector-env-note">Sunucuyu başlatmadan önce token'ı örneğin <code>$env:QRADAR_SEC_TOKEN='...'</code> olarak tanımlayın. QRadar'da yalnız görüntüleme yetkili Authorized Service kullanın.</div>
               <div class="settings-subtitle">Tanımlı Connector'lar</div>
               <div class="connector-list" id="connectorList"><div class="settings-empty">Connector yükleniyor.</div></div>
+            </div>
+
+            <div id="stab-account" class="settings-tab-panel">
+              <div class="settings-subtitle">Parolamı Değiştir</div>
+              <div class="settings-row">
+                <div class="input-wrapper">
+                  <label>Mevcut Parola</label>
+                  <input type="password" id="ownPasswordCurrent" autocomplete="current-password" />
+                </div>
+                <div class="input-wrapper">
+                  <label>Yeni Parola</label>
+                  <input type="password" id="ownPasswordNew" autocomplete="new-password" placeholder="en az 10 karakter" />
+                </div>
+                <button class="action-btn btn-add" id="btnChangeOwnPassword">Değiştir</button>
+              </div>
+              <div class="upload-result" id="ownPasswordResult"></div>
             </div>
           </div>
         </div>
@@ -1854,7 +1871,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=96"></script>
+  <script src="/static/app.js?v=98"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

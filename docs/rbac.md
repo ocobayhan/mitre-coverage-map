@@ -39,6 +39,7 @@ Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `RO
 | `teams` | viewer | admin |
 | `mitigation-notes`, `mitigation-entries` | viewer | editor |
 | `users` | admin | admin |
+| `me/password` (kendi parolanı değiştir) | — | herhangi bir oturum açmış kullanıcı (`login_required`, rol şartı yok) |
 | `audit-logs`, `audit-logs/export`, `audit-logs/evidence` | admin | admin |
 | `connectors` (tüm alt route'lar) | admin | admin |
 | `scope-registry` | viewer | — |

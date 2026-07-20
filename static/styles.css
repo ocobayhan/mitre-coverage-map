@@ -766,6 +766,7 @@ button.action-btn {
 /* ── CSV / Upload ───────────────────────────────────────── */
 .csv-help { margin-top: 10px; color: var(--d-text-3); font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
 .upload-result { margin-top: 8px; color: var(--d-text-2); font-size: 13px; }
+.upload-result.error { color: var(--d-red); }
 
 /* ── Users & Audit ──────────────────────────────────────── */
 .user-list, .audit-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }

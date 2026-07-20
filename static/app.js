@@ -78,8 +78,24 @@ function applyRoleUI() {
   const resetBtn = document.getElementById('btnReset');
   if (resetBtn) resetBtn.classList.toggle('hidden', !hasRole('admin'));
 
+  // Ayarlar sekmesi her zaman gorunur: viewer da dahil herkes kendi parolasini
+  // "Hesabim" sekmesinden degistirebilmeli. Alt sekmeler (CSV, Kullanicilar,
+  // Ekipler, Connector'lar) kendi rol kontrollerini asagida ayrica uyguluyor.
   const settingsNav = document.querySelector('.nav-item[data-target="settingsPanel"]');
-  if (settingsNav) settingsNav.classList.toggle('hidden', !hasRole('editor'));
+  if (settingsNav) settingsNav.classList.remove('hidden');
+
+  // Viewer icin varsayilan sekme "Urun Yonetimi" degil "Hesabim" olsun --
+  // viewer o sekmede zaten hicbir seyi ekleyemez (yazma admin'e ozel).
+  if (!hasRole('editor')) {
+    const accountTabBtn = document.querySelector('.settings-tab-btn[data-tab="stab-account"]');
+    const accountTabPanel = document.getElementById('stab-account');
+    if (accountTabBtn && accountTabPanel) {
+      document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.remove('active'));
+      accountTabBtn.classList.add('active');
+      accountTabPanel.classList.add('active');
+    }
+  }
 
   const csvFileInput = document.getElementById('csvFile');
   if (csvFileInput) csvFileInput.disabled = !hasRole('editor');
@@ -2473,6 +2489,37 @@ async function addUser() {
   await loadAuditLogs();
 }
 
+async function changeOwnPassword() {
+  const currentInput = document.getElementById('ownPasswordCurrent');
+  const newInput = document.getElementById('ownPasswordNew');
+  const result = document.getElementById('ownPasswordResult');
+  result.textContent = '';
+  result.classList.remove('error');
+
+  const current_password = currentInput.value;
+  const new_password = newInput.value;
+  if (!current_password || !new_password) {
+    result.textContent = 'Mevcut ve yeni parolayı gir.';
+    result.classList.add('error');
+    return;
+  }
+
+  const res = await apiFetch('/api/me/password', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password, new_password })
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    result.textContent = payload.error || 'Parola değiştirilemedi.';
+    result.classList.add('error');
+    return;
+  }
+  currentInput.value = '';
+  newInput.value = '';
+  result.textContent = 'Parola güncellendi.';
+}
+
 function wireSettings() {
   const addBtn = document.getElementById('btnAddProduct');
   if (addBtn) addBtn.addEventListener('click', addProduct);
@@ -2484,6 +2531,8 @@ function wireSettings() {
   document.getElementById('connectorCancel')?.addEventListener('click', resetConnectorForm);
   const refreshAuditBtn = document.getElementById('btnRefreshAudit');
   if (refreshAuditBtn) refreshAuditBtn.addEventListener('click', loadAuditLogs);
+  const changePasswordBtn = document.getElementById('btnChangeOwnPassword');
+  if (changePasswordBtn) changePasswordBtn.addEventListener('click', changeOwnPassword);
   wireSettingsTabs();
 }
 

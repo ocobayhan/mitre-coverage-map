@@ -2178,6 +2178,41 @@ def users_update_api(user_id: int):
     return jsonify({"ok": True})
 
 
+@app.route("/api/me/password", methods=["PUT"])
+@login_required
+def change_own_password_api():
+    db = get_db()
+    user_id = g.current_user["id"]
+    row = db.execute("SELECT id, username, password_hash FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    current_password = str(payload.get("current_password", ""))
+    new_password = str(payload.get("new_password", "")).strip()
+
+    if not check_password_hash(row["password_hash"], current_password):
+        return jsonify({"error": "Current password is incorrect"}), 400
+    if len(new_password) < 10:
+        return jsonify({"error": "Password must be at least 10 characters"}), 400
+    if check_password_hash(row["password_hash"], new_password):
+        return jsonify({"error": "New password must be different from the current password"}), 400
+
+    db.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (generate_password_hash(new_password), user_id),
+    )
+    write_audit_log(
+        db,
+        action="change_password",
+        target_type="user",
+        target_id=str(user_id),
+        detail=f"username={row['username']};self_service=true",
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/audit-logs", methods=["GET"])
 @role_required("admin")
 def audit_logs_api():

@@ -508,6 +508,53 @@ class AppTestCase(unittest.TestCase):
             db.execute("DELETE FROM kpi_snapshots WHERE id=1")
         db.close()
 
+    def test_self_service_password_change_requires_correct_current_password(self):
+        self.login("viewer", "Viewer123!")
+
+        wrong_current = self.client.put(
+            "/api/me/password",
+            json={"current_password": "wrong-password", "new_password": "NewPassw0rd!"},
+        )
+        self.assertEqual(wrong_current.status_code, 400)
+
+        too_short = self.client.put(
+            "/api/me/password",
+            json={"current_password": "Viewer123!", "new_password": "short"},
+        )
+        self.assertEqual(too_short.status_code, 400)
+
+        same_password = self.client.put(
+            "/api/me/password",
+            json={"current_password": "Viewer123!", "new_password": "Viewer123!"},
+        )
+        self.assertEqual(same_password.status_code, 400)
+
+        ok = self.client.put(
+            "/api/me/password",
+            json={"current_password": "Viewer123!", "new_password": "NewPassw0rd!"},
+        )
+        self.assertEqual(ok.status_code, 200)
+
+        self.client.post("/api/logout")
+        old_login = self.login("viewer", "Viewer123!")
+        self.assertEqual(old_login.status_code, 401)
+        new_login = self.login("viewer", "NewPassw0rd!")
+        self.assertEqual(new_login.status_code, 200)
+        self.client.post("/api/logout")
+
+        self.login()  # admin
+        audit = self.client.get("/api/audit-logs").get_json()
+        change_events = [item for item in audit["items"] if item["action"] == "change_password"]
+        self.assertEqual(len(change_events), 1)
+        self.assertNotIn("NewPassw0rd", json.dumps(change_events[0]))
+
+    def test_self_service_password_change_requires_login(self):
+        response = self.client.put(
+            "/api/me/password",
+            json={"current_password": "Viewer123!", "new_password": "NewPassw0rd!"},
+        )
+        self.assertEqual(response.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
