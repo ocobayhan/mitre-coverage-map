@@ -36,6 +36,16 @@ $env:SOC_COOKIE_SECURE='1'
 
 TLS sonlandırması için ters proxy kullanın. `SOC_COOKIE_SECURE=1` yalnızca HTTPS üzerinden yayın yapılırken etkinleştirilmelidir.
 
+## Docker
+
+```powershell
+copy .env.example .env
+# .env icine SOC_SECRET_KEY doldur
+docker compose up -d --build
+```
+
+Canlı veri (`soc.db`) Docker'ın yönettiği bir named volume'de (`soc_data`), yedekler ise Docker'ın hiç bilmediği düz bir host klasöründe (`./backups`, bind mount) tutulur — böylece `docker compose down -v` veya `docker system prune --volumes` gibi komutlar yedekleri etkilemez. Zamanlanmış yedekleme, kurulum ve geri yükleme adımları için bkz. [docs/backup_restore.md](docs/backup_restore.md).
+
 ## Veri
 
 - MITRE Enterprise ATT&CK: `data/mitre.json`

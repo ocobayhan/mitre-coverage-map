@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    image: soc-coverage-map:latest
+    container_name: soc-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      SOC_SECRET_KEY: ${SOC_SECRET_KEY:?SOC_SECRET_KEY must be set (see .env.example)}
+      SOC_COOKIE_SECURE: ${SOC_COOKIE_SECURE:-0}
+      SOC_HOST: 0.0.0.0
+      SOC_PORT: 8000
+    volumes:
+      # Canli veri: Docker'in yonettigi named volume. `docker compose down -v`
+      # veya `docker system prune --volumes` bunu silebilir — bu yuzden asil
+      # koruma scripts/backup_db.py'nin yazdigi backups/ klasorudur (asagida).
+      - soc_data:/app/instance
+      # Yedekler: duz bir host klasoru (bind mount). Docker'in hicbir purge/prune
+      # komutu bu klasore dokunmaz cunku Docker onu volume olarak tanimiyor.
+      - ./backups:/app/backups
+      # MITRE veri setini imaji yeniden derlemeden guncellemek icin (opsiyonel):
+      # - ./data/mitre.json:/app/data/mitre.json:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/login', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  soc_data:

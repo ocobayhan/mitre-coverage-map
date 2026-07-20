@@ -23,8 +23,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from qradar_connector import QRadarClient, QRadarConnectorError
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-DB_PATH = BASE_DIR / "soc.db"
+DATA_DIR = Path(os.environ.get("SOC_DATA_DIR", str(BASE_DIR / "data")))
+DB_PATH = Path(os.environ.get("SOC_DB_PATH", str(BASE_DIR / "soc.db")))
 MITRE_PATH = DATA_DIR / "mitre.json"
 SEED_RULES_PATH = DATA_DIR / "rules_seed.json"
 

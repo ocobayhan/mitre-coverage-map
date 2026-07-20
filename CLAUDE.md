@@ -86,6 +86,7 @@ Project Instructions
 #### Key Design Documents
 - *Audit Logging:* docs/audit_logging.md — How to add audit logging to routes (patterns, constants, sanitization, checklist)
 - *RBAC:* docs/rbac.md — User roles, permission matrix, backend permission groups, frontend checks
+- *Docker/Backup:* docs/backup_restore.md — Container layout, why backups use a host bind mount instead of the data named volume, scheduling, restore steps
 
 There is no in-app job scheduler (no `JobScheduler`/`ScheduledJob` in `app.py`) — the only scheduled process is the external `scripts/sync_connectors.py`, intended to run via Windows Task Scheduler (see README's QRadar Connector section). If an in-app scheduler is ever built, add its design doc here.
 
