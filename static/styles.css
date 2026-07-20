@@ -1115,9 +1115,11 @@ button.action-btn {
 .rule-list-header,
 .rule-list-row {
   display: grid;
-  grid-template-columns: 2fr 110px 3fr 72px;
+  grid-template-columns: 24px 2fr 110px 3fr 72px;
   gap: 12px;
 }
+.rl-select { display: flex; align-items: center; justify-content: center; }
+.rl-select input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
 .rule-list-header { font-size: 11px; color: var(--d-text-3); text-transform: uppercase; letter-spacing: 0.08em; padding: 6px 8px 6px; border-bottom: 1px solid var(--d-border); }
 .rule-list-row { padding: 8px 8px; border-bottom: 1px solid var(--d-border); align-items: center; }
 .rule-list-row:last-child { border-bottom: none; }
@@ -1209,6 +1211,15 @@ button.action-btn {
 .rule-search label { font-size: 12px; color: var(--d-text-3); }
 .rule-search input { flex: 1; min-width: 200px; }
 .rules-filter-bar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 3px; }
+
+.rules-bulk-toolbar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 12px; padding: 8px 12px;
+  background: rgba(0, 120, 212, 0.08); border: 1px solid var(--accent-blue); border-radius: 3px;
+}
+.rules-bulk-toolbar .bulk-count { font-size: 12px; color: var(--d-text-2); white-space: nowrap; }
+.rules-bulk-toolbar #bulkTechWrapper { min-width: 160px; }
+.rules-bulk-toolbar .upload-result { font-size: 12px; }
 
 /* ── Rule tech list ─────────────────────────────────────── */
 .rule-tech-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }

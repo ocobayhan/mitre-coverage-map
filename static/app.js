@@ -47,6 +47,7 @@ let matrixSocByTechnique = {};
 let rulesFilterSearch = '';
 let rulesFilterProduct = '';
 let rulesOpenGroups = null; // null = tümü açık (başlangıç), Set = kullanıcı toggle sonrası
+let rulesSelectedIds = new Set(); // toplu teknik ekleme icin secili tespit id'leri
 
 const COV_CYCLE = ['low', 'partial', 'full'];
 const COV_LABEL = { low: 'Düşük', partial: 'Kısmi', full: 'Tam' };
@@ -642,6 +643,9 @@ function _ruleRow(r) {
       </div>`;
   return `
     <div class="rule-list-row" data-rule-id="${r.id}">
+      <div class="rl-select">
+        ${hasRole('editor') ? `<input type="checkbox" class="rule-select-checkbox" data-rule-id="${r.id}" ${rulesSelectedIds.has(r.id) ? 'checked' : ''} />` : ''}
+      </div>
       <div class="rl-name">${_esc(r.name)}</div>
       <div class="rl-cov">${sliderHtml}</div>
       <div class="rl-techs">
@@ -719,6 +723,24 @@ function renderRulesList() {
     </div>
   `;
 
+  // Toplu teknik ekleme toolbar'ı (editor+). Analistin tek tek her tespite
+  // teknik eklemesi yerine, secilen N tespite ayni teknigi tek seferde eklemesi
+  // icin. Mevcut tekli POST /api/rules/<id>/techniques endpoint'i sirayla
+  // cagrilir; yeni bir bulk endpoint gerekmez.
+  const bulkToolbarHtml = hasRole('editor') ? `
+    <div class="rules-bulk-toolbar">
+      <span class="bulk-count" id="bulkSelectedCount">0 tespit seçili</span>
+      <button class="action-btn btn-reset" id="btnBulkSelectVisible">Görünenleri seç</button>
+      <button class="action-btn btn-reset" id="btnBulkClearSelection">Seçimi temizle</button>
+      <div class="tech-autocomplete-wrapper" id="bulkTechWrapper">
+        <input class="rule-tech-input" type="text" id="bulkTechInput" placeholder="T1059 veya teknik adı" />
+        <div class="tech-autocomplete-dropdown hidden"></div>
+      </div>
+      <button class="action-btn btn-add" id="btnBulkAddTechnique" disabled>Seçili tespitlere ekle</button>
+      <span class="upload-result" id="bulkResult"></span>
+    </div>
+  ` : '';
+
   if (userRules.length === 0) {
     container.innerHTML = addFormHtml + filterBarHtml +
       '<div class="empty-state"><div class="empty-title">Tespit yok</div><div class="empty-sub">Henüz tespit eklenmemiş.</div></div>';
@@ -761,6 +783,7 @@ function renderRulesList() {
         </div>
         <div class="rule-product-body ${isOpen ? '' : 'collapsed'}">
           <div class="rule-list-header">
+            <div></div>
             <div>Tespit Adı</div>
             <div>Kapsam</div>
             <div>Teknikler</div>
@@ -775,8 +798,9 @@ function renderRulesList() {
     ? '<div class="empty-state"><div class="empty-title">Sonuç yok</div></div>'
     : '';
 
-  container.innerHTML = addFormHtml + filterBarHtml + groupsHtml + emptyNote;
+  container.innerHTML = addFormHtml + filterBarHtml + bulkToolbarHtml + groupsHtml + emptyNote;
 
+  wireRulesBulkToolbar(container, visible.map(r => r.id));
   wireRulesFilterEvents(container);
   wireAddRuleInline(container);
   container.querySelectorAll('.tech-autocomplete-wrapper').forEach(wireAutocomplete);
@@ -928,6 +952,98 @@ function renderRulesList() {
       await deleteRule(ruleId);
     });
   });
+}
+
+function updateBulkToolbarUI(container) {
+  const countEl = container.querySelector('#bulkSelectedCount');
+  if (countEl) countEl.textContent = `${rulesSelectedIds.size} tespit seçili`;
+  const addBtn = container.querySelector('#btnBulkAddTechnique');
+  if (addBtn) addBtn.disabled = rulesSelectedIds.size === 0;
+}
+
+// Toplu teknik ekleme toolbar'ını bağlar. Checkbox toggle'ları tam bir
+// renderRulesList() tetiklemez (438 satırda bu yavaş olurdu) — sadece Set'i
+// ve toolbar sayacını günceller. Filtre/grup degisince zaten yeniden çizilir,
+// checkbox durumu rulesSelectedIds Set'inden türetildiği için tutarlı kalır.
+function wireRulesBulkToolbar(container, visibleIds) {
+  container.querySelectorAll('.rule-select-checkbox').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const ruleId = parseInt(e.currentTarget.dataset.ruleId);
+      if (e.currentTarget.checked) rulesSelectedIds.add(ruleId);
+      else rulesSelectedIds.delete(ruleId);
+      updateBulkToolbarUI(container);
+    });
+  });
+
+  const selectVisibleBtn = container.querySelector('#btnBulkSelectVisible');
+  if (selectVisibleBtn) {
+    selectVisibleBtn.addEventListener('click', () => {
+      visibleIds.forEach(id => rulesSelectedIds.add(id));
+      renderRulesList();
+    });
+  }
+
+  const clearBtn = container.querySelector('#btnBulkClearSelection');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      rulesSelectedIds.clear();
+      renderRulesList();
+    });
+  }
+
+  const bulkWrapper = container.querySelector('#bulkTechWrapper');
+  if (bulkWrapper) wireAutocomplete(bulkWrapper);
+
+  const addBtn = container.querySelector('#btnBulkAddTechnique');
+  if (addBtn) {
+    addBtn.addEventListener('click', async () => {
+      const input = container.querySelector('#bulkTechInput');
+      const result = container.querySelector('#bulkResult');
+      if (!input || rulesSelectedIds.size === 0) return;
+      const validation = validateTechniqueInput(input.value);
+      if (!validation.ok) { if (result) { result.textContent = validation.message; result.classList.add('error'); } return; }
+      const techId = validation.tid;
+
+      addBtn.disabled = true;
+      if (result) { result.textContent = 'Ekleniyor...'; result.classList.remove('error'); }
+
+      const ruleIds = Array.from(rulesSelectedIds);
+      let okCount = 0;
+      const failed = [];
+      for (const ruleId of ruleIds) {
+        const res = await apiFetch(`/api/rules/${ruleId}/techniques`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tech_id: techId })
+        });
+        if (res.ok) {
+          okCount += 1;
+          const rule = userRules.find(r => r.id === ruleId);
+          if (rule) {
+            if (!rule.techniques) rule.techniques = [];
+            if (!rule.techniques.includes(techId)) rule.techniques.push(techId);
+            rule.techniques.sort();
+          }
+        } else {
+          const rule = userRules.find(r => r.id === ruleId);
+          failed.push(rule ? rule.name : ruleId);
+        }
+      }
+
+      rulesSelectedIds.clear();
+      renderRulesList();
+      renderMatrix();
+      const finalResult = document.getElementById('bulkResult');
+      if (finalResult) {
+        finalResult.textContent = failed.length === 0
+          ? `${techId} — ${okCount} tespite eklendi.`
+          : `${techId} — ${okCount} tespite eklendi, ${failed.length} başarısız (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})`;
+        if (failed.length > 0) finalResult.classList.add('error');
+      }
+    });
+  }
+
+  updateBulkToolbarUI(container);
 }
 
 // Filtre bar event'lerini bağlar. renderRulesList() her çağrısında çalışır;
