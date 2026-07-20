@@ -3002,8 +3002,10 @@ button.action-btn, .action-btn {
 .soc-badge.bad { color: #f1707b; background: rgba(209,52,56,.12); }
 .soc-drawer { position: absolute; top: 0; right: 0; width: min(520px, 100%); height: 100%; background: var(--d-surface); border-left: 1px solid var(--d-border); z-index: 250; box-shadow: -8px 0 24px rgba(0,0,0,.35); overflow: auto; }
 .soc-drawer.hidden { display: none; }
-.soc-drawer-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; background: var(--d-surface); border-bottom: 1px solid var(--d-border); padding: 14px 16px; z-index: 2; }
+.soc-drawer-head { position: sticky; top: 0; display: flex; align-items: center; gap: 10px; background: var(--d-surface); border-bottom: 1px solid var(--d-border); padding: 14px 16px; z-index: 2; }
 .soc-drawer-head h2 { color: var(--d-text-1); font-size: 16px; }
+.soc-drawer-head #socDrawerClose { margin-left: auto; }
+.soc-queue-badge { display: inline-block; border-radius: 9999px; padding: 3px 10px; font-size: 11px; font-weight: 600; background: var(--accent-blue); color: #fff; white-space: nowrap; }
 #socDrawerBody { padding: 14px 16px; }
 .soc-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
 .soc-field { min-width: 0; }

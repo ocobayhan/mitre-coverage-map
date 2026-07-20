@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=99" />
+  <link rel="stylesheet" href="/static/styles.css?v=100" />
 </head>
 <body>
   <div class="ms-shell">
@@ -1669,14 +1669,14 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
 
             <section class="soc-tab-panel" id="soc-detections">
               <div class="soc-workbar"><div><h2>Detection Doğrulama Envanteri</h2><span class="ops-subtitle">Aktiflik, test kanıtı, skor ve geçerlilik</span></div></div>
-              <div class="soc-toolbar"><input type="search" id="socDetectionSearch" placeholder="Detection, ürün, teknik veya sahip" /><select id="socDetectionFilter"><option value="">Tüm durumlar</option><option value="validated">Doğrulandı</option><option value="untested">Test edilmedi</option><option value="failed">Başarısız</option><option value="expired">Süresi doldu</option></select></div>
+              <div class="soc-toolbar"><input type="search" id="socDetectionSearch" placeholder="Detection, ürün, teknik veya sahip" /><select id="socDetectionFilter"><option value="">Tüm durumlar</option><option value="validated">Doğrulandı</option><option value="untested">Test edilmedi</option><option value="failed">Başarısız</option><option value="expired">Süresi doldu</option></select><button class="action-btn btn-add" id="btnStartValidationQueue" title="Filtrelenen detection'ları sırayla değerlendirme kuyruğuna al">Doğrulama Kuyruğunu Başlat</button></div>
               <div class="soc-table-wrap"><table class="soc-table"><thead><tr><th>Detection</th><th>Teknik</th><th>Yaşam Döngüsü</th><th>Doğrulama</th><th>Skor</th><th>Sahip</th><th>Geçerlilik</th><th></th></tr></thead><tbody id="socDetectionBody"></tbody></table></div>
             </section>
           </div>
 
           <aside class="soc-drawer hidden" id="socDrawer" aria-live="polite">
-            <div class="soc-drawer-head"><h2 id="socDrawerTitle"></h2><button class="icon-btn" id="socDrawerClose" title="Kapat" aria-label="Kapat">&#x2715;</button></div>
-            <form id="socDrawerForm"><div id="socDrawerBody"></div><div class="soc-drawer-actions"><button type="button" class="action-btn btn-reset" id="socDrawerCancel">İptal</button><button type="submit" class="action-btn btn-add">Kaydet</button></div></form>
+            <div class="soc-drawer-head"><h2 id="socDrawerTitle"></h2><span class="soc-queue-badge hidden" id="socQueueBadge"></span><button class="icon-btn" id="socDrawerClose" title="Kapat" aria-label="Kapat">&#x2715;</button></div>
+            <form id="socDrawerForm"><div id="socDrawerBody"></div><div class="soc-drawer-actions"><button type="button" class="action-btn btn-reset" id="socDrawerCancel">İptal</button><button type="button" class="action-btn btn-neutral hidden" id="socQueueSkip">Atla</button><button type="submit" class="action-btn btn-add" id="socDrawerSubmitBtn">Kaydet</button></div></form>
           </aside>
         </div>
 
@@ -1871,7 +1871,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=99"></script>
+  <script src="/static/app.js?v=100"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

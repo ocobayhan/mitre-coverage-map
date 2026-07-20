@@ -2920,6 +2920,8 @@ function wireActions() {
     if (modal && modal.style.display === 'flex') modal.style.display = 'none';
     if (mitDetailPopupEl) { mitDetailPopupEl.remove(); mitDetailPopupEl = null; }
     if (techChipPopoverEl) { techChipPopoverEl.remove(); techChipPopoverEl = null; }
+    const socDrawer = document.getElementById('socDrawer');
+    if (socDrawer && !socDrawer.classList.contains('hidden')) exitValidationQueue();
   });
 
   const btnExpandAll = document.getElementById('btnExpandAll');
@@ -4127,6 +4129,8 @@ let socDetections = [];
 let socHeatmapMode = 'combined';
 let socLoaded = false;
 let socDrawerSubmit = null;
+let socValidationQueue = null; // null = kuyruk kapalı; aktifken sıradaki rule_id'lerin listesi
+let socValidationQueueIndex = 0;
 
 function socEsc(value) {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -4356,8 +4360,20 @@ function openTelemetryDrawer(id = null) {
     });
 }
 
-function openDetectionDrawer(ruleId) {
+function openDetectionDrawer(ruleId, fromQueue = false) {
   const item = socDetections.find(row => row.rule_id === ruleId);
+  if (!item) {
+    // Kuyruktaki tespit artık listede yok (ör. bu arada silindi) — sıradakine geç.
+    if (fromQueue) advanceValidationQueue();
+    return;
+  }
+  const inQueue = fromQueue && socValidationQueue;
+  const queueBadge = document.getElementById('socQueueBadge');
+  queueBadge.classList.toggle('hidden', !inQueue);
+  if (inQueue) queueBadge.textContent = `Kuyruk: ${socValidationQueueIndex + 1} / ${socValidationQueue.length}`;
+  document.getElementById('socQueueSkip').classList.toggle('hidden', !inQueue);
+  document.getElementById('socDrawerSubmitBtn').textContent = inQueue ? 'Kaydet ve Sonraki' : 'Kaydet';
+
   const option = (value, label, selected) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`;
   openSocDrawer('Detection Değerlendirmesi', `<div class="soc-form-grid"><div class="soc-field wide"><label>Detection</label><strong>${socEsc(item.name)}</strong><small>${socEsc(item.source)} · ${socEsc(item.tech_ids || '-')}</small></div>
     <div class="soc-field"><label>Yaşam döngüsü</label><select name="lifecycle_status">${option('draft','Taslak',item.lifecycle_status)}${option('active','Aktif',item.lifecycle_status || 'active')}${option('disabled','Devre dışı',item.lifecycle_status)}</select></div>
@@ -4367,6 +4383,44 @@ function openDetectionDrawer(ruleId) {
       const updated = await socJson(`/api/detection-assessments/${ruleId}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       userRules = userRules.map(rule => rule.id === ruleId ? {...rule, ...updated} : rule);
     });
+}
+
+// İlk 25 detection kanıt/doğrulama kampanyası (bkz. PROJECT_STATE.md roadmap #6) için:
+// analist "Değerlendir"e tek tek tıklayıp Detections tablosuna geri dönmek yerine,
+// filtrelenen tespitleri sırayla açan bir kuyruk üzerinden ilerler.
+function startValidationQueue() {
+  if (!hasRole('editor')) { alert('Bu işlem için editor yetkisi gerekir.'); return; }
+  const query = (document.getElementById('socDetectionSearch')?.value || '').toLowerCase();
+  const filter = document.getElementById('socDetectionFilter')?.value || '';
+  const pendingStatuses = new Set(['untested', 'failed', 'expired']);
+  const rows = socDetections.filter(item => {
+    const status = item.validation_status || 'untested';
+    // Filtre seçilmemişse (Tüm durumlar) varsayılan olarak kanıt bekleyenleri kuyrukla;
+    // kullanıcı özel bir durum seçtiyse (validated dahil) onu aynen kullan.
+    const statusMatch = filter ? status === filter : pendingStatuses.has(status);
+    return statusMatch && `${item.name} ${item.source} ${item.tech_ids || ''} ${item.owner || ''}`.toLowerCase().includes(query);
+  });
+  if (!rows.length) { alert('Kuyruğa uygun detection bulunamadı.'); return; }
+  socValidationQueue = rows.map(row => row.rule_id);
+  socValidationQueueIndex = 0;
+  openDetectionDrawer(socValidationQueue[0], true);
+}
+
+function advanceValidationQueue() {
+  if (!socValidationQueue) return;
+  socValidationQueueIndex += 1;
+  if (socValidationQueueIndex >= socValidationQueue.length) {
+    exitValidationQueue();
+    alert('Doğrulama kuyruğu tamamlandı.');
+    return;
+  }
+  openDetectionDrawer(socValidationQueue[socValidationQueueIndex], true);
+}
+
+function exitValidationQueue() {
+  socValidationQueue = null;
+  socValidationQueueIndex = 0;
+  closeSocDrawer();
 }
 
 function openSocTechnique(techId) {
@@ -4431,6 +4485,8 @@ function wireSocKpi() {
   document.getElementById('socProfileFilter')?.addEventListener('change', renderSocProfile);
   document.getElementById('socDetectionSearch')?.addEventListener('input', renderSocDetections);
   document.getElementById('socDetectionFilter')?.addEventListener('change', renderSocDetections);
+  document.getElementById('btnStartValidationQueue')?.addEventListener('click', startValidationQueue);
+  document.getElementById('socQueueSkip')?.addEventListener('click', advanceValidationQueue);
   document.getElementById('socNewTelemetry')?.addEventListener('click', () => openTelemetryDrawer());
   document.getElementById('socEditProfile')?.addEventListener('click', openProfileDrawer);
   document.getElementById('socNewProfile')?.addEventListener('click', openNewProfileDrawer);
@@ -4442,11 +4498,17 @@ function wireSocKpi() {
   document.getElementById('socSnapshot')?.addEventListener('click', async () => {
     try { const result=await socJson('/api/soc-kpi/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:activeSocProfileId()})}); alert(`Snapshot oluşturuldu. Hash: ${result.payload_hash.slice(0,16)}…`); socLoaded=false; await loadSocWorkspace(true); } catch(error) { alert(error.message); }
   });
-  document.getElementById('socDrawerClose')?.addEventListener('click', closeSocDrawer);
-  document.getElementById('socDrawerCancel')?.addEventListener('click', closeSocDrawer);
+  document.getElementById('socDrawerClose')?.addEventListener('click', exitValidationQueue);
+  document.getElementById('socDrawerCancel')?.addEventListener('click', exitValidationQueue);
   document.getElementById('socDrawerForm')?.addEventListener('submit', async event => {
     event.preventDefault(); if (!socDrawerSubmit) { closeSocDrawer(); return; }
-    try { await socDrawerSubmit(event.currentTarget); closeSocDrawer(); socLoaded=false; await loadSocWorkspace(true); } catch(error) { alert(error.message); }
+    try {
+      await socDrawerSubmit(event.currentTarget);
+      socLoaded = false;
+      await loadSocWorkspace(true);
+      if (socValidationQueue) advanceValidationQueue();
+      else closeSocDrawer();
+    } catch(error) { alert(error.message); }
   });
 }
 
