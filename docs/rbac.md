@@ -6,27 +6,31 @@
 ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
 ```
 
-Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `ROLE_LEVELS[user_role] >= ROLE_LEVELS[min_role]` ile kontrol edilir. Yeni bir rol eklemek gerekirse tek değişiklik noktası burasıdır — ama şu anki üç seviyeli model dört yerde (backend decorator, backend inline check, frontend `hasRole()`, `users` tablosu CHECK'i varsa) birbirinden bağımsız kopyalar halinde durur; biri değişirse diğerleri elle senkron tutulmalı.
+Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `ROLE_LEVELS[user_role] >= ROLE_LEVELS[min_role]` ile kontrol edilir. Yeni bir rol eklemek gerekirse tek değişiklik noktası burasıdır — ama şu anki üç seviyeli model üç yerde (backend decorator'ları, frontend `hasRole()`, `users` tablosu CHECK'i varsa) birbirinden bağımsız kopyalar halinde durur; biri değişirse diğerleri elle senkron tutulmalı.
 
 ## Backend Uygulaması (`app.py`)
 
-İki mekanizma bir arada kullanılıyor:
+İki decorator kullanılıyor:
 
-1. **Route-level decorator** — çoğu route için:
+1. **Tek rol için `role_required(min_role)`** (app.py:1072) — route'un tüm metodları aynı minimum rolü gerektiriyorsa:
+   ```python
+   @app.route("/api/mitre-min")
+   @role_required("viewer")
+   def mitre_min():
+       ...
+   ```
+   Route'a girmeden önce `g.current_user`'ın rolünü kontrol eder, yetersizse `403 Forbidden` döner. `login_required` (app.py:1058) ise sadece oturum var mı diye bakar.
+
+2. **Metod bazlı `role_required_methods(role_map)`** — aynı view function hem okuma hem yazma metodunu birlikte işliyorsa (örn. `GET+POST /api/rules`, `GET+POST /api/products`):
    ```python
    @app.route("/api/rules", methods=["GET", "POST"])
-   @role_required("viewer")
+   @role_required_methods({"GET": "viewer", "POST": "editor"})
    def rules():
        ...
    ```
-   `role_required(min_role)` (app.py:1072) route'a girmeden önce `g.current_user`'ın rolünü kontrol eder, yetersizse `403 Forbidden` döner. `login_required` (app.py:1058) ise sadece oturum var mı diye bakar.
+   Her HTTP metodu için ayrı minimum rol tanımlanır. **Fail-closed** çalışır: `role_map`'te karşılığı olmayan bir metod (örn. route'a sonradan `DELETE` eklenip `role_map` güncellenmezse) otomatik olarak `403` döner — sessizce en düşük role miras kalmaz. Ayrıca `role_map` içinde geçersiz bir rol adı geçerse decorator, route tanımlanırken (import/başlangıç anında) `ValueError` fırlatır.
 
-2. **Inline yükseltilmiş kontrol** — aynı fonksiyon hem okuma hem yazma metodunu işliyorsa (örn. `GET+POST /api/rules`, `GET+POST /api/products`), decorator en düşük gereksinimi (`viewer`) karşılar, yazma dalının başında ayrıca:
-   ```python
-   if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
-       return jsonify({"error": "Forbidden"}), 403
-   ```
-   eklenir. **Yeni bir GET+POST/PUT/DELETE route yazarken bu ikinci kontrolü unutmak en sık RBAC hatasıdır** — decorator'ı `viewer` bırakıp inline kontrolü eklemeyi atlarsan, viewer rolü de yazabilir hale gelir.
+   Bu, eskiden route gövdesinin içine gömülü `if ROLE_LEVELS[...] < ROLE_LEVELS[...]` satırlarıyla yapılıyordu (2026-07-20'de `role_required_methods`'a taşındı — bkz. `tests/test_app.py:test_per_method_role_map_blocks_writes_but_allows_reads`) — o pattern'de decorator'ı `viewer` bırakıp inline kontrolü eklemeyi unutmak en sık RBAC hatasıydı. Artık route'un tüm metod/rol eşlemesi tek bir yerde, decorator satırında görünür.
 
 ## Yetki Matrisi (route → gereken minimum rol)
 
@@ -48,7 +52,7 @@ Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `RO
 | `data-quality` | viewer | admin (repair) |
 | `ttp-list`, `technique-detail` | viewer | — |
 | `admin/reset` | — | admin |
-| `soc-profiles` (liste/detay) | viewer | — |
+| `soc-profiles` (liste/detay) | viewer | admin |
 | `soc-profiles/<id>/techniques`, `/approve` | — | admin |
 | `detection-assessments` (liste) | viewer | editor (tekil güncelleme) |
 | `attack-data-components` | viewer | — |
@@ -69,8 +73,7 @@ Gizlenen öğeler: reset butonu, Ayarlar sekmeleri (CSV, Kullanıcılar, Audit, 
 
 ## Yeni Bir Yetkili Route Eklerken Kontrol Listesi
 
-1. Route'a `@role_required("<min_rol>")` ekle (GET dahil en düşük gereken seviye).
-2. Route aynı fonksiyonda daha yüksek yetki gerektiren bir yazma metodu da barındırıyorsa, o dal içine inline `ROLE_LEVELS[...] < ROLE_LEVELS["<üst_rol>"]` kontrolü ekle.
-3. Yazma işlemiyse `write_audit_log(...)` çağrısı ekle — bkz. [audit_logging.md](audit_logging.md).
-4. Frontend'te ilgili buton/sekme/alanı `applyRoleUI()` içinde `hasRole()` ile gizle.
-5. `tests/test_app.py`'a en az bir "düşük rol reddedilir" testi ekle (örnek: `test_viewer_cannot_mutate_rules_or_read_audit`).
+1. Route'un tüm metodları aynı role mi ihtiyaç duyuyor? Evetse `@role_required("<min_rol>")`, hayırsa (örn. GET+POST farklı rol) `@role_required_methods({"GET": "viewer", "POST": "editor"})` kullan — route'un kabul ettiği **her** metod `role_map`'te olmalı, yoksa o metod fail-closed 403 döner.
+2. Yazma işlemiyse `write_audit_log(...)` çağrısı ekle — bkz. [audit_logging.md](audit_logging.md).
+3. Frontend'te ilgili buton/sekme/alanı `applyRoleUI()` içinde `hasRole()` ile gizle.
+4. `tests/test_app.py`'a en az bir "düşük rol reddedilir" testi ekle (örnek: `test_viewer_cannot_mutate_rules_or_read_audit`, çoklu-route için `test_per_method_role_map_blocks_writes_but_allows_reads`).

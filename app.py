@@ -1087,6 +1087,36 @@ def role_required(min_role: str):
     return decorator
 
 
+def role_required_methods(role_map: dict[str, str]):
+    """Per-HTTP-method minimum role for one view function that handles
+    several methods with different privilege levels (e.g. GET=viewer,
+    POST=editor). Every method the route accepts must have an entry here —
+    a method missing from role_map is rejected with 403 (fail closed), so a
+    method added to @app.route(methods=[...]) later without updating this
+    map can't silently inherit the lowest configured role. Replaces the old
+    pattern of a blanket @role_required(lowest_role) plus an inline
+    `if ROLE_LEVELS[...] < ROLE_LEVELS[...]` check buried in the function
+    body for the write branch — that pattern is easy to forget when adding
+    a new route. See docs/rbac.md."""
+    for role in role_map.values():
+        if role not in ROLE_LEVELS:
+            raise ValueError(f"Unknown role in role_required_methods: {role!r}")
+
+    def decorator(fn):
+        @wraps(fn)
+        @login_required
+        def wrapper(*args, **kwargs):
+            user = g.current_user
+            min_role = role_map.get(request.method)
+            if min_role is None:
+                return jsonify({"error": "Forbidden"}), 403
+            if ROLE_LEVELS.get(user["role"], 0) < ROLE_LEVELS[min_role]:
+                return jsonify({"error": "Forbidden"}), 403
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def _compute_gap_analysis(mitre_data: dict, db: sqlite3.Connection) -> dict:
@@ -1587,7 +1617,7 @@ def mitre_json():
 
 
 @app.route("/api/rules", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "editor"})
 def rules():
     db = get_db()
     if request.method == "GET":
@@ -1609,9 +1639,6 @@ def rules():
             d["techniques"] = sorted(set(techs_raw.split(","))) if techs_raw else []
             result.append(d)
         return jsonify(result)
-
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
-        return jsonify({"error": "Forbidden"}), 403
 
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
@@ -1800,15 +1827,12 @@ def delete_rule_technique(rule_id: int, tech_id: str):
 
 
 @app.route("/api/products", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "admin"})
 def products():
     db = get_db()
     if request.method == "GET":
         rows = db.execute("SELECT id, name, color FROM products ORDER BY name ASC").fetchall()
         return jsonify([dict(r) for r in rows])
-
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["admin"]:
-        return jsonify({"error": "Forbidden"}), 403
 
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
@@ -1879,7 +1903,7 @@ def update_product(product_id: int):
     return jsonify({"ok": True})
 
 @app.route("/api/teams", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "admin"})
 def teams_api():
     db = get_db()
     if request.method == "GET":
@@ -1887,9 +1911,6 @@ def teams_api():
             "SELECT id, name, created_at FROM teams ORDER BY name ASC"
         ).fetchall()
         return jsonify([dict(r) for r in rows])
-
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["admin"]:
-        return jsonify({"error": "Forbidden"}), 403
 
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
@@ -1934,7 +1955,7 @@ def delete_team(team_id: int):
 
 
 @app.route("/api/mitigation-notes", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "editor"})
 def mitigation_notes():
     db = get_db()
     if request.method == "GET":
@@ -1970,9 +1991,6 @@ def mitigation_notes():
                     {"mitigation_id": mid, "checked": True, "comment": "", "team": ""}
                 )
         return jsonify(result)
-
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
-        return jsonify({"error": "Forbidden"}), 403
 
     payload = request.get_json(silent=True) or {}
     mitigation_id = (payload.get("mitigation_id") or "").strip()
@@ -2014,7 +2032,7 @@ def mitigation_notes():
 
 
 @app.route("/api/mitigation-entries", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "editor"})
 def mitigation_entries():
     db = get_db()
     if request.method == "GET":
@@ -2032,9 +2050,6 @@ def mitigation_entries():
                 }
             )
         return jsonify(result)
-
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
-        return jsonify({"error": "Forbidden"}), 403
 
     payload = request.get_json(silent=True) or {}
     mitigation_id = (payload.get("mitigation_id") or "").strip()
@@ -3664,7 +3679,7 @@ def _compute_soc_kpis(db: sqlite3.Connection, profile_id: int | None = None) -> 
 
 
 @app.route("/api/soc-profiles", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "admin"})
 def soc_profiles_api():
     db = get_db()
     if request.method == "GET":
@@ -3676,8 +3691,6 @@ def soc_profiles_api():
             """
         ).fetchall()
         return jsonify([dict(row) for row in rows])
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["admin"]:
-        return jsonify({"error": "Admin role required"}), 403
     payload = request.get_json(silent=True) or {}
     name = str(payload.get("name", "")).strip()
     if not name:
@@ -3698,7 +3711,7 @@ def soc_profiles_api():
 
 
 @app.route("/api/soc-profiles/<int:profile_id>", methods=["GET", "PUT"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "PUT": "admin"})
 def soc_profile_api(profile_id: int):
     db = get_db()
     profile = _profile_row(db, profile_id)
@@ -3716,8 +3729,6 @@ def soc_profile_api(profile_id: int):
             item.update(catalog["techniques"].get(row["tech_id"], {"name": "Unknown technique", "tactics": [], "platforms": []}))
             techniques.append(item)
         return jsonify({"profile": dict(profile), "techniques": techniques})
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["admin"]:
-        return jsonify({"error": "Admin role required"}), 403
     payload = request.get_json(silent=True) or {}
     before = dict(profile)
     name = str(payload.get("name", profile["name"])).strip()
@@ -3909,7 +3920,7 @@ def _telemetry_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], list[st
 
 
 @app.route("/api/telemetry-sources", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "editor"})
 def telemetry_sources_api():
     db = get_db()
     if request.method == "GET":
@@ -3925,8 +3936,6 @@ def telemetry_sources_api():
             item["quality_score"] = round(sum(int(item[field]) for field in QUALITY_FIELDS) / (len(QUALITY_FIELDS) * 5) * 100, 1)
             result.append(item)
         return jsonify(result)
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
-        return jsonify({"error": "Editor role required"}), 403
     try:
         data, components = _telemetry_payload(request.get_json(silent=True) or {})
     except (ValueError, TypeError) as exc:
@@ -4196,7 +4205,7 @@ def threat_actors_api():
 
 
 @app.route("/api/action-items", methods=["GET", "POST"])
-@role_required("viewer")
+@role_required_methods({"GET": "viewer", "POST": "editor"})
 def action_items_api():
     db = get_db()
     if request.method == "GET":
@@ -4223,9 +4232,6 @@ def action_items_api():
         return jsonify([dict(r) for r in rows])
 
     # POST — create
-    if ROLE_LEVELS[g.current_user["role"]] < ROLE_LEVELS["editor"]:
-        return jsonify({"error": "Forbidden"}), 403
-
     payload = request.get_json(silent=True) or {}
     title = (payload.get("title") or "").strip()
     if not title:

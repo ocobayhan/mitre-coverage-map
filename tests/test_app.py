@@ -400,6 +400,51 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(create.status_code, 403)
         self.assertEqual(self.client.get("/api/audit-logs").status_code, 403)
 
+    def test_per_method_role_map_blocks_writes_but_allows_reads(self):
+        # Bu route'lar tek bir view function icinde GET (viewer) ve yazma
+        # (editor/admin) metodlarini birlikte barindiriyor. Once inline
+        # `if ROLE_LEVELS[...] < ...` kontrolleriyle yapiliyordu, artik
+        # role_required_methods() decorator'i ile merkezi. Bu test hem GET'in
+        # viewer'a acik kaldigini hem yazmanin hala engellendigini dogruluyor —
+        # decorator'a method eklenip role_map guncellenmezse (fail-closed
+        # 403) bu test GET tarafinda kirilir.
+        self.login("viewer", "Viewer123!")
+
+        read_only_ok = [
+            ("/api/rules", "GET"),
+            ("/api/products", "GET"),
+            ("/api/teams", "GET"),
+            ("/api/mitigation-notes", "GET"),
+            ("/api/mitigation-entries", "GET"),
+            ("/api/soc-profiles", "GET"),
+            ("/api/telemetry-sources", "GET"),
+            ("/api/action-items", "GET"),
+        ]
+        for path, method in read_only_ok:
+            response = self.client.open(path, method=method)
+            self.assertEqual(response.status_code, 200, f"{method} {path} should be readable by viewer")
+
+        writes_blocked = [
+            ("/api/rules", "POST", {"name": "x", "source": "QRadar"}, "editor"),
+            ("/api/products", "POST", {"name": "x", "color": "#000"}, "admin"),
+            ("/api/teams", "POST", {"name": "x"}, "admin"),
+            ("/api/mitigation-notes", "POST", {"mitigation_id": "M1000"}, "editor"),
+            ("/api/mitigation-entries", "POST", {"mitigation_id": "M1000", "team": "x", "comment": "x"}, "editor"),
+            ("/api/soc-profiles", "POST", {"name": "x"}, "admin"),
+            ("/api/telemetry-sources", "POST", {"name": "x"}, "editor"),
+            ("/api/action-items", "POST", {"title": "x"}, "editor"),
+        ]
+        for path, method, payload, required_role in writes_blocked:
+            response = self.client.open(path, method=method, json=payload)
+            self.assertEqual(
+                response.status_code, 403,
+                f"{method} {path} should require {required_role}, viewer got {response.status_code}",
+            )
+
+    def test_role_required_methods_rejects_unknown_role_at_decoration_time(self):
+        with self.assertRaises(ValueError):
+            application.role_required_methods({"GET": "not-a-real-role"})
+
     def test_last_active_admin_is_protected(self):
         self.login()
         response = self.client.put(
