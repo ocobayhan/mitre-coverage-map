@@ -46,6 +46,22 @@ LOGIN_ATTEMPTS_LOCK = threading.Lock()
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_MAX_FAILURES = 5
 ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
+
+# Urun kategorileri — haritayi yalnizca tespit kaynaklari boyar.
+#   tespit_kaynagi   : alarm/kural uretir, ATT&CK teknigine eslenir (QRadar, DFE, DFI, Wazuh...)
+#   onleyici_kontrol : teknigi zorlastirir ama tespit uretmez (firewall, AV, yama, MFA)
+#   zenginlestirme   : onceliklendirmeyi besler, kapsamayi degil (CTI)
+PRODUCT_CATEGORIES = ("tespit_kaynagi", "onleyici_kontrol", "zenginlestirme")
+PRODUCT_CATEGORY_DEFAULT = "tespit_kaynagi"
+
+# rules.source ile products.name arasinda FK yok; kopru yalnizca isim esitligi.
+# Eslesmeyen bir kaynak, ortam bazli kapsama hesabinda hicbir varlik grubuna
+# baglanamaz ve teknik sessizce kapsanmamis gorunur — bu yuzden yazma aninda
+# reddedilir (bkz. docs/rbac.md, PROJECT_STATE.md Faz 2).
+_UNKNOWN_SOURCE_ERROR = (
+    "'{source}' urun katalogunda yok. Once Ayarlar > Urun Yonetimi'nden ekleyin; "
+    "aksi halde tespit hicbir ortamda kapsama saglamaz."
+)
 TECHNIQUE_NAME_ALIASES = {
     "data from cloud storage object": "T1530",
     "remote access software": "T1219",
@@ -531,6 +547,7 @@ def ensure_scope_registry_schema(db: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_asset_groups_environment ON asset_groups(environment_id, active);
         CREATE INDEX IF NOT EXISTS idx_product_deployments_group ON product_deployments(asset_group_id);
         CREATE INDEX IF NOT EXISTS idx_product_deployments_connector ON product_deployments(connector_id);
+        CREATE INDEX IF NOT EXISTS idx_product_deployments_product ON product_deployments(product_id);
         """
     )
     db.commit()
@@ -793,6 +810,7 @@ def init_db() -> None:
         ensure_teams_table(db)
         ensure_action_items_table(db)
         ensure_products(db)
+        ensure_product_category(db)
         ensure_users(db)
         ensure_audit_integrity(db)
         ensure_connector_schema(db)
@@ -827,6 +845,36 @@ def ensure_products(db: sqlite3.Connection) -> None:
         ("Other", "#546e7a"),
     ]
     db.executemany("INSERT INTO products (name, color) VALUES (?, ?)", defaults)
+    db.commit()
+
+
+def _product_exists(db: sqlite3.Connection, name: str) -> bool:
+    return db.execute("SELECT 1 FROM products WHERE name = ?", (name,)).fetchone() is not None
+
+
+def _detection_source_names(db: sqlite3.Connection) -> set[str]:
+    """Yalnizca haritayi boyan urunler (tespit kaynaklari)."""
+    return {
+        r["name"] for r in db.execute(
+            "SELECT name FROM products WHERE category = ?", ("tespit_kaynagi",)
+        ).fetchall()
+    }
+
+
+def ensure_product_category(db: sqlite3.Connection) -> None:
+    """products.category sutununu ekler (idempotent).
+
+    Mevcut kayitlar PRODUCT_CATEGORY_DEFAULT olarak isaretlenir; migration
+    kimsenin kapsama sayisini sessizce degistirmemeli. Firewall/AV gibi tespit
+    uretmeyen urunleri admin, Ayarlar > Urun Yonetimi'nden yeniden siniflandirir.
+    """
+    cols = {r[1] for r in db.execute("PRAGMA table_info(products)").fetchall()}
+    if "category" in cols:
+        return
+    db.execute(
+        f"ALTER TABLE products ADD COLUMN category TEXT NOT NULL "
+        f"DEFAULT '{PRODUCT_CATEGORY_DEFAULT}'"
+    )
     db.commit()
 
 
@@ -979,7 +1027,36 @@ def role_required_methods(role_map: dict[str, str]):
     return decorator
 
 
-def _compute_gap_analysis(mitre_data: dict, db: sqlite3.Connection) -> dict:
+def _asset_group_weight_map(
+    db: sqlite3.Connection, asset_group_id: int | None
+) -> dict[str, float] | None:
+    """Bir varlik grubunda urun adi -> izleme agirligi haritasi.
+
+    None doner => ortam filtresi yok, tum tespitler tam agirlikla sayilir.
+    full 1.0 / partial coverage_percent/100 / none|unknown haritada yok (0).
+    """
+    if not asset_group_id:
+        return None
+    rows = db.execute(
+        """
+        SELECT p.name AS product_name, pd.monitoring_status, pd.coverage_percent
+        FROM product_deployments pd JOIN products p ON p.id = pd.product_id
+        WHERE pd.asset_group_id = ?
+        """,
+        (asset_group_id,),
+    ).fetchall()
+    weights: dict[str, float] = {}
+    for row in rows:
+        if row["monitoring_status"] == "full":
+            weights[row["product_name"]] = 1.0
+        elif row["monitoring_status"] == "partial":
+            weights[row["product_name"]] = max(0, min(100, row["coverage_percent"] or 0)) / 100
+    return weights
+
+
+def _compute_gap_analysis(
+    mitre_data: dict, db: sqlite3.Connection, asset_group_id: int | None = None
+) -> dict:
     """Shared logic for /api/gap-analysis and /report.
     Returns dict with overview, by_tactic, critical_gaps."""
     tech_by_stix: dict[str, dict] = {}
@@ -1031,23 +1108,35 @@ def _compute_gap_analysis(mitre_data: dict, db: sqlite3.Connection) -> dict:
             if mit_ext and tech_info:
                 tech_to_mitigations.setdefault(tech_info["external_id"], set()).add(mit_ext)
 
-    rule_stats_by_tech = {
-        r["tech_id"]: dict(r)
-        for r in db.execute(
-            """
-            SELECT rt.tech_id,
-                   COUNT(DISTINCT r.id) AS rule_count,
-                   SUM(CASE r.coverage_level
-                         WHEN 'low' THEN 0.25
-                         WHEN 'partial' THEN 0.60
-                         ELSE 1.00 END) AS effective_rule_count,
-                   COUNT(DISTINCT r.source) AS product_count
-            FROM rule_techniques rt
-            JOIN rules r ON r.id = rt.rule_id
-            GROUP BY rt.tech_id
-            """
-        ).fetchall()
-    }
+    # Ortam boyutu: bir varlik grubu secildiyse, o grubu izlemeyen urunlerin
+    # tespitleri hesaba katilmaz; kismi izleme coverage_percent ile agirliklanir.
+    # Ayrica cesitlilige yalnizca tespit kaynagi kategorisindeki urunler sayilir.
+    # Ayni kural istemci tarafinda da uygulanir (static/app.js scopeWeightMap).
+    scope_weights = _asset_group_weight_map(db, asset_group_id)
+    detection_sources = _detection_source_names(db)
+
+    rule_stats_by_tech: dict[str, dict[str, Any]] = {}
+    for row in db.execute(
+        """
+        SELECT rt.tech_id, r.source, r.coverage_level, COUNT(DISTINCT r.id) AS rule_count
+        FROM rule_techniques rt
+        JOIN rules r ON r.id = rt.rule_id
+        GROUP BY rt.tech_id, r.source, r.coverage_level
+        """
+    ).fetchall():
+        weight = 1.0 if scope_weights is None else scope_weights.get(row["source"], 0.0)
+        if weight <= 0:
+            continue
+        level_weight = {"low": 0.25, "partial": 0.60}.get(row["coverage_level"], 1.00)
+        stats = rule_stats_by_tech.setdefault(
+            row["tech_id"], {"rule_count": 0, "effective_rule_count": 0.0, "_products": set()}
+        )
+        stats["rule_count"] += int(row["rule_count"])
+        stats["effective_rule_count"] += level_weight * weight * int(row["rule_count"])
+        if row["source"] in detection_sources:
+            stats["_products"].add(row["source"])
+    for stats in rule_stats_by_tech.values():
+        stats["product_count"] = len(stats.pop("_products"))
 
     covered_mits: set = set(
         r["mitigation_id"]
@@ -1506,6 +1595,8 @@ def rules():
 
     if not name or not source:
         return jsonify({"error": "Missing fields: name, source"}), 400
+    if not _product_exists(db, source):
+        return jsonify({"error": _UNKNOWN_SOURCE_ERROR.format(source=source)}), 400
 
     try:
         cur = db.execute(
@@ -1680,27 +1771,35 @@ def delete_rule_technique(rule_id: int, tech_id: str):
 def products():
     db = get_db()
     if request.method == "GET":
-        rows = db.execute("SELECT id, name, color FROM products ORDER BY name ASC").fetchall()
+        rows = db.execute(
+            "SELECT id, name, color, category FROM products ORDER BY name ASC"
+        ).fetchall()
         return jsonify([dict(r) for r in rows])
 
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
     color = (payload.get("color") or "").strip()
+    category = (payload.get("category") or PRODUCT_CATEGORY_DEFAULT).strip()
     if not name or not color:
         return jsonify({"error": "Missing fields: name, color"}), 400
+    if category not in PRODUCT_CATEGORIES:
+        return jsonify({"error": f"Invalid category. Allowed: {', '.join(PRODUCT_CATEGORIES)}"}), 400
     try:
-        cur = db.execute("INSERT INTO products (name, color) VALUES (?, ?)", (name, color))
+        cur = db.execute(
+            "INSERT INTO products (name, color, category) VALUES (?, ?, ?)",
+            (name, color, category),
+        )
         write_audit_log(
             db,
             action="create",
             target_type="product",
             target_id=str(cur.lastrowid),
-            detail=f"name={name};color={color}",
+            detail=f"name={name};color={color};category={category}",
         )
         db.commit()
     except sqlite3.IntegrityError:
         return jsonify({"error": "Product already exists"}), 400
-    return jsonify({"id": cur.lastrowid, "name": name, "color": color}), 201
+    return jsonify({"id": cur.lastrowid, "name": name, "color": color, "category": category}), 201
 
 
 @app.route("/api/products/<int:product_id>", methods=["DELETE"])
@@ -1733,20 +1832,28 @@ def delete_product(product_id: int):
 def update_product(product_id: int):
     db = get_db()
     payload = request.get_json(silent=True) or {}
-    color = (payload.get("color") or "").strip()
-    if not color:
-        return jsonify({"error": "Missing fields: color"}), 400
-    row = db.execute("SELECT id, name, color FROM products WHERE id=?", (product_id,)).fetchone()
+    row = db.execute(
+        "SELECT id, name, color, category FROM products WHERE id=?", (product_id,)
+    ).fetchone()
     if not row:
         return jsonify({"error": "Product not found"}), 404
-    db.execute("UPDATE products SET color = ? WHERE id = ?", (color, product_id))
+    color = (payload.get("color") or row["color"]).strip()
+    category = (payload.get("category") or row["category"]).strip()
+    if not color:
+        return jsonify({"error": "Missing fields: color"}), 400
+    if category not in PRODUCT_CATEGORIES:
+        return jsonify({"error": f"Invalid category. Allowed: {', '.join(PRODUCT_CATEGORIES)}"}), 400
+    db.execute(
+        "UPDATE products SET color = ?, category = ? WHERE id = ?",
+        (color, category, product_id),
+    )
     write_audit_log(
         db,
         action="update",
         target_type="product",
         target_id=str(product_id),
-        detail=f"color={color}", before=dict(row),
-        after={"id": product_id, "name": row["name"], "color": color},
+        detail=f"color={color};category={category}", before=dict(row),
+        after={"id": product_id, "name": row["name"], "color": color, "category": category},
     )
     db.commit()
     return jsonify({"ok": True})
@@ -2894,9 +3001,11 @@ def _compute_data_quality(db: sqlite3.Connection) -> dict[str, Any]:
         if rule["source"] not in products:
             unknown_products += 1
             issues.append({
-                "severity": "warning", "type": "unknown_product",
+                # critical: katalogda olmayan kaynak, ortam bazlı kapsama hesabında
+                # hiçbir varlık grubuna bağlanamaz — teknik sessizce kapsanmamış görünür.
+                "severity": "critical", "type": "unknown_product",
                 "entity_id": rule["id"], "value": rule["source"],
-                "message": "Tespitin veri kaynağı ürün kataloğunda bulunmuyor.",
+                "message": "Tespitin veri kaynağı ürün kataloğunda bulunmuyor; hiçbir ortamda kapsama sağlamaz.",
             })
         tactic = (rule["tactic"] or "").strip()
         tactic_key = tactic.casefold()
@@ -3394,9 +3503,14 @@ def gap_analysis_api():
         return jsonify({"error": str(exc)}), 500
     db = get_db()
     try:
-        result = _compute_gap_analysis(mitre, db)
+        asset_group_id = request.args.get("asset_group_id", type=int)
+    except (TypeError, ValueError):
+        asset_group_id = None
+    try:
+        result = _compute_gap_analysis(mitre, db, asset_group_id)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+    result["asset_group_id"] = asset_group_id
     return jsonify(result)
 
 

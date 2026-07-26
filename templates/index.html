@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=101" />
+  <link rel="stylesheet" href="/static/styles.css?v=102" />
 </head>
 <body>
   <div class="ms-shell">
@@ -169,11 +169,18 @@
               <label for="techSearch">Arama</label>
               <input type="text" id="techSearch" placeholder="Teknik adı veya ID (T1059)" />
             </div>
+            <div class="filter-group filter-scope">
+              <label for="matrixScopeSelect">Ortam / Varlık Grubu</label>
+              <select id="matrixScopeSelect" title="Seçilen varlık grubunu izlemeyen ürünlerin tespitleri kapsamaya sayılmaz">
+                <option value="">Tüm ortamlar (filtresiz)</option>
+              </select>
+            </div>
             <div class="filter-group">
               <label style="visibility:hidden">_</label>
               <button class="action-btn btn-neutral" id="btnExpandAll" title="Tüm alt teknikleri göster / gizle">Hepsini Aç</button>
             </div>
           </div>
+          <div class="scope-active-note hidden" id="matrixScopeNote"></div>
           <div id="matrixStatBar" class="matrix-stat-bar">
             <div class="mstat">
               <span class="mstat-val" id="ms-total">—</span>
@@ -1172,7 +1179,20 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
                   <label>Renk</label>
                   <input type="color" id="productColor" value="#2e7d32" />
                 </div>
+                <div class="input-wrapper">
+                  <label for="productCategory">Kategori</label>
+                  <select id="productCategory">
+                    <option value="tespit_kaynagi">Tespit kaynağı</option>
+                    <option value="onleyici_kontrol">Önleyici kontrol</option>
+                    <option value="zenginlestirme">Zenginleştirme</option>
+                  </select>
+                </div>
                 <button class="action-btn btn-add" id="btnAddProduct">Ekle</button>
+              </div>
+              <div class="settings-hint">
+                Yalnızca <strong>tespit kaynakları</strong> (SIEM/EDR/XDR) haritayı boyar ve ürün çeşitliliğine sayılır.
+                Firewall, antivirüs, yama yönetimi gibi ürünler <strong>önleyici kontrol</strong>;
+                CTI beslemeleri <strong>zenginleştirme</strong> olarak işaretlenmelidir.
               </div>
               <div class="settings-subtitle">Mevcut Ürünler</div>
               <div class="product-list" id="productList"></div>
@@ -1616,7 +1636,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=101"></script>
+  <script src="/static/app.js?v=102"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

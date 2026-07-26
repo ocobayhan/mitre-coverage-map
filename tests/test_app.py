@@ -392,6 +392,107 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(overview["mature_techniques"], 0)
         self.assertLess(overview["average_score_pct"], 20)
 
+    def test_gap_analysis_is_scoped_to_asset_group_monitoring(self):
+        """Kurumsal gerçek: her ürün her yerde yok.
+
+        QRadar tüm server'lardan log alıyor ama client'lardan almıyor; Defender
+        client'ta var. Dolayısıyla yalnızca QRadar'ın kapsadığı bir teknik,
+        client varlık grubunda kapsanmamış sayılmalı.
+        """
+        self.login()
+        # T1000 -> yalnizca QRadar, T1001 -> yalnizca DFE
+        self.client.post("/api/rules", json={
+            "name": "QRadar CRE", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
+        self.client.post("/api/rules", json={
+            "name": "Defender EDR", "tactic": "persistence", "tech": "T1001", "source": "DFE"})
+
+        env_id = self.client.post("/api/environments", json={
+            "name": "Kurumsal", "code": "KURUMSAL"}).get_json()["id"]
+        clients = self.client.post(f"/api/environments/{env_id}/asset-groups", json={
+            "name": "Client Makineler", "platform": "Windows", "asset_type": "Client"}).get_json()["id"]
+        servers = self.client.post(f"/api/environments/{env_id}/asset-groups", json={
+            "name": "Serverlar", "platform": "Windows", "asset_type": "Server"}).get_json()["id"]
+
+        products = {p["name"]: p["id"] for p in self.client.get("/api/products").get_json()}
+        # Client: Defender var, QRadar log almiyor
+        self.assertEqual(self.client.put(f"/api/asset-groups/{clients}/monitoring", json={"deployments": [
+            {"product_id": products["DFE"], "monitoring_status": "full"},
+            {"product_id": products["QRadar"], "monitoring_status": "none"},
+        ]}).status_code, 200)
+        # Server: ikisi de var
+        self.assertEqual(self.client.put(f"/api/asset-groups/{servers}/monitoring", json={"deployments": [
+            {"product_id": products["DFE"], "monitoring_status": "full"},
+            {"product_id": products["QRadar"], "monitoring_status": "full"},
+        ]}).status_code, 200)
+
+        # Filtresiz: iki teknik de kapsanir
+        overview = self.client.get("/api/gap-analysis").get_json()["overview"]
+        self.assertEqual(overview["covered_techniques"], 2)
+
+        # Client grubunda QRadar yok -> yalnizca Defender'in teknigi kapsanir
+        client_overview = self.client.get(
+            f"/api/gap-analysis?asset_group_id={clients}").get_json()["overview"]
+        self.assertEqual(client_overview["covered_techniques"], 1)
+
+        # Server grubunda ikisi de izleniyor -> iki teknik de kapsanir
+        server_overview = self.client.get(
+            f"/api/gap-analysis?asset_group_id={servers}").get_json()["overview"]
+        self.assertEqual(server_overview["covered_techniques"], 2)
+
+    def test_partial_monitoring_weights_coverage_score(self):
+        """Kismi izleme (partial) skoru coverage_percent oraninda dusurur."""
+        self.login()
+        self.client.post("/api/rules", json={
+            "name": "QRadar CRE", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
+        env_id = self.client.post("/api/environments", json={
+            "name": "Kurumsal", "code": "KURUMSAL"}).get_json()["id"]
+        group = self.client.post(f"/api/environments/{env_id}/asset-groups", json={
+            "name": "Serverlar", "platform": "Windows", "asset_type": "Server"}).get_json()["id"]
+        products = {p["name"]: p["id"] for p in self.client.get("/api/products").get_json()}
+
+        def score_for(status, percent=0):
+            self.client.put(f"/api/asset-groups/{group}/monitoring", json={"deployments": [
+                {"product_id": products["QRadar"], "monitoring_status": status,
+                 "coverage_percent": percent},
+            ]})
+            data = self.client.get(f"/api/gap-analysis?asset_group_id={group}").get_json()
+            return data["overview"]["average_score_pct"]
+
+        full = score_for("full")
+        partial = score_for("partial", 50)
+        none = score_for("none")
+        self.assertGreater(full, partial, "tam izleme kismi izlemeden yuksek olmali")
+        self.assertGreater(partial, none, "kismi izleme izlemeyenden yuksek olmali")
+        self.assertEqual(none, 0.0)
+
+    def test_rule_source_must_exist_in_product_catalog(self):
+        """Katalogda olmayan kaynak reddedilir — aksi halde tespit hicbir
+        ortamda kapsama saglamaz ve sessizce kaybolur."""
+        self.login()
+        bad = self.client.post("/api/rules", json={
+            "name": "Hayalet", "tactic": "execution", "tech": "T1000", "source": "YokBoyleUrun"})
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("urun katalogunda yok", bad.get_json()["error"])
+
+        ok = self.client.post("/api/rules", json={
+            "name": "Gercek", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
+        self.assertEqual(ok.status_code, 201)
+
+    def test_product_category_defaults_and_validates(self):
+        self.login()
+        listed = self.client.get("/api/products").get_json()
+        self.assertTrue(all(p["category"] == "tespit_kaynagi" for p in listed),
+                        "migration mevcut urunlerin davranisini degistirmemeli")
+
+        bad = self.client.post("/api/products", json={
+            "name": "Yeni", "color": "#fff", "category": "gecersiz"})
+        self.assertEqual(bad.status_code, 400)
+
+        fw = self.client.post("/api/products", json={
+            "name": "Fortigate", "color": "#c00", "category": "onleyici_kontrol"})
+        self.assertEqual(fw.status_code, 201)
+        self.assertEqual(fw.get_json()["category"], "onleyici_kontrol")
+
     def test_viewer_cannot_mutate_rules_or_read_audit(self):
         self.assertEqual(self.login("viewer", "Viewer123!").status_code, 200)
         create = self.client.post(

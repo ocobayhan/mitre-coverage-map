@@ -70,9 +70,40 @@ skor = 0.50 × (etkin kural sayısı / teknik eşiği)
 
 Etkin kural sayısı, tespitin kapsam seviyesiyle ağırlıklandırılır (`low` 0.25, `partial` 0.60, `full` 1.00). Teknik eşiği ve önem derecesi `technique_config` tablosunda tutulur; `data/mitre.json` içindeki grup/araç ilişkilerinden otomatik türetilir ve admin tarafından teknik bazında geçersiz kılınabilir.
 
-Önem derecesi yüksek (≥ 0.7) ve skoru düşük (< 0.35) teknikler **kritik boşluk** olarak kırmızı kenarlıkla işaretlenir. Aynı formül sunucu tarafında `_compute_gap_analysis()` içinde de uygulanır; GAP Analizi ekranı ve yönetici raporu bunu kullanır.
+Önem derecesi yüksek (≥ 0.7) ve skoru düşük (< 0.35) teknikler **kritik boşluk** olarak kırmızı kenarlıkla işaretlenir.
 
 > Bu puan bir olgunluk göstergesidir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.
+
+## Ortam Bazlı Kapsama
+
+Kurumda her ürün her yerde bulunmaz: Defender client'larda ve kurumsal server'larda varken Lumos ortamındaki server'larda olmayabilir; QRadar tüm server'lardan log alırken client'lardan almayabilir. Bu durumda bir QRadar kuralı client ortamında **geçerli değildir**.
+
+Bu yüzden matrisin üstündeki **Ortam / Varlık Grubu** seçicisi haritayı yeniden hesaplar:
+
+> Bir teknik bir varlık grubunda kapsanır ⟺ o tekniğe bağlı bir tespit vardır **ve** tespitin ürünü o varlık grubunu izlemektedir.
+
+```
+etkin ağırlık = kapsam seviyesi ağırlığı × izleme ağırlığı
+    izleme:  full → 1.00 | partial → coverage_percent/100 | none, unknown → 0
+```
+
+Varlık grubu seçildiğinde, o grubu izlemeyen ürünlerin tespitleri hesaptan düşer; matris altındaki şerit hangi tespit kaynaklarının sayıldığını ve hangilerinin izlemediğini açıkça listeler. İzleme durumları `Kapsam Envanteri` ekranından `Ortam > Varlık Grubu > Ürün İzleme` hiyerarşisiyle girilir.
+
+Aynı kural sunucu tarafında da uygulanır: `GET /api/gap-analysis?asset_group_id=<id>` — böylece GAP Analizi ekranı ve yönetici raporu matrisle aynı kapsamı gösterir.
+
+## Ürün Kategorileri
+
+`products.category` üç değer alır ve haritaya etkisi farklıdır:
+
+| Kategori | Örnek | Etki |
+|---|---|---|
+| `tespit_kaynagi` (varsayılan) | QRadar, DFE, Defender for Identity, MDO365, Wazuh | Haritayı boyar; ürün çeşitliliği bileşenine **yalnızca bunlar** sayılır |
+| `onleyici_kontrol` | Firewall, antivirüs, yama yönetimi, MFA | Tespit üretmez; kapsamaya sayılmaz |
+| `zenginlestirme` | CTI beslemeleri | Önceliklendirmeyi besler, kapsamayı değil |
+
+Mevcut kurulumlarda migration tüm ürünleri `tespit_kaynagi` olarak işaretler (kimsenin kapsama sayısı sessizce değişmesin diye); doğru sınıflandırma `Ayarlar > Ürün Yönetimi`'nden yapılır.
+
+`rules.source` ile `products.name` arasında yabancı anahtar yoktur — köprü yalnızca isim eşitliğidir. Katalogda bulunmayan bir kaynak hiçbir varlık grubuna bağlanamayacağı için kural yazma anında reddedilir; mevcut uyumsuzluklar Veri Kalitesi ekranında **kritik** olarak listelenir.
 
 ## QRadar Connector
 

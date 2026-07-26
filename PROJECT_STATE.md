@@ -93,12 +93,49 @@ Kaldırılanlar (7 tablo, 14 endpoint, ~780 satır backend + ~600 satır fronten
 
 `drop_soc_cmm_schema()` idempotent temizlik migration'ı mevcut kurulumlardaki tabloları ve `kpi_snapshots` append-only trigger'larını düşürür; tüm kurulumlar bir kez çalıştırdıktan sonra silinebilir.
 
+## Ortam Bazlı Kapsama (2026-07-26, Faz 2)
+
+Uygulamanın en büyük yalanı tek bir global "%15,6 kapsama" sayısıydı — halbuki kapsama ortama göre değişiyor. Artık matrisin üstünde **Ortam / Varlık Grubu** seçicisi var:
+
+> Bir teknik bir varlık grubunda kapsanır ⟺ o tekniğe bağlı bir tespit vardır **ve** tespitin ürünü o varlık grubunu izlemektedir.
+
+`etkin ağırlık = kapsam seviyesi (low .25 / partial .60 / full 1.0) × izleme (full 1.0 / partial %/100 / none 0)`
+
+Eklenenler:
+- `products.category`: `tespit_kaynagi` / `onleyici_kontrol` / `zenginlestirme` — yalnızca tespit kaynakları haritayı boyar ve ürün çeşitliliğine sayılır. Migration mevcut ürünleri varsayılan olarak `tespit_kaynagi` işaretler (davranış sessizce değişmesin diye).
+- `rules.source` → `products.name` köprüsü zorunlu kılındı: katalogda olmayan kaynakla kural yazılamaz (400), mevcut uyumsuzluklar Veri Kalitesi'nde **kritik**e yükseltildi. Sebep: eşleşmeyen kaynak hiçbir varlık grubuna bağlanamaz ve teknik sessizce kapsanmamış görünür.
+- `GET /api/gap-analysis?asset_group_id=<id>` — GAP ekranı ve rapor matrisle aynı kapsamı kullanır.
+- `isCriticalGap()` tek helper'a alındı (4 kopya vardı).
+- `idx_product_deployments_product` index'i eklendi.
+
+**Gerçek veriyle doğrulandı** (Kurumsal>Client Makineler + Kurumsal Serverlar, Lumos>Lumos Serverlar):
+
+| Kapsam | Kapsanan (matris) | Kritik boşluk |
+|---|---|---|
+| Tüm ortamlar | 188/250 (75%) | 23 |
+| Client Makineler (QRadar log almıyor) | 154/250 (62%) | **43** |
+| Kurumsal Serverlar | 184/250 (74%) | 23 |
+| Lumos Serverlar (Defender yok) | 176/250 (70%) | 26 |
+
+Teknik bazında: yalnızca QRadar'ın kapsadığı T1531 client'ta %60 → **%0**; yalnızca Defender'ın kapsadığı T1012 Lumos'ta %27 → **%0**.
+
+### Bilinen tutarsızlık (Faz 3'te çözülecek)
+
+Matris ve GAP ekranı "Kapsanan" kelimesiyle **farklı şey ölçüyor** — bu Faz 2'den önce de böyleydi:
+
+| | Pay | Payda |
+|---|---|---|
+| Matris (`ms-covered`) | kural **veya** mitigation var | 250 (yalnız ana teknik) |
+| GAP / rapor (`coverage_pct`) | yalnız kural var | 691 (alt teknikler dahil) |
+
+Hangi tanımın kazanacağı ürün kararıdır; ekranlar birleşirken tek kaynağa indirilecek. Backend zaten `parent_total` / `parent_covered` alanlarını da döndürüyor.
+
 ## Sonraki Öncelikler
 
-1. **Faz 2 — Ortam bazlı kapsama:** `products.category` (tespit kaynağı / önleyici kontrol / zenginleştirme) + Ortam > Varlık Grubu boyutunun matrise bağlanması. Kural: bir teknik bir varlık grubunda kapsanır ⟺ o tekniğe bağlı bir tespit var VE tespitin ürünü o grubu izliyor.
-2. **Faz 3 — Ekran birleştirme:** 12 → 4 (Harita / Envanter / Boşluklar / Ayarlar). `infoPanel` tek başına `index.html`'in yarısı, ayrı route'a taşınacak.
-3. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
-4. Kapsam Envanteri'nde gerçek ortam/varlık gruplarının doldurulması (tablolar şu an boş)
+1. **Faz 3 — Ekran birleştirme:** 12 → 4 (Harita / Envanter / Boşluklar / Ayarlar). `infoPanel` tek başına `index.html`'in yarısı, ayrı route'a taşınacak. "Kapsanan" tanımı tek kaynağa indirilecek.
+2. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
+3. Ürünlerin doğru kategorilere alınması (Fortigate Firewall → `onleyici_kontrol` vb.)
+4. Kapsam Envanteri'nde kalan gerçek ortam/varlık gruplarının doldurulması
 5. QRadar connector'ın kurum test instance'ında kabul testi (kullanıcı yürütecek)
 6. Kalan 5 tespitin analist tarafından MITRE tekniklerine bağlanması
 7. Kurumsal SSO/OIDC ve merkezi kullanıcı yaşam döngüsü

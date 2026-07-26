@@ -53,7 +53,7 @@ Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `RO
 | `ttp-list`, `technique-detail` | viewer | — |
 | `admin/reset` | — | admin |
 | `technique-config` | viewer | admin |
-| `gap-analysis`, `threat-actors` | viewer | — |
+| `gap-analysis` (`?asset_group_id=` ile ortam bazlı), `threat-actors` | viewer | — |
 | `action-items` | viewer | editor |
 
 Genel kural: **viewer** her şeyi okuyabilir (audit, connector, kullanıcı yönetimi hariç), **editor** operasyonel veriyi (tespit, mitigation, aksiyon, kapsam anketi) yazabilir, **admin** yapısal/yönetsel şeyleri (kullanıcı, ürün, ekip, connector, ortam/varlık grubu, teknik config) değiştirir.

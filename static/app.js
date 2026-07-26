@@ -48,6 +48,13 @@ let rulesSelectedIds = new Set(); // toplu teknik ekleme icin secili tespit id'l
 
 const COV_CYCLE = ['low', 'partial', 'full'];
 const COV_LABEL = { low: 'Düşük', partial: 'Kısmi', full: 'Tam' };
+// Ürün kategorileri — yalnızca tespit kaynakları haritayı boyar ve ürün
+// çeşitliliği bileşenine sayılır (bkz. app.py PRODUCT_CATEGORIES).
+const PRODUCT_CATEGORY_LABELS = {
+  tespit_kaynagi: 'Tespit kaynağı',
+  onleyici_kontrol: 'Önleyici kontrol',
+  zenginlestirme: 'Zenginleştirme',
+};
 // Teknik bazlı puanlama konfigürasyonu — /api/technique-config'den yüklenir.
 // { "T1059": { importance, rule_threshold, group_count, tool_count }, ... }
 let techniqueConfig = {};
@@ -123,14 +130,17 @@ async function init() {
       await loadAuditLogs();
     }
 
-    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes, teamsRes] = await Promise.all([
+    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes, teamsRes, scopeRes] = await Promise.all([
       apiFetch('/api/mitre-min'),
       apiFetch('/api/products'),
       apiFetch('/api/rules'),
       apiFetch('/api/mitigation-notes'),
       apiFetch('/api/mitigation-entries'),
       apiFetch('/api/technique-config'),
-      apiFetch('/api/teams')
+      apiFetch('/api/teams'),
+      // Matris ortam seçicisi için gerekli; Kapsam Envanteri paneli
+      // açılmadan da harita ortam filtresi çalışabilsin diye başta yüklenir.
+      apiFetch('/api/scope-registry')
     ]);
 
     if (!mitreRes.ok) throw new Error('MITRE verisi yüklenemedi');
@@ -143,10 +153,12 @@ async function init() {
     mitigationEntries = normalizeEntries(entries);
     techniqueConfig = configRes.ok ? await configRes.json() : {};
     teams = teamsRes.ok ? await teamsRes.json() : [];
+    if (scopeRes.ok) scopeRegistry = await scopeRes.json();
 
     prepareMitreLookup();
     await loadProducts();
     populateTacticSelect();
+    renderMatrixScopeSelect();
     renderMitigationList();
     renderRulesList();
     renderMatrix();
@@ -1305,12 +1317,17 @@ function renderProductsList() {
   products.forEach(p => {
     const row = document.createElement('div');
     row.className = 'product-item';
+    const cat = p.category || 'tespit_kaynagi';
     row.innerHTML = `
       <div class="product-info">
         <div class="product-swatch" style="background:${p.color}"></div>
-        <div>${p.name}</div>
+        <div>${p.name}<small class="product-cat-hint">${PRODUCT_CATEGORY_LABELS[cat] || cat}</small></div>
       </div>
       <div class="product-actions">
+        <select class="product-category" data-id="${p.id}" title="Yalnızca tespit kaynakları haritayı boyar">
+          ${Object.entries(PRODUCT_CATEGORY_LABELS).map(([v, l]) =>
+            `<option value="${v}" ${v === cat ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
         <input class="product-color" type="color" value="${p.color}" data-id="${p.id}">
         <button class="product-apply" data-id="${p.id}">Uygula</button>
         <button class="product-delete" data-id="${p.id}">Sil</button>
@@ -1322,13 +1339,19 @@ function renderProductsList() {
     btn.addEventListener('click', async (e) => {
       const id = e.currentTarget.dataset.id;
       const picker = list.querySelector(`.product-color[data-id=\"${id}\"]`);
+      const catSel = list.querySelector(`.product-category[data-id=\"${id}\"]`);
       const color = picker ? picker.value : null;
       if (!color) return;
-      await apiFetch(`/api/products/${id}`, {
+      const res = await apiFetch(`/api/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ color })
+        body: JSON.stringify({ color, category: catSel ? catSel.value : undefined })
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Ürün güncellenemedi');
+        return;
+      }
       await loadProducts();
       renderMatrix();
     });
@@ -1728,19 +1751,124 @@ function ruleCoverageWeight(rule) {
   return ({low: 0.25, partial: 0.60, full: 1.00})[rule?.coverage_level || 'full'] || 1.00;
 }
 
-function effectiveRuleCount(rules) {
-  return (rules || []).reduce((total, rule) => total + ruleCoverageWeight(rule), 0);
+// ─── Ortam boyutu ──────────────────────────────────────────────────────────
+// Kurumda her ürün her yerde yok: Defender client'ta var ama Lumos server'da
+// yok; QRadar server'lardan log alıyor ama client'lardan almıyor. Dolayısıyla
+// bir tespit yalnızca ürünü o varlık grubunu izliyorsa orada kapsama sağlar.
+//
+//   etkin ağırlık = coverage_level ağırlığı × deployment ağırlığı
+//     deployment: full → 1.00, partial → coverage_percent/100, none|unknown → 0
+
+// Seçili varlık grubu (null = "Tüm ortamlar", ortam filtresi uygulanmaz)
+let matrixScopeGroupId = null;
+
+/** Seçili varlık grubunda ürün adı → izleme ağırlığı haritası. */
+function scopeWeightMap() {
+  if (!matrixScopeGroupId || !scopeRegistry) return null;
+  for (const env of scopeRegistry.environments || []) {
+    for (const group of env.groups || []) {
+      if (group.id !== matrixScopeGroupId) continue;
+      const map = {};
+      for (const dep of group.deployments || []) {
+        const status = dep.monitoring_status;
+        if (status === 'full') map[dep.product_name] = 1.0;
+        else if (status === 'partial') map[dep.product_name] = Math.max(0, Math.min(100, dep.coverage_percent || 0)) / 100;
+        // none / unknown → hiç eklenmez (ağırlık 0)
+      }
+      return map;
+    }
+  }
+  return null;
+}
+
+/** Haritayı boyayan ürünler — önleyici kontrol ve CTI sayılmaz. */
+function detectionSourceNames() {
+  return new Set(products.filter(p => (p.category || 'tespit_kaynagi') === 'tespit_kaynagi').map(p => p.name));
+}
+
+/** Bir tespitin seçili ortamdaki geçerlilik ağırlığı (0 = orada geçerli değil). */
+function scopeWeight(rule, weightMap) {
+  if (!weightMap) return 1.0;
+  return weightMap[rule?.source] ?? 0;
+}
+
+/** Seçili ortamda gerçekten geçerli olan tespitler. */
+function rulesInScope(rules, weightMap) {
+  if (!weightMap) return rules || [];
+  return (rules || []).filter(r => scopeWeight(r, weightMap) > 0);
+}
+
+function effectiveRuleCount(rules, weightMap) {
+  return (rules || []).reduce(
+    (total, rule) => total + ruleCoverageWeight(rule) * scopeWeight(rule, weightMap), 0
+  );
 }
 
 function computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
   const cfg = techniqueConfig[techId] || {};
   const threshold = cfg.rule_threshold || SCORE_RULE_MAX;
   const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
-  const sourceSet = new Set(Array.isArray(sources) ? sources : []);
+  // Çeşitliliğe yalnızca tespit kaynakları sayılır (firewall/AV/CTI hariç).
+  const detectionSources = detectionSourceNames();
+  const sourceSet = new Set((Array.isArray(sources) ? sources : []).filter(s => detectionSources.has(s)));
   const ruleScore = Math.min(weightedRuleCount / threshold, 1.0);
   const mitScore  = Math.min(mitigationCount / mitTotal, 1.0);
   const divScore  = Math.min(sourceSet.size / 2, 1.0);
   return Math.min(ruleScore * 0.50 + mitScore * 0.30 + divScore * 0.20, 1.0);
+}
+
+/** Kritik boşluk: önemi yüksek ama kapsaması zayıf teknik.
+ *  Daha önce 4 ayrı yerde kopyalanmıştı; ortam farkındalığı eklenince
+ *  birinin unutulmaması için tek noktaya alındı. */
+function isCriticalGap(techId, score) {
+  const importance = techniqueConfig[techId]?.importance || 0.5;
+  return importance >= 0.7 && score < 0.35;
+}
+
+/** Matris ortam seçicisini scopeRegistry'den doldurur. */
+function renderMatrixScopeSelect() {
+  const select = document.getElementById('matrixScopeSelect');
+  if (!select) return;
+  const envs = (scopeRegistry?.environments || []).filter(e => e.active);
+  const groups = envs.flatMap(env =>
+    (env.groups || []).filter(g => g.active).map(g => ({ env, group: g }))
+  );
+
+  if (!groups.length) {
+    select.innerHTML = '<option value="">Tüm ortamlar (varlık grubu tanımlı değil)</option>';
+    select.disabled = true;
+    matrixScopeGroupId = null;
+  } else {
+    select.disabled = false;
+    select.innerHTML = '<option value="">Tüm ortamlar (filtresiz)</option>' +
+      envs.map(env => {
+        const opts = (env.groups || []).filter(g => g.active).map(g =>
+          `<option value="${g.id}" ${g.id === matrixScopeGroupId ? 'selected' : ''}>${_esc(g.name)}</option>`
+        ).join('');
+        return opts ? `<optgroup label="${_esc(env.name)}">${opts}</optgroup>` : '';
+      }).join('');
+  }
+  updateMatrixScopeNote();
+}
+
+/** Ortam seçiliyken hangi ürünlerin sayıldığını açıkça yazar —
+ *  analist "neden bu kart kırmızı" sorusunu tooltip açmadan cevaplayabilsin. */
+function updateMatrixScopeNote() {
+  const note = document.getElementById('matrixScopeNote');
+  if (!note) return;
+  const weights = scopeWeightMap();
+  if (!weights) { note.classList.add('hidden'); return; }
+  const detectionSources = detectionSourceNames();
+  const active = Object.entries(weights)
+    .filter(([name]) => detectionSources.has(name))
+    .sort((a, b) => b[1] - a[1]);
+  const inactive = [...detectionSources].filter(n => !(n in weights)).sort();
+  note.classList.remove('hidden');
+  note.innerHTML = active.length
+    ? `<strong>Bu varlık grubunda sayılan tespit kaynakları:</strong> ` +
+      active.map(([n, w]) => `<span class="scope-chip on">${_esc(n)}${w < 1 ? ` %${Math.round(w * 100)}` : ''}</span>`).join('') +
+      (inactive.length ? ` <strong>İzlemiyor:</strong> ` + inactive.map(n => `<span class="scope-chip off">${_esc(n)}</span>`).join('') : '')
+    : `<strong>Bu varlık grubunu izleyen tespit kaynağı yok</strong> — tüm teknikler kapsamsız görünecek. Kapsam Envanteri'nden izleme durumu girin.`;
 }
 
 // Ortak lerp & renk sabitleri
@@ -1819,7 +1947,7 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
 
   // Önemli ama az kapsanmış teknikler kırmızı kenarlıkla işaretlenir
   const importance = techniqueConfig[techId]?.importance || 0.5;
-  card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
+  card.classList.toggle('critical-gap', isCriticalGap(techId, score));
 
   // Hover tooltip için skor verisi
   const cfg = techniqueConfig[techId] || {};
@@ -1840,29 +1968,29 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
 function updateTechniqueCard(parentId) {
   const card = document.querySelector(`.technique-card[data-tech-id="${parentId}"]`);
   if (!card) return;
-  const rulesCount = currentRulesByParent[parentId] || 0;
+  const weightMap = scopeWeightMap();
+  const linkedRules = rulesInScope(enrichRules().filter(r => r.parentId === parentId), weightMap);
+  const rulesCount = weightMap ? linkedRules.length : (currentRulesByParent[parentId] || 0);
   const mitigationCount = getCheckedMitigationCountForTech(parentId);
-  const linkedRules = enrichRules().filter(r => r.parentId === parentId);
   const sources = linkedRules.map(r => r.source);
-  const score = computeScore(parentId, rulesCount, mitigationCount, sources, effectiveRuleCount(linkedRules));
+  const score = computeScore(parentId, rulesCount, mitigationCount, sources, effectiveRuleCount(linkedRules, weightMap));
   card.style.backgroundColor = scoreToColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
-  const importance = techniqueConfig[parentId]?.importance || 0.5;
-  card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
+  card.classList.toggle('critical-gap', isCriticalGap(parentId, score));
 }
 
 function updateSubtechCard(techId) {
   const card = document.querySelector(`.subtech-card[data-tech-id="${techId}"]`);
   if (!card) return;
-  const enriched = enrichRules().filter(r => r.tid === techId);
+  const weightMap = scopeWeightMap();
+  const enriched = rulesInScope(enrichRules().filter(r => r.tid === techId), weightMap);
   const rulesCount = enriched.length;
   const mitigationCount = getCheckedMitigationCountForTech(techId);
   const sources = enriched.map(r => r.source);
-  const score = computeScore(techId, rulesCount, mitigationCount, sources, effectiveRuleCount(enriched));
+  const score = computeScore(techId, rulesCount, mitigationCount, sources, effectiveRuleCount(enriched, weightMap));
   card.style.backgroundColor = scoreToSubColor(score);
   card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
-  const importance = techniqueConfig[techId]?.importance || 0.5;
-  card.classList.toggle('critical-gap', importance >= 0.7 && score < 0.35);
+  card.classList.toggle('critical-gap', isCriticalGap(techId, score));
 }
 
 function refreshTechniqueCardsForMitigation(mitId) {
@@ -1878,7 +2006,7 @@ function refreshTechniqueCardsForMitigation(mitId) {
   parents.forEach(pid => updateTechniqueCard(pid));
 }
 
-function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
+function buildSubtechContainer(parentId, enrichedData, allowedSubs, weightMap = scopeWeightMap()) {
   const container = document.createElement('div');
   container.className = 'subtech-container';
   const subTechs = allowedSubs || (subTechsByParent[parentId] || []);
@@ -1889,10 +2017,10 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs) {
     subCard.className = 'subtech-card';
     subCard.dataset.techId = st.id;
 
-    const rulesForSub = enrichedData.filter(r => r.tid == st.id);
+    const rulesForSub = rulesInScope(enrichedData.filter(r => r.tid == st.id), weightMap);
     const mitigationCount = getCheckedMitigationCountForTech(st.id);
     const sources = rulesForSub.map(r => r.source);
-    const weightedCount = effectiveRuleCount(rulesForSub);
+    const weightedCount = effectiveRuleCount(rulesForSub, weightMap);
     applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
     // Alt teknikler daha soluk gösterilir — ana tekniğin görsel ağırlığını korur
     const subScore = computeScore(st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
@@ -2422,14 +2550,15 @@ async function addProduct() {
   }
   const name = document.getElementById('productName').value.trim();
   const color = document.getElementById('productColor').value.trim();
+  const category = document.getElementById('productCategory')?.value || 'tespit_kaynagi';
   if (!name || !color) {
-    alert('Ãœrün adı ve renk gerekli.');
+    alert('Ürün adı ve renk gerekli.');
     return;
   }
   const res = await apiFetch('/api/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, color })
+    body: JSON.stringify({ name, color, category })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -2809,6 +2938,17 @@ function wireActions() {
     if (techChipPopoverEl) { techChipPopoverEl.remove(); techChipPopoverEl = null; }
   });
 
+  const scopeSelect = document.getElementById('matrixScopeSelect');
+  if (scopeSelect) {
+    scopeSelect.addEventListener('change', (e) => {
+      matrixScopeGroupId = e.target.value ? Number(e.target.value) : null;
+      updateMatrixScopeNote();
+      renderMatrix();
+      // GAP ekranı açıksa bayat kalmasın; kapalıysa zaten açılışta yeniden çekiliyor.
+      if (document.getElementById('gapPanel')?.classList.contains('active')) loadGapDashboard();
+    });
+  }
+
   const btnExpandAll = document.getElementById('btnExpandAll');
   if (btnExpandAll) {
     btnExpandAll.addEventListener('click', () => {
@@ -2834,6 +2974,8 @@ init();
 
 function renderMatrix() {
   const enrichedData = enrichRules();
+  // Seçili varlık grubunun ürün→ağırlık haritası; render boyunca sabit.
+  const scopeWeights = scopeWeightMap();
   const container = document.getElementById('matrix');
   container.innerHTML = '';
   currentRulesByParent = {};
@@ -2852,12 +2994,14 @@ function renderMatrix() {
 
     techniques.forEach(tech => {
       const parentMatchesSearch = matchesSearch(tech);
-      const parentRules = enrichedData.filter(r => r.parentId == tech.id);
+      // Ortam seçiliyse, o ortamda geçerli olmayan tespitler hesaba katılmaz —
+      // kart yine görünür ama boşluğu dürüstçe gösterir.
+      const parentRules = rulesInScope(enrichedData.filter(r => r.parentId == tech.id), scopeWeights);
       const parentMatchesProduct = matchesProduct(parentRules);
 
       const subTechs = subTechsByParent[tech.id] || [];
       const subMatches = subTechs.filter(st => {
-        const rulesForSub = enrichedData.filter(r => r.tid == st.id);
+        const rulesForSub = rulesInScope(enrichedData.filter(r => r.tid == st.id), scopeWeights);
         const subSearch = matchesSearch(st);
         const subProd = matchesProduct(rulesForSub);
         return subSearch && subProd;
@@ -2879,10 +3023,10 @@ function renderMatrix() {
         rule_count: parentRuleCount,
         mitigation_checked: parentMitCount,
         products: Array.from(new Set(parentSources)),
-        score: computeScore(tech.id, parentRuleCount, parentMitCount, parentSources, effectiveRuleCount(parentRules))
+        score: computeScore(tech.id, parentRuleCount, parentMitCount, parentSources, effectiveRuleCount(parentRules, scopeWeights))
       });
       subMatches.forEach(st => {
-        const subRules = enrichedData.filter(r => r.tid == st.id);
+        const subRules = rulesInScope(enrichedData.filter(r => r.tid == st.id), scopeWeights);
         const subRuleCount = subRules.length;
         const subMitCount = getCheckedMitigationCountForTech(st.id);
         const subSources = subRules.map(r => r.source);
@@ -2894,7 +3038,7 @@ function renderMatrix() {
           rule_count: subRuleCount,
           mitigation_checked: subMitCount,
           products: Array.from(new Set(subSources)),
-          score: computeScore(st.id, subRuleCount, subMitCount, subSources, effectiveRuleCount(subRules))
+          score: computeScore(st.id, subRuleCount, subMitCount, subSources, effectiveRuleCount(subRules, scopeWeights))
         });
       });
 
@@ -2912,7 +3056,7 @@ function renderMatrix() {
       const sources = rulesForCell.map(r => r.source);
       applyTechniqueVisuals(
         card, tech.id, rulesForCell.length, mitigationCount, sources,
-        effectiveRuleCount(rulesForCell)
+        effectiveRuleCount(rulesForCell, scopeWeights)
       );
 
       const idEl = document.createElement('div');
@@ -2934,7 +3078,7 @@ function renderMatrix() {
       card.appendChild(nameEl);
       card.appendChild(detailBtn);
 
-      const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches);
+      const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches, scopeWeights);
       card.style.cursor = 'pointer';
       if (subContainer.children.length > 0) card.classList.add('has-subtechs');
       card.onclick = () => {
@@ -2995,10 +3139,7 @@ function updateMatrixStats() {
     ? Math.round(allRows.reduce((s, r) => s + r.score, 0) / allRows.length * 100)
     : 0;
 
-  const criticalGap = parents.filter(r => {
-    const cfg = techniqueConfig[r.tech_id] || {};
-    return (cfg.importance || 0.5) >= 0.7 && r.score < 0.35;
-  }).length;
+  const criticalGap = parents.filter(r => isCriticalGap(r.tech_id, r.score)).length;
 
   const totalMitEntries = Object.values(mitigationEntries).reduce((s, a) => s + a.length, 0);
 
@@ -3105,7 +3246,9 @@ async function loadGapDashboard() {
   if (!el) return;
   el.innerHTML = '<div style="color:var(--d-text-3);padding:20px">Yükleniyor…</div>';
   try {
-    const res = await apiFetch('/api/gap-analysis');
+    // Matristeki ortam seçimiyle aynı kapsamı kullan — iki ekran çelişmesin.
+    const scopeQuery = matrixScopeGroupId ? `?asset_group_id=${matrixScopeGroupId}` : '';
+    const res = await apiFetch(`/api/gap-analysis${scopeQuery}`);
     if (!res.ok) { el.innerHTML = '<div style="color:var(--d-red);padding:20px">GAP verisi yüklenemedi.</div>'; return; }
     _gapData = await res.json();
     renderGapDashboard(_gapData);
@@ -3510,6 +3653,9 @@ async function loadScopeRegistry() {
   const groups = selectedScopeEnvironment()?.groups || [];
   if (!groups.some(item => item.id === selectedAssetGroupId)) selectedAssetGroupId = (groups.find(item => item.active) || groups[0])?.id || null;
   renderScopeRegistry();
+  // Kapsam değişince harita ortam seçicisi ve kart renkleri bayat kalmasın.
+  renderMatrixScopeSelect();
+  if (mitreObjects.length) renderMatrix();
 }
 
 function renderScopeRegistry() {
