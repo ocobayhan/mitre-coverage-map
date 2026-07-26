@@ -70,9 +70,25 @@ skor = 0.50 × (etkin kural sayısı / teknik eşiği)
 
 Etkin kural sayısı, tespitin kapsam seviyesiyle ağırlıklandırılır (`low` 0.25, `partial` 0.60, `full` 1.00). Teknik eşiği ve önem derecesi `technique_config` tablosunda tutulur; `data/mitre.json` içindeki grup/araç ilişkilerinden otomatik türetilir ve admin tarafından teknik bazında geçersiz kılınabilir.
 
-Önem derecesi yüksek (≥ 0.7) ve skoru düşük (< 0.35) teknikler **kritik boşluk** olarak kırmızı kenarlıkla işaretlenir.
+Önem derecesi yüksek (≥ 0.7) ve skoru düşük (< 0.35) teknikler **kritik boşluk** olarak kırmızı kenarlıkla işaretlenir. Eşikler `CRITICAL_GAP_IMPORTANCE` / `CRITICAL_GAP_SCORE` (app.py) ve `isCriticalGap()` (app.js) içinde aynı değerlerdir.
 
 > Bu puan bir olgunluk göstergesidir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.
+
+### "Kapsanan" ne demek?
+
+Tek bir kapsama sayısı yerine **üç ayrık kova** kullanılır; toplamları ana teknik sayısını verir:
+
+| Metrik | Anlamı |
+|---|---|
+| **Tespit** | Tekniğe bağlı en az bir tespit (kural) var — *görebiliyoruz* |
+| **Yalnız Mitigation** | Tespiti yok ama işaretli mitigation'ı var — *önlemişiz ama göremiyoruz* |
+| **Kapsamsız** | İkisi de yok |
+
+Mitigation kapsama **skoruna** %30 ağırlıkla dahildir (yukarıdaki formül); dolayısıyla yalnızca mitigation'ı olan bir teknik en fazla %30 skor alır ve kartı turuncu/kırmızı görünür. Ayrı metrik olarak gösterilmesinin sebebi, bu tekniklerin "tespit var" gibi görünmemesidir.
+
+**Payda ana tekniklerdir.** Alt teknikler paydaya girmez: kurallar neredeyse tamamen ana tekniğe eşlenir ve bir alt tekniğe yazılan kural zaten ana tekniğe sayılır. Alt teknikler ayrı bir metrikte bilgi olarak gösterilir — düşük değer "alt teknik eşlemesi yapılmamış" anlamına gelir.
+
+Aynı tanım hem matris şeridinde hem `GET /api/gap-analysis` çıktısında (`detected_techniques` / `mitigation_only_techniques` / `uncovered_techniques`) ve yönetici raporunda kullanılır.
 
 ## Ortam Bazlı Kapsama
 

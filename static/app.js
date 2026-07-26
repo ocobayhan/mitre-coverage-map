@@ -3200,29 +3200,31 @@ function renderMatrix() {
 }
 
 function updateMatrixStats() {
-  setMatrixStatLabels(['Teknik','Kapsanan','Alt Teknik Kapsama','Teknik Ort.','Genel Ort. %','Kritik Boşluk','Mitigation Girişi']);
-  const parents = visibleExportRows.filter(r => r.type === 'technique');
-  const subs    = visibleExportRows.filter(r => r.type === 'subtechnique');
+  setMatrixStatLabels(['Teknik','Tespit','Yalnız Mitigation','Kapsamsız','Ort. Skor','Kritik Boşluk','Alt Teknik']);
 
-  const totalP   = parents.length;
-  const coveredP = parents.filter(r => r.rule_count > 0 || r.mitigation_checked > 0).length;
-  const covPct   = totalP ? Math.round(coveredP / totalP * 100) : 0;
+  // Aynı teknik birden fazla taktikte görünebilir (örn. T1078 dört taktikte).
+  // Metrikler benzersiz teknik üzerinden sayılır, ekrandaki kart sayısı üzerinden değil.
+  const uniqBy = (rows) => [...new Map(rows.map(r => [r.tech_id, r])).values()];
+  const parents = uniqBy(visibleExportRows.filter(r => r.type === 'technique'));
+  const subs    = uniqBy(visibleExportRows.filter(r => r.type === 'subtechnique'));
 
-  const totalS   = subs.length;
-  const coveredS = subs.filter(r => r.rule_count > 0 || r.mitigation_checked > 0).length;
+  // Üç ayrık kova — toplamı totalP. "Yalnız mitigation" görünür kalır ki
+  // tespiti olmayan ama önleyici kontrolle karşılanan teknikler kaybolmasın,
+  // tespit varmış gibi de görünmesin.
+  const totalP    = parents.length;
+  const detected  = parents.filter(r => r.rule_count > 0).length;
+  const mitOnly   = parents.filter(r => r.rule_count === 0 && r.mitigation_checked > 0).length;
+  const uncovered = totalP - detected - mitOnly;
+  const covPct    = totalP ? Math.round(detected / totalP * 100) : 0;
+
+  const totalS    = subs.length;
+  const detectedS = subs.filter(r => r.rule_count > 0).length;
 
   const avgScore = totalP
     ? Math.round(parents.reduce((s, r) => s + r.score, 0) / totalP * 100)
     : 0;
 
-  const allRows = visibleExportRows;
-  const avgAll  = allRows.length
-    ? Math.round(allRows.reduce((s, r) => s + r.score, 0) / allRows.length * 100)
-    : 0;
-
   const criticalGap = parents.filter(r => isCriticalGap(r.tech_id, r.score)).length;
-
-  const totalMitEntries = Object.values(mitigationEntries).reduce((s, a) => s + a.length, 0);
 
   const setVal = (id, text, cls) => {
     const el = document.getElementById(id);
@@ -3232,18 +3234,16 @@ function updateMatrixStats() {
   };
 
   setVal('ms-total',    totalP);
-  setVal('ms-covered',  totalP ? `${coveredP} / ${totalP} (${covPct}%)` : '—',
+  setVal('ms-covered',  totalP ? `${detected} / ${totalP} (${covPct}%)` : '—',
     covPct >= 70 ? 'good' : covPct >= 40 ? 'mid' : 'bad');
-  setVal('ms-sub',      totalS ? `${coveredS} / ${totalS}` : '—',
-    totalS && coveredS / totalS >= 0.5 ? 'good' : 'mid');
-  setVal('ms-score',   avgScore,
+  setVal('ms-mitonly',  mitOnly, mitOnly > 0 ? 'mid' : 'muted');
+  setVal('ms-uncovered', uncovered, uncovered === 0 ? 'good' : 'bad');
+  setVal('ms-score',   avgScore + '%',
     avgScore >= 60 ? 'good' : avgScore >= 35 ? 'mid' : 'bad');
-  setVal('ms-avg-all', avgAll + '%',
-    avgAll >= 60 ? 'good' : avgAll >= 35 ? 'mid' : 'bad');
   setVal('ms-gap',      criticalGap,
     criticalGap === 0 ? 'muted' : 'bad');
-  setVal('ms-mitentry', totalMitEntries,
-    totalMitEntries > 0 ? 'good' : 'muted');
+  setVal('ms-sub',      totalS ? `${detectedS} / ${totalS}` : '—',
+    totalS && detectedS / totalS >= 0.5 ? 'good' : 'muted');
 }
 
 // Teknik kartları üzerine gelinince kural/mitigation/önem/skor breakdown tooltip'i gösterir.
@@ -3343,18 +3343,19 @@ function renderGapDashboard(data) {
   if (!el || !data) return;
 
   const ov = data.overview || {};
-  // Tüm teknikler (parent + alt) bazında sayılar
-  const total   = ov.total_techniques || 0;
-  const covered = ov.covered_techniques || 0;
-  const pct     = ov.coverage_pct || 0;
+  // Payda: ana teknikler. Üç ayrık kova (tespit / yalnız mitigation /
+  // kapsamsız) toplamı total eder — matris şeridiyle aynı tanım.
+  const total     = ov.total_techniques || 0;
+  const detected  = ov.detected_techniques || 0;
+  const mitOnly   = ov.mitigation_only_techniques || 0;
+  const uncovered = ov.uncovered_techniques || 0;
+  const pct       = ov.coverage_pct || 0;
   const mature = ov.mature_techniques || 0;
   const maturityPct = ov.maturity_pct || 0;
   const averageScore = ov.average_score_pct || 0;
   const critCount = ov.critical_gap_count || 0;
-  const parentTotal   = ov.parent_total   || 0;
-  const parentCovered = ov.parent_covered || 0;
-  const subTotal   = ov.total_subtechniques   || 0;
-  const subCovered = ov.covered_subtechniques || 0;
+  const subTotal    = ov.total_subtechniques    || 0;
+  const subDetected = ov.detected_subtechniques || 0;
 
   const TACTIC_TR = {
     'reconnaissance':'Reconnaissance','resource-development':'Resource Development',
@@ -3366,32 +3367,37 @@ function renderGapDashboard(data) {
     'exfiltration':'Exfiltration','impact':'Impact'
   };
 
-  // Stat cards — tüm teknikler üzerinden
+  // Stat cards — ana teknikler üzerinden (matris şeridiyle aynı tanım)
   let html = `<div class="gap-stat-cards">
     <div class="gap-stat-card">
       <div class="gap-stat-val">${total}</div>
-      <div class="gap-stat-lbl">Toplam Teknik</div>
-      <div class="gap-stat-sub">${parentTotal} ana · ${subTotal} alt</div>
+      <div class="gap-stat-lbl">Ana Teknik</div>
+      <div class="gap-stat-sub">Alt teknik: ${subDetected} / ${subTotal} kendi kuralı var</div>
     </div>
     <div class="gap-stat-card">
-      <div class="gap-stat-val good">${covered} <span style="font-size:16px">(${pct}%)</span></div>
-      <div class="gap-stat-lbl">Tespit Bulunan</div>
-      <div class="gap-stat-sub">${parentCovered} ana · ${subCovered} alt teknik</div>
+      <div class="gap-stat-val good">${detected} <span style="font-size:16px">(${pct}%)</span></div>
+      <div class="gap-stat-lbl">Tespit</div>
+      <div class="gap-stat-sub">Görebiliyoruz</div>
     </div>
     <div class="gap-stat-card">
-      <div class="gap-stat-val good">${mature} <span style="font-size:16px">(${maturityPct}%)</span></div>
-      <div class="gap-stat-lbl">Olgun Kapsama</div>
-      <div class="gap-stat-sub">Skor ≥ %70</div>
+      <div class="gap-stat-val">${mitOnly}</div>
+      <div class="gap-stat-lbl">Yalnız Mitigation</div>
+      <div class="gap-stat-sub">Önlemişiz ama göremiyoruz</div>
+    </div>
+    <div class="gap-stat-card">
+      <div class="gap-stat-val danger">${uncovered}</div>
+      <div class="gap-stat-lbl">Kapsamsız</div>
+      <div class="gap-stat-sub">Ne tespit ne mitigation</div>
     </div>
     <div class="gap-stat-card">
       <div class="gap-stat-val">${averageScore}%</div>
       <div class="gap-stat-lbl">Ortalama Kapsama Skoru</div>
-      <div class="gap-stat-sub">Tespit · mitigation · ürün çeşitliliği</div>
+      <div class="gap-stat-sub">%50 tespit · %30 mitigation · %20 ürün çeşitliliği</div>
     </div>
     <div class="gap-stat-card">
       <div class="gap-stat-val danger">${critCount}</div>
       <div class="gap-stat-lbl">Kritik Boşluk</div>
-      <div class="gap-stat-sub">Önem ≥ 4, tespit yok</div>
+      <div class="gap-stat-sub">Önem yüksek, skor &lt; %35</div>
     </div>
   </div>`;
 

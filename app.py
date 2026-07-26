@@ -54,6 +54,10 @@ ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
 PRODUCT_CATEGORIES = ("tespit_kaynagi", "onleyici_kontrol", "zenginlestirme")
 PRODUCT_CATEGORY_DEFAULT = "tespit_kaynagi"
 
+# Kritik bosluk esigi — static/app.js isCriticalGap() ile ayni olmali.
+CRITICAL_GAP_IMPORTANCE = 0.70
+CRITICAL_GAP_SCORE = 0.35
+
 # rules.source ile products.name arasinda FK yok; kopru yalnizca isim esitligi.
 # Eslesmeyen bir kaynak, ortam bazli kapsama hesabinda hicbir varlik grubuna
 # baglanamaz ve teknik sessizce kapsanmamis gorunur — bu yuzden yazma aninda
@@ -1204,24 +1208,47 @@ def _compute_gap_analysis(
 
     parents = [t for t in all_techs if not t["is_subtechnique"]]
     subs = [t for t in all_techs if t["is_subtechnique"]]
-    # Kapsama yüzdesine alt teknikler de dahil
-    total_all = len(all_techs)
-    covered_all = sum(1 for t in all_techs if t["covered"])
+
+    # ── Kapsama tanımı (tek doğru kaynak) ───────────────────────────────────
+    # Payda: ANA teknikler. Alt teknikler paydaya girmez çünkü kurallar
+    # neredeyse tamamen ana tekniğe eşleniyor (475 alt teknikten yalnızca
+    # birkaçının kendi kuralı var) — paydaya katmak oranı yapay düşürür.
+    # Alt tekniğe yazılan kural zaten ana tekniğe sayılır (rule_techniques →
+    # parent eşlemesi), alt teknikler ayrıca bilgi olarak raporlanır.
+    #
+    # Tek bir "kapsanan" sayısı yerine üç ayrık kova (toplamı = ana teknik
+    # sayısı). Böylece "yalnızca önleyici kontrolle karşılanan" teknikler
+    # kaybolmaz ama tespit varmış gibi de görünmez:
+    #   detected        → tespit var (görebiliyoruz)
+    #   mitigation_only → tespit yok, mitigation var (göremiyoruz ama önlemişiz)
+    #   uncovered       → ikisi de yok (asıl aksiyon listesi)
     total_techniques = len(parents)
-    covered_techniques = sum(1 for t in parents if t["covered"])
+    detected_techniques = sum(1 for t in parents if t["covered"])
+    mitigation_only_techniques = sum(
+        1 for t in parents if not t["covered"] and t["mitigation_checked"] > 0
+    )
+    uncovered_techniques = total_techniques - detected_techniques - mitigation_only_techniques
+
     total_subtechniques = len(subs)
-    covered_subtechniques = sum(1 for t in subs if t["covered"])
-    mature_all = sum(1 for t in all_techs if t["mature"])
+    detected_subtechniques = sum(1 for t in subs if t["covered"])
+
+    mature_techniques = sum(1 for t in parents if t["mature"])
     average_score = round(
-        sum(t["coverage_score"] for t in all_techs) / max(total_all, 1) * 100, 1
+        sum(t["coverage_score"] for t in parents) / max(total_techniques, 1) * 100, 1
     )
     # Kritik boşluklar: yüksek öneme rağmen olgunluk skoru %35'in altında.
+    # Payda ana teknikler olduğu için burada da yalnızca ana teknikler sayılır —
+    # aksi halde matris şeridi (21) ile bu liste (92) farklı sayı gösteriyordu.
+    # Eşik doğrudan importance >= 0.70 (bkz. README "Kapsama Puanlaması" ve
+    # static/app.js isCriticalGap). importance_level >= 4 kullanılmıyor: o
+    # kova 0.73'ten başlıyor ve iki taraf 1 teknik farklı sayıyordu.
     critical_gaps_list = [
-        t for t in all_techs
-        if t["importance_level"] >= 4 and t["coverage_score"] < 0.35
+        t for t in parents
+        if t["importance"] >= CRITICAL_GAP_IMPORTANCE and t["coverage_score"] < CRITICAL_GAP_SCORE
     ]
-    # Genel kapsama % — tüm teknikler (parent + alt)
-    coverage_pct = round(covered_all / total_all * 100, 1) if total_all else 0.0
+    coverage_pct = (
+        round(detected_techniques / total_techniques * 100, 1) if total_techniques else 0.0
+    )
 
     # Taktik bazlı: parent + alt teknikler birlikte
     by_tactic_map: dict[str, dict] = {}
@@ -1288,18 +1315,21 @@ def _compute_gap_analysis(
 
     return {
         "overview": {
-            # Genel (parent + alt) sayılar — coverage_pct buna göre
-            "total_techniques": total_all,
-            "covered_techniques": covered_all,
-            "coverage_pct": coverage_pct,
-            "mature_techniques": mature_all,
-            "maturity_pct": round(mature_all / total_all * 100, 1) if total_all else 0.0,
+            # Payda: ana teknikler (bkz. yukarıdaki kapsama tanımı)
+            "total_techniques": total_techniques,
+            # Üç ayrık kova — toplamı total_techniques
+            "detected_techniques": detected_techniques,
+            "mitigation_only_techniques": mitigation_only_techniques,
+            "uncovered_techniques": uncovered_techniques,
+            "coverage_pct": coverage_pct,           # tespit / ana teknik
+            "mature_techniques": mature_techniques,
+            "maturity_pct": (
+                round(mature_techniques / total_techniques * 100, 1) if total_techniques else 0.0
+            ),
             "average_score_pct": average_score,
-            # Sadece parent / sadece alt — UI'da detay göstermek için
-            "parent_total": total_techniques,
-            "parent_covered": covered_techniques,
+            # Alt teknikler paydaya girmez, bilgi olarak raporlanır
             "total_subtechniques": total_subtechniques,
-            "covered_subtechniques": covered_subtechniques,
+            "detected_subtechniques": detected_subtechniques,
             "critical_gap_count": len(critical_gaps_list),
         },
         "by_tactic": by_tactic,

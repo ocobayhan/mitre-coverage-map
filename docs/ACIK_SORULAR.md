@@ -7,30 +7,24 @@ konular. Her madde: ne bulundu, neden önemli, hangi seçenekler var.
 
 ---
 
-## 1. "Kapsanan" iki ekranda farklı şey ölçüyor ⚠️ KARAR BEKLİYOR
+## 1. Mitigation kapsaması teknik bazında bilinçli olmalı ⚠️ İLERİYE DÖNÜK
 
-**Bulundu:** Faz 2 doğrulaması sırasında (Faz 2'den önce de vardı).
+*(Bu madde, çözülen "Kapsanan tanımı" tartışmasından çıktı — bkz. PROJECT_STATE.md)*
 
-Aynı kelime, iki farklı hesap:
+Mitigation artık kapsama skorunun %30'u ve "Yalnız Mitigation" ayrı bir metrik.
+Ancak **hangi tekniğin mitigation ile karşılandığı hâlâ bilinçli bir karar değil**,
+global mitigation kutucuğunun yan etkisi:
 
-| Ekran | Pay (kapsanan sayılır) | Payda |
-|---|---|---|
-| Matris (`ms-covered`, `app.js`) | kural **veya** mitigation var | 250 — yalnız ana teknik |
-| GAP / yönetici raporu (`coverage_pct`, `app.py`) | yalnız kural var | 691 — alt teknikler dahil |
+- 9 işaretli mitigation → 392 tekniği etkiliyor
+- Tek başına `M1018 User Account Management` → **120 teknik**
+- `M1056 "Pre-compromise"` bir kontrol bile değil (MITRE placeholder'ı) → 84 teknik
 
-Somut sonuç: aynı anda "%75 kapsanan" ve "%15,6 kapsanan" gösteriliyor.
+MITRE'nin mitigation↔teknik eşlemesi *"bu mitigation bu teknikle ilgilidir"*
+demek, *"bu mitigation bu tekniği engeller"* demek değil.
 
-**Neden önemli:** Bu, "her ekran kendi doğrusunu anlatıyor" şikayetinin
-tam örneği. Yönetime hangi sayının söyleneceği belirsiz.
-
-**Karar gereken sorular:**
-1. Mitigation'ı olan ama tespiti olmayan bir teknik "kapsanan" sayılmalı mı?
-   (Mitigation = önleme, tespit = görme — ikisi farklı yetenek.)
-2. Payda 250 ana teknik mi, 691 (alt teknikler dahil) mi olmalı?
-   Alt tekniklerin çoğu hiç kullanılmıyor; 691 payda oranı yapay düşürüyor.
-
-**Not:** Backend zaten `parent_total` / `parent_covered` alanlarını da
-döndürüyor, yani veri mevcut — sadece hangisinin gösterileceği kararı gerekiyor.
+**Öneri:** Teknik bazında "bu teknik için mitigation yeterli, tespit yazmayacağız"
+işareti. Böylece karar denetlenebilir ve gerekçeli olur. Teknik detay modalındaki
+mitigation listesi bunun doğal yeri.
 
 ---
 
@@ -49,19 +43,6 @@ yüksek hesaplanıyor.
 **Yapılacak:** Ayarlar > Ürün Yönetimi'nden kullanıcı sınıflandırır.
 
 ---
-
-## 3. Alt teknik kapsaması ana tekniğe yansımıyor ❓ İNCELENMELİ
-
-`GET /api/gap-analysis` çıktısında "49 ana · 0 alt teknik" gibi değerler
-görüldü — alt tekniklerin kapsanan sayısı 0 çıkıyor, çünkü tespitler
-`rule_techniques` içinde çoğunlukla ana tekniğe bağlanmış.
-
-**Soru:** Bir alt tekniğe (T1059.001) bağlı tespit yoksa ama ana tekniğe
-(T1059) bağlı tespit varsa, alt teknik kapsanmış sayılmalı mı?
-MITRE mantığında ana teknik kapsaması alt teknikleri garanti etmez, ama
-pratikte çoğu kural ana tekniğe eşleniyor.
-
-Bu, yukarıdaki 1. maddedeki payda sorusuyla doğrudan bağlantılı.
 
 ---
 

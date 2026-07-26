@@ -387,10 +387,35 @@ class AppTestCase(unittest.TestCase):
 
         overview = self.client.get("/api/gap-analysis").get_json()["overview"]
         self.assertEqual(overview["total_techniques"], 2)
-        self.assertEqual(overview["covered_techniques"], 1)
+        self.assertEqual(overview["detected_techniques"], 1)
         self.assertEqual(overview["coverage_pct"], 50.0)
         self.assertEqual(overview["mature_techniques"], 0)
         self.assertLess(overview["average_score_pct"], 20)
+
+    def test_coverage_buckets_are_disjoint_and_sum_to_total(self):
+        """Tespit / yalnız mitigation / kapsamsız birbirini dışlar ve
+        toplamları ana teknik sayısını verir — 'kapsanan' tek sayısının
+        iki ekranda farklı şey ölçmesi sorununun kalıcı güvencesi."""
+        self.login()
+        self.client.post("/api/rules", json={
+            "name": "Sadece T1000", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
+        # T1001'e tespit yok; ona bagli M1000'i isaretleyerek "yalniz mitigation" yap
+        self.client.post("/api/mitigation-entries", json={
+            "mitigation_id": "M1000", "team": "SOC", "comment": "uygulandi"})
+
+        ov = self.client.get("/api/gap-analysis").get_json()["overview"]
+        total = ov["total_techniques"]
+        buckets = (
+            ov["detected_techniques"]
+            + ov["mitigation_only_techniques"]
+            + ov["uncovered_techniques"]
+        )
+        self.assertEqual(buckets, total, "üç kova toplamı ana teknik sayısını vermeli")
+        self.assertEqual(ov["detected_techniques"], 1)
+        # M1000 -> T1000'i mitige eder ama T1000'in zaten tespiti var,
+        # dolayisiyla 'yalniz mitigation' kovasina girmemeli (kovalar ayrik).
+        self.assertEqual(ov["mitigation_only_techniques"], 0)
+        self.assertEqual(ov["uncovered_techniques"], 1)
 
     def test_gap_analysis_is_scoped_to_asset_group_monitoring(self):
         """Kurumsal gerçek: her ürün her yerde yok.
@@ -427,17 +452,17 @@ class AppTestCase(unittest.TestCase):
 
         # Filtresiz: iki teknik de kapsanir
         overview = self.client.get("/api/gap-analysis").get_json()["overview"]
-        self.assertEqual(overview["covered_techniques"], 2)
+        self.assertEqual(overview["detected_techniques"], 2)
 
         # Client grubunda QRadar yok -> yalnizca Defender'in teknigi kapsanir
         client_overview = self.client.get(
             f"/api/gap-analysis?asset_group_id={clients}").get_json()["overview"]
-        self.assertEqual(client_overview["covered_techniques"], 1)
+        self.assertEqual(client_overview["detected_techniques"], 1)
 
         # Server grubunda ikisi de izleniyor -> iki teknik de kapsanir
         server_overview = self.client.get(
             f"/api/gap-analysis?asset_group_id={servers}").get_json()["overview"]
-        self.assertEqual(server_overview["covered_techniques"], 2)
+        self.assertEqual(server_overview["detected_techniques"], 2)
 
     def test_partial_monitoring_weights_coverage_score(self):
         """Kismi izleme (partial) skoru coverage_percent oraninda dusurur."""

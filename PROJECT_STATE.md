@@ -152,10 +152,30 @@ Hangi tanımın kazanacağı ürün kararıdır; ekranlar birleşirken tek kayna
 - "Mitigations (Ekip/Yorum)" özeti Tespitler sekmesinde **ikinci kez** render ediliyordu → kaldırıldı
 - Yeni **Aksiyonlar** sekmesi: o tekniğe açılmış aksiyonlar + "bu teknik için aksiyon aç" (boşluğu görmek ile aksiyon açmak aynı yerde)
 
+## "Kapsanan" Tanımı Tek Doğruya İndirildi (2026-07-26)
+
+Matris ve GAP/rapor aynı kelimeyle farklı şey ölçüyordu: matris `kural VEYA mitigation / 250` (%75), GAP `yalnız kural / 691` (%15,6). Ayrıca matris aynı tekniği birden fazla taktikte tekrar sayıyordu (28 teknik; T1078 dört kez).
+
+**Karar — tek "kapsanan" sayısı yerine üç ayrık kova:**
+
+| Metrik | Anlamı |
+|---|---|
+| **Tespit** | Kuralı var — *görebiliyoruz* |
+| **Yalnız Mitigation** | Tespiti yok, işaretli mitigation'ı var — *önlemişiz ama göremiyoruz* |
+| **Kapsamsız** | İkisi de yok — *asıl aksiyon listesi* |
+
+Toplamları ana teknik sayısını verir; bilgi kaybolmaz, hiçbir sayı şişmez.
+
+- **Payda: ana teknikler** (benzersiz). Alt teknikler paydaya girmez — 475 alt teknikten yalnızca 5'inin kendi kuralı var; kurallar ana tekniğe eşleniyor ve alt tekniğe yazılan kural zaten ana tekniğe sayılıyor. Alt teknikler ayrı bir metrikte bilgi olarak gösterilir (düşük sayı = "alt teknik eşlemesi yapılmamış" uyarısı).
+- **Skor formülü değişmedi:** mitigation %30 ağırlıkla skorda kalmaya devam ediyor. Sadece mitigation'ı olan teknik ortalama %20 skor alıyor (kart turuncu/kırmızı) — "önlemişsin ama göremiyorsun" mesajı doğru veriliyor.
+- **Kritik boşluk eşiği hizalandı:** backend `importance_level >= 4` (0.73'ten başlıyor) kullanıyordu, frontend `importance >= 0.70`. Artık ikisi de `CRITICAL_GAP_IMPORTANCE = 0.70`. Backend ayrıca alt teknikleri de sayıyordu (92 vs 21) — o da ana tekniklerle sınırlandı.
+
+**Doğrulama:** altı metriğin altısı da iki tarafta birebir aynı — 216 teknik · 103 tespit (%48) · 55 yalnız mitigation · 58 kapsamsız · 21 kritik boşluk · 5/475 alt teknik.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
-2. Açık sorular: bkz. **[docs/ACIK_SORULAR.md](docs/ACIK_SORULAR.md)** — özellikle "Kapsanan" tanımının iki ekranda farklı olması karar bekliyor.
+2. Açık sorular: bkz. **[docs/ACIK_SORULAR.md](docs/ACIK_SORULAR.md)** — özellikle mitigation kapsamasının teknik bazında bilinçli karar haline getirilmesi.
 3. Ürünlerin doğru kategorilere alınması (Fortigate Firewall → `onleyici_kontrol` vb.)
 4. Kapsam Envanteri'nde kalan gerçek ortam/varlık gruplarının doldurulması
 5. QRadar connector'ın kurum test instance'ında kabul testi (kullanıcı yürütecek)

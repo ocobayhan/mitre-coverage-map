@@ -227,18 +227,28 @@
     <div class="rpt-cards">
       <div class="rpt-card">
         <div class="rpt-card-val">{{ gap.overview.total_techniques }}</div>
-        <div class="rpt-card-lbl">Toplam Teknik</div>
-        <div class="rpt-card-sub">{{ gap.overview.parent_total }} ana · {{ gap.overview.total_subtechniques }} alt</div>
+        <div class="rpt-card-lbl">Ana Teknik</div>
+        <div class="rpt-card-sub">Alt teknik: {{ gap.overview.detected_subtechniques }} / {{ gap.overview.total_subtechniques }} kendi kuralı var</div>
       </div>
       <div class="rpt-card">
-        <div class="rpt-card-val green">{{ gap.overview.covered_techniques }} <small style="font-size:18px">(%{{ gap.overview.coverage_pct }})</small></div>
-        <div class="rpt-card-lbl">Kapsanan Teknik</div>
-        <div class="rpt-card-sub">Tespit (kural) zorunlu · {{ gap.overview.covered_subtechniques }} alt teknik dahil</div>
+        <div class="rpt-card-val green">{{ gap.overview.detected_techniques }} <small style="font-size:18px">(%{{ gap.overview.coverage_pct }})</small></div>
+        <div class="rpt-card-lbl">Tespit</div>
+        <div class="rpt-card-sub">Görebiliyoruz — tespit (kural) zorunlu</div>
+      </div>
+      <div class="rpt-card">
+        <div class="rpt-card-val">{{ gap.overview.mitigation_only_techniques }}</div>
+        <div class="rpt-card-lbl">Yalnız Mitigation</div>
+        <div class="rpt-card-sub">Önlemişiz ama göremiyoruz</div>
+      </div>
+      <div class="rpt-card">
+        <div class="rpt-card-val red">{{ gap.overview.uncovered_techniques }}</div>
+        <div class="rpt-card-lbl">Kapsamsız</div>
+        <div class="rpt-card-sub">Ne tespit ne mitigation</div>
       </div>
       <div class="rpt-card">
         <div class="rpt-card-val red">{{ gap.overview.critical_gap_count }}</div>
         <div class="rpt-card-lbl">Kritik Boşluk</div>
-        <div class="rpt-card-sub">Önem ≥ 4, kapsanmamış</div>
+        <div class="rpt-card-sub">Önem yüksek, skor &lt; %35</div>
       </div>
     </div>
 
