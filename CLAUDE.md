@@ -26,8 +26,12 @@ Single-file Flask backend (`app.py`) serving a single-page application. No build
 ```
 app.py              — Flask app, all API routes, DB schema, migrations
 templates/
-  index.html        — Main SPA (all panels rendered on load, toggled by JS)
+  index.html        — Main SPA: 4 nav sections (Harita/Envanter/Boşluklar/Ayarlar),
+                      each with sub-tabs. All panels are in the DOM at all times;
+                      SECTIONS + showPanel() in app.js toggle them.
+  docs.html         — Standalone wiki served at /docs (was half of index.html)
   login.html        — Login page
+  report.html       — Executive report served at /report
 static/
   app.js            — All frontend logic; bump ?v= query param on each change
   styles.css        — All styling; bump ?v= query param on each change

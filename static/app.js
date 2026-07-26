@@ -83,10 +83,10 @@ function applyRoleUI() {
   const resetBtn = document.getElementById('btnReset');
   if (resetBtn) resetBtn.classList.toggle('hidden', !hasRole('admin'));
 
-  // Ayarlar sekmesi her zaman gorunur: viewer da dahil herkes kendi parolasini
+  // Ayarlar bölümü her zaman gorunur: viewer da dahil herkes kendi parolasini
   // "Hesabim" sekmesinden degistirebilmeli. Alt sekmeler (CSV, Kullanicilar,
   // Ekipler, Connector'lar) kendi rol kontrollerini asagida ayrica uyguluyor.
-  const settingsNav = document.querySelector('.nav-item[data-target="settingsPanel"]');
+  const settingsNav = document.querySelector('.nav-item[data-section="settings"]');
   if (settingsNav) settingsNav.classList.remove('hidden');
 
   // Viewer icin varsayilan sekme "Urun Yonetimi" degil "Hesabim" olsun --
@@ -107,13 +107,14 @@ function applyRoleUI() {
 
   // Ayarlar sekmelerini role göre gizle:
   //   CSV Yükleme → editor veya üstü
-  //   Kullanıcılar + Audit Log → sadece admin
+  //   Kullanıcılar / Ekipler / Connector'lar → sadece admin
   document.getElementById('settingsCsvTab')?.classList.toggle('hidden', !hasRole('editor'));
   document.getElementById('settingsUsersTab')?.classList.toggle('hidden', !hasRole('admin'));
-  document.getElementById('settingsAuditTab')?.classList.toggle('hidden', !hasRole('admin'));
   document.getElementById('settingsTeamsTab')?.classList.toggle('hidden', !hasRole('admin'));
   document.getElementById('settingsConnectorsTab')?.classList.toggle('hidden', !hasRole('admin'));
-  document.getElementById('auditNavItem')?.classList.toggle('hidden', !hasRole('admin'));
+  // Audit artık Ayarlar bölümünün alt sekmesi; görünürlüğü SECTIONS[].role
+  // üzerinden visibleTabs() ile yönetiliyor, burada ayrıca gizlenmiyor.
+  renderSectionTabs();
   document.getElementById('dataQualityRepair')?.classList.toggle('hidden', !hasRole('admin'));
 }
 
@@ -2160,6 +2161,7 @@ async function openModal(parentId, parentName, rules) {
   tabBar.innerHTML = `
     <button class="tab-btn active" data-tab="mitigationsTab">Mitigations</button>
     <button class="tab-btn" data-tab="rulesTab">Tespitler</button>
+    <button class="tab-btn" data-tab="actionsTab">Aksiyonlar</button>
   `;
   body.appendChild(tabBar);
 
@@ -2169,8 +2171,13 @@ async function openModal(parentId, parentName, rules) {
   const rulesTab = document.createElement('div');
   rulesTab.className = 'tab-panel';
   rulesTab.id = 'rulesTab';
+  const actionsTab = document.createElement('div');
+  actionsTab.className = 'tab-panel';
+  actionsTab.id = 'actionsTab';
   body.appendChild(mitigationsTab);
   body.appendChild(rulesTab);
+  body.appendChild(actionsTab);
+  renderModalActions(actionsTab, parentId);
 
   tabBar.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2201,7 +2208,9 @@ async function openModal(parentId, parentName, rules) {
     <div class="modal-rule-hint">Taktik: ${tacticHint} | Teknik: ${parentId}</div>
   `;
   if (hasRole('editor')) {
-    body.appendChild(modalRuleAdd);
+    // Bug düzeltmesi: form body'ye ekleniyordu, yani Mitigations sekmesindeyken
+    // de görünüyordu. Ait olduğu yer Tespitler sekmesi.
+    rulesTab.appendChild(modalRuleAdd);
   }
   populateSourceSelect();
 
@@ -2285,28 +2294,8 @@ async function openModal(parentId, parentName, rules) {
     rulesTab.appendChild(groupDiv);
   });
 
-  const mitigationSummary = document.createElement('div');
-  mitigationSummary.className = 'mitigation-summary-section';
-  const mitList = mitigationsByTechnique[parentId] || [];
-  mitigationSummary.innerHTML = `<div class="mitigation-summary-title">Mitigations (Ekip/Yorum)</div>`;
-  if (mitList.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'mitigation-empty';
-    empty.textContent = 'Kayıt yok.';
-    mitigationSummary.appendChild(empty);
-  } else {
-    mitList.forEach(m => {
-      const entries = mitigationEntries[m.id] || [];
-      const block = document.createElement('div');
-      block.className = 'mitigation-summary-row';
-      const entriesHtml = entries.length
-        ? entries.map(e => `<div class="mitigation-entry-line"><span>${e.team}</span> ${e.comment}</div>`).join('')
-        : '<div class="mitigation-empty">Kayıt yok.</div>';
-      block.innerHTML = `<div class="mitigation-summary-name">${m.id} - ${m.name}</div>${entriesHtml}`;
-      mitigationSummary.appendChild(block);
-    });
-  }
-  rulesTab.appendChild(mitigationSummary);
+  // Not: Burada ikinci bir "Mitigations (Ekip/Yorum)" özeti render ediliyordu —
+  // Mitigations sekmesindeki listenin birebir kopyasıydı. Kaldırıldı.
 
   mitigationsTab.querySelectorAll('.mitigation-entry-add').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -2528,18 +2517,110 @@ function wireSidebarToggle() {
   });
 }
 
+// ─── Navigasyon: 4 bölüm, her biri birkaç alt sekme ────────────────────────
+// Paneller fiziksel olarak birleştirilmedi — ID'leri, render fonksiyonları ve
+// içlerindeki ~40 inline hasRole() kontrolü aynen duruyor; yalnızca üst
+// seviyede gruplandılar. Böylece 12 ekranlık dağınıklık gitti ama davranış
+// değişmedi.
+const SECTIONS = {
+  map: {
+    label: 'Harita',
+    tabs: [
+      { panel: 'matrixPanel', label: 'Matris' },
+      { panel: 'ttpPanel',    label: 'Liste Görünümü' },
+    ],
+  },
+  inventory: {
+    label: 'Envanter',
+    tabs: [
+      { panel: 'rulesPanel',      label: 'Tespitler' },
+      { panel: 'scopePanel',      label: 'Ortam & Kapsam' },
+      { panel: 'mitigationPanel', label: 'Mitigation' },
+    ],
+  },
+  gaps: {
+    label: 'Boşluklar',
+    tabs: [
+      { panel: 'gapPanel',         label: 'GAP Analizi' },
+      { panel: 'actionsPanel',     label: 'Aksiyon Planı' },
+      { panel: 'dataQualityPanel', label: 'Veri Kalitesi' },
+    ],
+  },
+  settings: {
+    label: 'Ayarlar',
+    tabs: [
+      { panel: 'settingsPanel', label: 'Ayarlar' },
+      { panel: 'auditPanel',    label: 'Audit', role: 'admin' },
+    ],
+  },
+};
+
+// Panel ilk kez açıldığında veri çeken yükleyiciler.
+const PANEL_LOADERS = {
+  ttpPanel: () => loadTtpList(),
+  gapPanel: () => loadGapDashboard(),
+  actionsPanel: () => loadActionsPanel(),
+  dataQualityPanel: () => loadDataQuality(),
+  auditPanel: () => loadAuditLogs(),
+  scopePanel: () => loadScopeRegistry(),
+};
+
+let activeSection = 'map';
+const lastPanelBySection = {};
+
+function visibleTabs(sectionKey) {
+  return (SECTIONS[sectionKey]?.tabs || []).filter(t => !t.role || hasRole(t.role));
+}
+
+/** Bir paneli göster; gerekiyorsa bölümü de değiştirir. */
+function showPanel(panelId) {
+  const sectionKey = Object.keys(SECTIONS).find(
+    key => SECTIONS[key].tabs.some(t => t.panel === panelId)
+  );
+  if (!sectionKey) return;
+  activeSection = sectionKey;
+  lastPanelBySection[sectionKey] = panelId;
+
+  document.querySelectorAll('.nav-item[data-section]').forEach(
+    item => item.classList.toggle('active', item.dataset.section === sectionKey)
+  );
+  document.querySelectorAll('.panel').forEach(
+    p => p.classList.toggle('active', p.id === panelId)
+  );
+  renderSectionTabs();
+
+  if (panelId === 'matrixPanel' && mitreObjects.length) renderMatrix();
+  PANEL_LOADERS[panelId]?.();
+}
+
+function renderSectionTabs() {
+  const bar = document.getElementById('sectionTabs');
+  if (!bar) return;
+  const tabs = visibleTabs(activeSection);
+  // Tek sekmeli bölümde çubuk gereksiz gürültü.
+  if (tabs.length < 2) { bar.innerHTML = ''; bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  const current = document.querySelector('.panel.active')?.id;
+  bar.innerHTML = tabs.map(t =>
+    `<button class="section-tab ${t.panel === current ? 'active' : ''}" data-panel="${t.panel}" role="tab">${t.label}</button>`
+  ).join('');
+  bar.querySelectorAll('.section-tab').forEach(btn =>
+    btn.addEventListener('click', () => showPanel(btn.dataset.panel))
+  );
+}
+
 function wireNavigation() {
-  const items = document.querySelectorAll('.nav-item');
-  const panels = document.querySelectorAll('.panel');
-  items.forEach(item => {
+  document.querySelectorAll('.nav-item[data-section]').forEach(item => {
     item.addEventListener('click', () => {
-      const target = item.dataset.target;
-      items.forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
-      panels.forEach(p => p.classList.toggle('active', p.id === target));
-      if (target === 'matrixPanel' && mitreObjects.length) renderMatrix();
+      const key = item.dataset.section;
+      const tabs = visibleTabs(key);
+      if (!tabs.length) return;
+      // Bölüme dönerken en son bakılan sekmeye dön.
+      const remembered = lastPanelBySection[key];
+      showPanel(tabs.some(t => t.panel === remembered) ? remembered : tabs[0].panel);
     });
   });
+  renderSectionTabs();
 }
 
 
@@ -3368,13 +3449,45 @@ async function loadActionsPanel() {
   } catch (e) { /* ignore */ }
 }
 
+const PRIORITY_LABEL = {1:'Düşük', 2:'Orta', 3:'Yüksek', 4:'Kritik'};
+const STATUS_LABEL = {open:'Açık', in_progress:'Devam', done:'Tamamlandı', cancelled:'İptal'};
+
+/** Teknik modalındaki Aksiyonlar sekmesi — bu tekniğe açılmış aksiyonlar.
+ *  Boşluk görüp aksiyon açmak ile açılmış aksiyonu görmek aynı yerde olsun diye. */
+async function renderModalActions(host, techId) {
+  host.innerHTML = '<div class="mitigation-empty">Yükleniyor…</div>';
+  let items = [];
+  try {
+    const res = await apiFetch(`/api/action-items?tech_id=${encodeURIComponent(techId)}`);
+    if (res.ok) items = await res.json();
+  } catch { /* ağ hatası — boş liste göster */ }
+
+  const addBtn = hasRole('editor')
+    ? `<button class="action-btn btn-add" id="modalAddAction">+ Bu teknik için aksiyon aç</button>`
+    : '';
+  if (!items.length) {
+    host.innerHTML = `<div class="mitigation-empty">Bu teknik için açılmış aksiyon yok.</div>${addBtn}`;
+  } else {
+    host.innerHTML = `<table class="table"><thead><tr>
+        <th>Başlık</th><th>Öncelik</th><th>Durum</th><th>Ekip</th><th>Termin</th>
+      </tr></thead><tbody>${items.map(a => `<tr>
+        <td>${_esc(a.title)}</td>
+        <td><span class="priority-badge p-${a.priority}">${PRIORITY_LABEL[a.priority] || a.priority}</span></td>
+        <td><span class="status-badge s-${a.status}">${STATUS_LABEL[a.status] || a.status}</span></td>
+        <td>${_esc(a.assigned_team_name || '—')}</td>
+        <td>${_esc(a.due_date || '—')}</td>
+      </tr>`).join('')}</tbody></table>${addBtn}`;
+  }
+  host.querySelector('#modalAddAction')?.addEventListener('click', () => {
+    document.getElementById('ruleModal').style.display = 'none';
+    openNewActionForTech(techId, techDetailsMap[techId]?.name || '');
+  });
+}
+
 function renderActionItems() {
   const tbody = document.getElementById('actionsTableBody');
   const emptyEl = document.getElementById('actionsEmpty');
   if (!tbody) return;
-
-  const PRIORITY_LABEL = {1:'Düşük', 2:'Orta', 3:'Yüksek', 4:'Kritik'};
-  const STATUS_LABEL = {open:'Açık', in_progress:'Devam', done:'Tamamlandı', cancelled:'İptal'};
 
   const filtered = _actionsFilter
     ? _actionItems.filter(a => a.status === _actionsFilter)
@@ -3417,15 +3530,7 @@ function renderActionItems() {
 }
 
 function openNewActionForTech(techId, techName) {
-  // Switch to actions panel
-  document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  const navItem = document.querySelector('.nav-item[data-target="actionsPanel"]');
-  const panel = document.getElementById('actionsPanel');
-  if (navItem) navItem.classList.add('active');
-  if (panel) panel.classList.add('active');
-
-  loadActionsPanel();
+  showPanel('actionsPanel');   // bölüm + sekme + veri yüklemesini birlikte yapar
   // Pre-fill form
   _editingActionId = null;
   const form = document.getElementById('actionFormCard');
@@ -3827,39 +3932,11 @@ function wireScopeRegistry() {
 }
 
 function wireNewPanels() {
-  // Wiki sidebar navigation (Bilgilendirme panel)
-  const wikiContent = document.querySelector('.wiki-content');
-  document.querySelectorAll('.wiki-nav-item').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const target = btn.dataset.wiki;
-      document.querySelectorAll('.wiki-nav-item').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.wiki-page').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      const page = document.getElementById(target);
-      if (page) page.classList.add('active');
-      if (wikiContent) wikiContent.scrollTop = 0;
-    });
-  });
+  // Not: Bilgilendirme wiki'si /docs route'una taşındı (templates/docs.html),
+  // sekme geçişi orada kendi inline script'inde.
 
-  // TTP panel: load data when nav item is clicked
-  document.querySelector('.nav-item[data-target="ttpPanel"]')?.addEventListener('click', () => {
-    loadTtpList();
-  });
-  // GAP panel: load data when nav item is clicked
-  document.querySelector('.nav-item[data-target="gapPanel"]')?.addEventListener('click', () => {
-    loadGapDashboard();
-  });
-  // Actions panel: load data when nav item is clicked
-  document.querySelector('.nav-item[data-target="actionsPanel"]')?.addEventListener('click', () => {
-    loadActionsPanel();
-  });
-  document.querySelector('.nav-item[data-target="dataQualityPanel"]')?.addEventListener('click', () => {
-    loadDataQuality();
-  });
-  document.querySelector('.nav-item[data-target="auditPanel"]')?.addEventListener('click', () => {
-    loadAuditLogs();
-  });
-  document.querySelector('.nav-item[data-target="scopePanel"]')?.addEventListener('click', loadScopeRegistry);
+  // Panel veri yükleyicileri artık PANEL_LOADERS üzerinden showPanel()'de
+  // tetikleniyor (bkz. wireNavigation) — sekmeye tıklanınca da çalışsın diye.
 
   document.getElementById('dataQualityRefresh')?.addEventListener('click', loadDataQuality);
   document.getElementById('dataQualityRepair')?.addEventListener('click', repairDataQuality);

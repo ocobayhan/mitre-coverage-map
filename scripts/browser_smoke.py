@@ -10,6 +10,20 @@ from selenium.webdriver.support import expected_conditions as conditions
 from selenium.webdriver.support.ui import WebDriverWait
 
 
+def _open_panel(driver, wait, section, panel_id):
+    """Faz 3 sonrasi navigasyon: once bolume, sonra alt sekmeye tikla.
+
+    Paneller artik ust seviye ekran degil; 4 bolumun altinda sekme.
+    Bolumde tek gorunur sekme varsa cubuk gizlendigi icin sekmeye tiklamaya
+    gerek kalmaz (bolum zaten o paneli acar).
+    """
+    driver.find_element(By.CSS_SELECTOR, f'.nav-item[data-section="{section}"]').click()
+    tabs = driver.find_elements(By.CSS_SELECTOR, f'.section-tab[data-panel="{panel_id}"]')
+    if tabs:
+        tabs[0].click()
+    wait.until(lambda b: "active" in b.find_element(By.ID, panel_id).get_attribute("class"))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8888")
@@ -44,13 +58,26 @@ def main():
         driver.save_screenshot(str(matrix_path))
         result["screenshots"]["matrix_desktop"] = str(matrix_path)
 
-        # Teknik detay modali: Mitigations + Tespitler sekmeleri
+        # Ortam secici (Faz 2) — matris uzerinde varlik grubu filtresi
+        result["metrics"]["scope_select_options"] = len(
+            driver.find_elements(By.CSS_SELECTOR, "#matrixScopeSelect option")
+        )
+
+        # Teknik detay modali: Mitigations + Tespitler + Aksiyonlar
         driver.find_element(By.CSS_SELECTOR, "#matrix .technique-card .detail-btn").click()
         wait.until(conditions.visibility_of_element_located((By.ID, "modalBody")))
         result["metrics"]["modal_tabs"] = len(driver.find_elements(By.CSS_SELECTOR, "#ruleModal .tab-btn"))
+        # Duplike mitigation ozeti kaldirildi — 0 olmali
+        result["metrics"]["modal_duplicate_mitigation_summary"] = len(
+            driver.find_elements(By.CSS_SELECTOR, "#ruleModal .mitigation-summary-section")
+        )
         driver.find_element(By.ID, "modalClose").click()
 
-        driver.find_element(By.CSS_SELECTOR, '[data-target="scopePanel"]').click()
+        # Faz 3: 4 bolum + alt sekmeler
+        result["metrics"]["nav_sections"] = len(
+            driver.find_elements(By.CSS_SELECTOR, '.nav-item[data-section]')
+        )
+        _open_panel(driver, wait, "inventory", "scopePanel")
         wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#scopeSummary .ops-stat")) == 4)
         scope_path = output_dir / "mitre-scope-registry-desktop.png"
         driver.save_screenshot(str(scope_path))
@@ -65,7 +92,7 @@ def main():
         result["metrics"]["scope_mobile_viewport_width"] = driver.execute_script("return document.documentElement.clientWidth")
         driver.set_window_size(1440, 1000)
 
-        driver.find_element(By.CSS_SELECTOR, '[data-target="dataQualityPanel"]').click()
+        _open_panel(driver, wait, "gaps", "dataQualityPanel")
         wait.until(lambda browser: browser.find_element(By.ID, "qualitySummary").text.strip())
         quality_path = output_dir / "mitre-data-quality-desktop.png"
         driver.save_screenshot(str(quality_path))
@@ -77,7 +104,7 @@ def main():
             driver.find_elements(By.CSS_SELECTOR, "#qualityIssuesBody tr")
         )
 
-        driver.find_element(By.CSS_SELECTOR, '[data-target="auditPanel"]').click()
+        _open_panel(driver, wait, "settings", "auditPanel")
         wait.until(lambda browser: browser.find_element(By.ID, "auditIntegrity").text != "Kontrol ediliyor")
         audit_path = output_dir / "mitre-audit-desktop.png"
         driver.save_screenshot(str(audit_path))

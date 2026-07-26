@@ -62,7 +62,9 @@ Genel kural: **viewer** her şeyi okuyabilir (audit, connector, kullanıcı yön
 
 `applyRoleUI()` (app.js:72) — `currentUser.role` `/api/me`'den alınır, `hasRole(minRole)` ile karşılaştırılır, izin yoksa ilgili DOM elemanı `hidden` class'ı ile gizlenir (silinmez — sadece görsel). **Frontend gizleme bir güvenlik sınırı değildir**, backend her zaman kendi kontrolünü yapar; bu yüzden yeni bir admin-only özellik eklerken hem `applyRoleUI()`'a hem backend route'a ayrı ayrı eklemeyi unutma.
 
-Gizlenen öğeler: reset butonu, Ayarlar sekmeleri (CSV, Kullanıcılar, Ekipler, Connector'lar), Audit nav item'ı, veri kalitesi onarım butonu.
+Gizlenen öğeler: reset butonu, Ayarlar alt sekmeleri (CSV, Kullanıcılar, Ekipler, Connector'lar), veri kalitesi onarım butonu.
+
+**Bölüm alt sekmeleri (Faz 3):** Nav 4 bölümden oluşur (Harita / Envanter / Boşluklar / Ayarlar); her bölümün alt sekmeleri `SECTIONS` sabitinde tanımlıdır (`static/app.js`). Bir sekmeye `role: 'admin'` verilirse `visibleTabs()` onu düşük rollerde hiç render etmez — örn. Audit sekmesi. Bölümde tek görünür sekme kalırsa çubuk tamamen gizlenir.
 
 > `applyRoleUI()` toplam yetkilendirmenin yalnızca bir kısmıdır — geri kalan ~40 kontrol render fonksiyonlarının içindeki inline `hasRole()` çağrılarıdır (kural satırları, modal formları, mitigation girişleri, connector işlemleri, kapsam anketi). Ekran birleştirme/taşıma yaparken bunların her biri taşınmalıdır.
 

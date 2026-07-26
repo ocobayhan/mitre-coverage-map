@@ -130,10 +130,32 @@ Matris ve GAP ekranı "Kapsanan" kelimesiyle **farklı şey ölçüyor** — bu 
 
 Hangi tanımın kazanacağı ürün kararıdır; ekranlar birleşirken tek kaynağa indirilecek. Backend zaten `parent_total` / `parent_covered` alanlarını da döndürüyor.
 
+## Ekran Birleştirme (2026-07-26, Faz 3)
+
+12 nav ekranı **4 bölüme** indirildi:
+
+| Bölüm | Alt sekmeler |
+|---|---|
+| **Harita** | Matris · Liste Görünümü |
+| **Envanter** | Tespitler · Ortam & Kapsam · Mitigation |
+| **Boşluklar** | GAP Analizi · Aksiyon Planı · Veri Kalitesi |
+| **Ayarlar** | Ayarlar · Audit *(admin)* |
+
+**Yaklaşım — düşük risk:** Paneller fiziksel olarak birleştirilmedi. ID'leri, render fonksiyonları ve içlerindeki ~40 inline `hasRole()` kontrolü aynen duruyor; yalnızca üst seviyede gruplandılar (`SECTIONS` + `showPanel()`). Panel veri yükleyicileri `PANEL_LOADERS` üzerinden merkezîleşti.
+
+- Rol bazlı sekme: `SECTIONS[].tabs[].role` — Audit yalnızca admin'de görünür, bölümde tek sekme kalırsa çubuk gizlenir
+- Bölüme geri dönüldüğünde en son bakılan sekme hatırlanır
+- Bilgilendirme wiki'si `/docs` route'una taşındı (`templates/docs.html`) — `index.html` **1708 → 791 satır**
+
+### Teknik detay modalı düzeltmeleri
+- "Tespit Ekle" formu `body`'ye ekleniyordu, yani Mitigations sekmesindeyken de görünüyordu → `rulesTab`'e taşındı
+- "Mitigations (Ekip/Yorum)" özeti Tespitler sekmesinde **ikinci kez** render ediliyordu → kaldırıldı
+- Yeni **Aksiyonlar** sekmesi: o tekniğe açılmış aksiyonlar + "bu teknik için aksiyon aç" (boşluğu görmek ile aksiyon açmak aynı yerde)
+
 ## Sonraki Öncelikler
 
-1. **Faz 3 — Ekran birleştirme:** 12 → 4 (Harita / Envanter / Boşluklar / Ayarlar). `infoPanel` tek başına `index.html`'in yarısı, ayrı route'a taşınacak. "Kapsanan" tanımı tek kaynağa indirilecek.
-2. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
+1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
+2. Açık sorular: bkz. **[docs/ACIK_SORULAR.md](docs/ACIK_SORULAR.md)** — özellikle "Kapsanan" tanımının iki ekranda farklı olması karar bekliyor.
 3. Ürünlerin doğru kategorilere alınması (Fortigate Firewall → `onleyici_kontrol` vb.)
 4. Kapsam Envanteri'nde kalan gerçek ortam/varlık gruplarının doldurulması
 5. QRadar connector'ın kurum test instance'ında kabul testi (kullanıcı yürütecek)

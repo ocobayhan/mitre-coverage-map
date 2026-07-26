@@ -1462,6 +1462,15 @@ def index() -> str:
     return render_template("index.html")
 
 
+@app.route("/docs")
+@login_required
+def docs_page() -> str:
+    """Bilgilendirme wiki'si. Onceden index.html icinde bir paneldi ve tek
+    basina dosyanin yarisiydi (1027/1943 satir); statik icerik oldugu icin
+    SPA'dan ayrildi."""
+    return render_template("docs.html")
+
+
 @app.route("/login")
 def login_page() -> str:
     user = get_current_user()
