@@ -58,20 +58,21 @@ MITRE veri seti değiştirildiğinde uygulamayı yeniden başlatın. Veri Kalite
 
 Audit kayıtları istek ID, kullanıcı, IP, user-agent, önce/sonra değerleri ve SHA-256 zincir hash'i içerir. Veritabanı trigger'ları audit satırlarının güncellenmesini veya silinmesini engeller. Admin kullanıcılar Audit ekranından filtreleme, detay inceleme, bütünlük doğrulama ve CSV export yapabilir. `Kanıt Paketi`, seçili filtrelerle kayıtları; üretim manifesti, tam zincir durumu, önceki/kayıt hash'leri ve bağımsız doğrulanabilir paket hash'i içeren JSON dosyası olarak dışa aktarır.
 
-## SOC-CMM KPI
+## Kapsama Puanlaması
 
-`SOC-CMM KPI` çalışma alanı detection coverage ile data source visibility metriklerini birbirinden ayırır:
+Her teknik için 0–1 arası bir operasyonel kapsama skoru hesaplanır ve kart rengini belirler:
 
-- Kurum profili ATT&CK 18.1 teknik kapsamını, risk ağırlığını, gerekçeyi, sürümü ve onayı saklar.
-- Mevcut detection eşlemeleri başlangıçta `active / untested` kabul edilir. Doğrulanmış coverage için skor, yöntem, kanıt ve doğrulama tarihi zorunludur.
-- Visibility envanteri ATT&CK Data Components ile cihaz kapsamı, alan tamlığı, zamanındalık, tutarlılık ve retention kalite skorlarını kullanır.
-- Birleşik heatmap kontrol edilen teknikleri, detection boşluklarını, zayıf visibility üzerine kurulmuş detection'ları ve kör noktaları ayrı gösterir.
-- Ana ATT&CK Matrix tek veri yüzeyidir: operasyonel olgunluk, validated detection, data visibility ve birleşik GAP modları aynı teknik kartları üzerinde çalışır. Mevcut ürün/kural eşlemeleri SOC-CMM skorlarıyla birlikte görünür.
-- Teknik detayında mitigation, detection eşlemeleri, validation skoru, sahip, kanıt durumu ve Data Component özeti birlikte gösterilir.
-- Yalnız onaylı profiller resmi KPI snapshot'ı üretebilir. Snapshot payload'ları SHA-256 hash ile korunur ve veritabanı trigger'larıyla append-only tutulur.
-- Dashboard görünümü MITRE ATT&CK Navigator Layer JSON olarak dışa aktarılabilir.
+```
+skor = 0.50 × (etkin kural sayısı / teknik eşiği)
+     + 0.30 × (işaretli mitigation / toplam mitigation)
+     + 0.20 × (farklı ürün sayısı / 2)
+```
 
-Resmi KPI formülü `soc-cmm-1.0` olarak sürümlenir. Validated detection coverage en az bir aktif ve geçerli doğrulanmış detection bulunan profil tekniklerinin oranıdır. Weighted detection, profil ağırlığı ile 0-5 detection skorunu; visibility ise profil ağırlığı ile 0-4 visibility skorunu normalize eder.
+Etkin kural sayısı, tespitin kapsam seviyesiyle ağırlıklandırılır (`low` 0.25, `partial` 0.60, `full` 1.00). Teknik eşiği ve önem derecesi `technique_config` tablosunda tutulur; `data/mitre.json` içindeki grup/araç ilişkilerinden otomatik türetilir ve admin tarafından teknik bazında geçersiz kılınabilir.
+
+Önem derecesi yüksek (≥ 0.7) ve skoru düşük (< 0.35) teknikler **kritik boşluk** olarak kırmızı kenarlıkla işaretlenir. Aynı formül sunucu tarafında `_compute_gap_analysis()` içinde de uygulanır; GAP Analizi ekranı ve yönetici raporu bunu kullanır.
+
+> Bu puan bir olgunluk göstergesidir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.
 
 ## QRadar Connector
 

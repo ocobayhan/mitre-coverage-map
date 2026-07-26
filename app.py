@@ -361,133 +361,24 @@ def build_technique_config(db: sqlite3.Connection) -> None:
     db.commit()
 
 
-def ensure_soc_cmm_schema(db: sqlite3.Connection) -> None:
-    """Create the governed SOC-CMM KPI model without changing legacy scores."""
+def drop_soc_cmm_schema(db: sqlite3.Connection) -> None:
+    """SOC-CMM KPI modelini kaldiran temizlik migration'i (idempotent).
+
+    Kod tarafi tamamen sokuldu, ancak CREATE TABLE satirlarini silmek mevcut
+    soc.db dosyalarindaki tablolari dusurmuyor; kpi_snapshots uzerindeki
+    append-only trigger'lar da yerinde kaliyordu. Tum kurulumlar bir kez
+    calistirdiktan sonra bu fonksiyon guvenle silinebilir."""
     db.executescript(
         """
-        CREATE TABLE IF NOT EXISTS soc_profiles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            scope TEXT NOT NULL DEFAULT 'Kurum geneli',
-            attack_version TEXT NOT NULL DEFAULT '',
-            version INTEGER NOT NULL DEFAULT 1,
-            status TEXT NOT NULL DEFAULT 'draft'
-                CHECK(status IN ('draft','approved','retired')),
-            is_active INTEGER NOT NULL DEFAULT 0,
-            approved_by TEXT NOT NULL DEFAULT '',
-            approved_at TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS soc_profile_techniques (
-            profile_id INTEGER NOT NULL,
-            tech_id TEXT NOT NULL,
-            included INTEGER NOT NULL DEFAULT 1,
-            weight INTEGER NOT NULL DEFAULT 3 CHECK(weight BETWEEN 1 AND 5),
-            rationale TEXT NOT NULL DEFAULT '',
-            PRIMARY KEY (profile_id, tech_id),
-            FOREIGN KEY (profile_id) REFERENCES soc_profiles(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS detection_assessments (
-            rule_id INTEGER PRIMARY KEY,
-            lifecycle_status TEXT NOT NULL DEFAULT 'active'
-                CHECK(lifecycle_status IN ('draft','active','disabled')),
-            validation_status TEXT NOT NULL DEFAULT 'untested'
-                CHECK(validation_status IN ('untested','validated','failed','expired')),
-            detection_score INTEGER NOT NULL DEFAULT 0 CHECK(detection_score BETWEEN -1 AND 5),
-            applicable_scope TEXT NOT NULL DEFAULT 'Kurum geneli',
-            owner TEXT NOT NULL DEFAULT '',
-            validation_method TEXT NOT NULL DEFAULT '',
-            evidence_ref TEXT NOT NULL DEFAULT '',
-            data_dependencies TEXT NOT NULL DEFAULT '',
-            last_validated_at TEXT,
-            expires_at TEXT,
-            updated_by TEXT NOT NULL DEFAULT '',
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (rule_id) REFERENCES rules(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS telemetry_sources (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            producer TEXT NOT NULL DEFAULT '',
-            destination TEXT NOT NULL DEFAULT '',
-            scope TEXT NOT NULL DEFAULT 'Kurum geneli',
-            owner TEXT NOT NULL DEFAULT '',
-            connected_at TEXT,
-            last_event_at TEXT,
-            active INTEGER NOT NULL DEFAULT 1,
-            analytics_ready INTEGER NOT NULL DEFAULT 0,
-            device_completeness INTEGER NOT NULL DEFAULT 0 CHECK(device_completeness BETWEEN 0 AND 5),
-            field_completeness INTEGER NOT NULL DEFAULT 0 CHECK(field_completeness BETWEEN 0 AND 5),
-            timeliness INTEGER NOT NULL DEFAULT 0 CHECK(timeliness BETWEEN 0 AND 5),
-            consistency INTEGER NOT NULL DEFAULT 0 CHECK(consistency BETWEEN 0 AND 5),
-            retention INTEGER NOT NULL DEFAULT 0 CHECK(retention BETWEEN 0 AND 5),
-            notes TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS telemetry_components (
-            source_id INTEGER NOT NULL,
-            component_id TEXT NOT NULL,
-            required_fields TEXT NOT NULL DEFAULT '',
-            PRIMARY KEY (source_id, component_id),
-            FOREIGN KEY (source_id) REFERENCES telemetry_sources(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS visibility_overrides (
-            profile_id INTEGER NOT NULL,
-            tech_id TEXT NOT NULL,
-            score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 4),
-            reason TEXT NOT NULL,
-            approved_by TEXT NOT NULL DEFAULT '',
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (profile_id, tech_id),
-            FOREIGN KEY (profile_id) REFERENCES soc_profiles(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS kpi_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            profile_id INTEGER NOT NULL,
-            profile_version INTEGER NOT NULL,
-            formula_version TEXT NOT NULL,
-            attack_version TEXT NOT NULL DEFAULT '',
-            scope TEXT NOT NULL,
-            mapped_coverage REAL NOT NULL,
-            validated_coverage REAL NOT NULL,
-            weighted_detection REAL NOT NULL,
-            visibility REAL NOT NULL,
-            visible_threshold_coverage REAL NOT NULL,
-            numerator_json TEXT NOT NULL,
-            denominator INTEGER NOT NULL,
-            payload_json TEXT NOT NULL,
-            payload_hash TEXT NOT NULL,
-            created_by TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (profile_id) REFERENCES soc_profiles(id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_profile_techniques_profile ON soc_profile_techniques(profile_id);
-        CREATE INDEX IF NOT EXISTS idx_telemetry_components_component ON telemetry_components(component_id);
-        CREATE INDEX IF NOT EXISTS idx_kpi_snapshots_profile_date ON kpi_snapshots(profile_id, created_at);
-        CREATE TRIGGER IF NOT EXISTS kpi_snapshots_no_update
-        BEFORE UPDATE ON kpi_snapshots BEGIN
-            SELECT RAISE(ABORT, 'KPI snapshots are append-only');
-        END;
-        CREATE TRIGGER IF NOT EXISTS kpi_snapshots_no_delete
-        BEFORE DELETE ON kpi_snapshots BEGIN
-            SELECT RAISE(ABORT, 'KPI snapshots are append-only');
-        END;
-        """
-    )
-    db.execute(
-        """
-        INSERT OR IGNORE INTO detection_assessments (rule_id)
-        SELECT id FROM rules
+        DROP TRIGGER IF EXISTS kpi_snapshots_no_update;
+        DROP TRIGGER IF EXISTS kpi_snapshots_no_delete;
+        DROP TABLE IF EXISTS kpi_snapshots;
+        DROP TABLE IF EXISTS visibility_overrides;
+        DROP TABLE IF EXISTS telemetry_components;
+        DROP TABLE IF EXISTS telemetry_sources;
+        DROP TABLE IF EXISTS detection_assessments;
+        DROP TABLE IF EXISTS soc_profile_techniques;
+        DROP TABLE IF EXISTS soc_profiles;
         """
     )
     db.commit()
@@ -737,36 +628,6 @@ def _attack_catalog() -> dict[str, Any]:
     }
 
 
-def ensure_default_soc_profile(db: sqlite3.Connection) -> None:
-    catalog = _attack_catalog()
-    if db.execute("SELECT COUNT(*) FROM soc_profiles").fetchone()[0]:
-        if catalog["version"]:
-            db.execute(
-                "UPDATE soc_profiles SET attack_version=? WHERE status='draft' AND (attack_version='' OR attack_version LIKE '3.%')",
-                (catalog["version"],),
-            )
-            db.commit()
-        return
-    cursor = db.execute(
-        """
-        INSERT INTO soc_profiles (name, description, scope, attack_version, is_active)
-        VALUES (?, ?, ?, ?, 1)
-        """,
-        (
-            "Kurumsal ATT&CK Profili",
-            "İlk envanter. Kapsam, ağırlıklar ve gerekçeler onay öncesinde gözden geçirilmelidir.",
-            "Kurum geneli",
-            catalog["version"],
-        ),
-    )
-    profile_id = cursor.lastrowid
-    db.executemany(
-        "INSERT INTO soc_profile_techniques (profile_id, tech_id) VALUES (?, ?)",
-        [(profile_id, tech_id) for tech_id in catalog["techniques"]],
-    )
-    db.commit()
-
-
 def _json_text(value: Any) -> str:
     if value is None:
         return ""
@@ -940,8 +801,7 @@ def init_db() -> None:
         migrate_consolidate_rules(db)
         build_technique_config(db)
         ensure_rule_coverage_level(db)
-        ensure_soc_cmm_schema(db)
-        ensure_default_soc_profile(db)
+        drop_soc_cmm_schema(db)
     finally:
         db.close()
 
@@ -1623,13 +1483,9 @@ def rules():
     if request.method == "GET":
         rows = db.execute("""
             SELECT r.id, r.name, r.tactic, r.tech, r.source, r.coverage_level,
-                   da.lifecycle_status, da.validation_status, da.detection_score,
-                   da.applicable_scope, da.owner, da.validation_method,
-                   da.evidence_ref, da.last_validated_at, da.expires_at,
                    GROUP_CONCAT(rt.tech_id) as techs
             FROM rules r
             LEFT JOIN rule_techniques rt ON rt.rule_id = r.id
-            LEFT JOIN detection_assessments da ON da.rule_id = r.id
             GROUP BY r.id ORDER BY r.id ASC
         """).fetchall()
         result = []
@@ -1662,7 +1518,6 @@ def rules():
     if tech:
         db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
                    (cur.lastrowid, tech))
-    db.execute("INSERT OR IGNORE INTO detection_assessments (rule_id) VALUES (?)", (cur.lastrowid,))
     write_audit_log(
         db,
         action="create",
@@ -1675,11 +1530,7 @@ def rules():
     return jsonify({
         "id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech,
         "source": source, "techniques": [tech] if tech else [],
-        "coverage_level": "full", "lifecycle_status": "active",
-        "validation_status": "untested", "detection_score": 0,
-        "applicable_scope": "Kurum geneli", "owner": "",
-        "validation_method": "", "evidence_ref": "",
-        "last_validated_at": None, "expires_at": None,
+        "coverage_level": "full",
     }), 201
 
 
@@ -1730,7 +1581,6 @@ def rules_bulk():
         ).lastrowid
         db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
                    (row_id, tech))
-        db.execute("INSERT OR IGNORE INTO detection_assessments (rule_id) VALUES (?)", (row_id,))
         inserted += 1
     write_audit_log(
         db,
@@ -1779,7 +1629,6 @@ def delete_rule(rule_id: int):
         ).fetchall()
     ]
     db.execute("DELETE FROM rule_techniques WHERE rule_id = ?", (rule_id,))
-    db.execute("DELETE FROM detection_assessments WHERE rule_id = ?", (rule_id,))
     db.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
     before = dict(row)
     before["techniques"] = techniques
@@ -2560,7 +2409,6 @@ def _run_qradar_sync(db: sqlite3.Connection, connector: sqlite3.Row) -> dict[str
                     "INSERT INTO rules (name,tactic,tech,source,coverage_level) VALUES (?,?,?,?,?)",
                     (detection["name"], tactic, first_tech, connector["product_name"], "low"),
                 ).lastrowid
-                db.execute("INSERT INTO detection_assessments (rule_id) VALUES (?)", (rule_id,))
                 db.executemany(
                     "INSERT OR IGNORE INTO rule_techniques (rule_id,tech_id) VALUES (?,?)",
                     [(rule_id, tech_id) for tech_id in detection["techniques"]],
@@ -3496,646 +3344,6 @@ def get_technique_config():
 
 
 _LEVEL_TO_FLOAT = {1: 0.30, 2: 0.48, 3: 0.65, 4: 0.82, 5: 1.00}
-
-KPI_FORMULA_VERSION = "soc-cmm-1.0"
-QUALITY_FIELDS = (
-    "device_completeness", "field_completeness", "timeliness",
-    "consistency", "retention",
-)
-
-
-def _iso_date_has_expired(value: str | None) -> bool:
-    if not value:
-        return False
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).date() < datetime.now(timezone.utc).date()
-    except ValueError:
-        return True
-
-
-def _profile_row(db: sqlite3.Connection, profile_id: int | None = None) -> sqlite3.Row | None:
-    if profile_id is not None:
-        return db.execute("SELECT * FROM soc_profiles WHERE id=?", (profile_id,)).fetchone()
-    return db.execute(
-        "SELECT * FROM soc_profiles ORDER BY is_active DESC, id DESC LIMIT 1"
-    ).fetchone()
-
-
-def _compute_soc_kpis(db: sqlite3.Connection, profile_id: int | None = None) -> dict[str, Any]:
-    profile = _profile_row(db, profile_id)
-    if not profile:
-        raise ValueError("SOC-CMM profile not found")
-    catalog = _attack_catalog()
-    profile_rows = db.execute(
-        """
-        SELECT tech_id, weight, rationale FROM soc_profile_techniques
-        WHERE profile_id=? AND included=1 ORDER BY tech_id
-        """,
-        (profile["id"],),
-    ).fetchall()
-    profile_techniques = {row["tech_id"]: dict(row) for row in profile_rows}
-
-    detection_rows = db.execute(
-        """
-        SELECT rt.tech_id, r.id AS rule_id, r.name, da.lifecycle_status,
-               da.validation_status, da.detection_score, da.owner,
-               da.validation_method, da.evidence_ref, da.last_validated_at,
-               da.expires_at, da.applicable_scope
-        FROM rule_techniques rt
-        JOIN rules r ON r.id=rt.rule_id
-        LEFT JOIN detection_assessments da ON da.rule_id=r.id
-        WHERE rt.tech_id IN (
-            SELECT tech_id FROM soc_profile_techniques WHERE profile_id=? AND included=1
-        )
-        """,
-        (profile["id"],),
-    ).fetchall()
-    detections_by_tech: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in detection_rows:
-        item = dict(row)
-        if item.get("validation_status") == "validated" and _iso_date_has_expired(item.get("expires_at")):
-            item["validation_status"] = "expired"
-        detections_by_tech[row["tech_id"]].append(item)
-
-    source_rows = db.execute(
-        """
-        SELECT ts.*, tc.component_id FROM telemetry_sources ts
-        JOIN telemetry_components tc ON tc.source_id=ts.id
-        WHERE ts.active=1 AND ts.analytics_ready=1
-        """
-    ).fetchall()
-    component_scores: dict[str, float] = {}
-    component_sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in source_rows:
-        if profile["scope"].casefold() != "kurum geneli" and row["scope"].casefold() not in {"kurum geneli", profile["scope"].casefold()}:
-            continue
-        quality = sum(int(row[field]) for field in QUALITY_FIELDS) / (len(QUALITY_FIELDS) * 5)
-        score = round(quality * 4, 2)
-        component_scores[row["component_id"]] = max(component_scores.get(row["component_id"], 0), score)
-        component_sources[row["component_id"]].append({
-            "id": row["id"], "name": row["name"], "score": score,
-            "scope": row["scope"], "last_event_at": row["last_event_at"],
-        })
-    overrides = {
-        row["tech_id"]: dict(row)
-        for row in db.execute(
-            "SELECT tech_id, score, reason, approved_by, updated_at FROM visibility_overrides WHERE profile_id=?",
-            (profile["id"],),
-        ).fetchall()
-    }
-
-    details: list[dict[str, Any]] = []
-    mapped_count = validated_count = visible_count = 0
-    detection_weighted_sum = visibility_weighted_sum = total_weight = 0.0
-    for tech_id, profile_item in profile_techniques.items():
-        tech = catalog["techniques"].get(tech_id, {"id": tech_id, "name": "Unknown technique", "tactics": []})
-        detections = detections_by_tech.get(tech_id, [])
-        active = [
-            item for item in detections
-            if item.get("lifecycle_status", "active") == "active"
-            and (
-                profile["scope"].casefold() == "kurum geneli"
-                or str(item.get("applicable_scope") or "Kurum geneli").casefold() in {"kurum geneli", profile["scope"].casefold()}
-            )
-        ]
-        validated = [
-            item for item in active
-            if item.get("validation_status") == "validated" and int(item.get("detection_score") or 0) >= 1
-        ]
-        detection_score = max((int(item.get("detection_score") or 0) for item in validated), default=0)
-        mapped = bool(active)
-        is_validated = bool(validated)
-        mapped_count += int(mapped)
-        validated_count += int(is_validated)
-
-        required_components = catalog["tech_components"].get(tech_id, [])
-        available_scores = [component_scores.get(component_id, 0) for component_id in required_components]
-        derived_visibility = round(sum(available_scores) / len(available_scores), 2) if available_scores else 0.0
-        override = overrides.get(tech_id)
-        visibility_score = float(override["score"]) if override else derived_visibility
-        visible = visibility_score >= 2
-        visible_count += int(visible)
-        weight = int(profile_item["weight"])
-        total_weight += weight
-        detection_weighted_sum += weight * (detection_score / 5)
-        visibility_weighted_sum += weight * (visibility_score / 4)
-        if is_validated and visible:
-            gap_state = "controlled"
-        elif visible:
-            gap_state = "detection_gap"
-        elif is_validated:
-            gap_state = "visibility_risk"
-        else:
-            gap_state = "blind_spot"
-        details.append({
-            "tech_id": tech_id,
-            "name": tech.get("name", ""),
-            "tactics": tech.get("tactics", []),
-            "platforms": tech.get("platforms", []),
-            "weight": weight,
-            "rationale": profile_item["rationale"],
-            "mapped": mapped,
-            "validated": is_validated,
-            "detection_score": detection_score,
-            "detection_count": len(active),
-            "validated_detection_count": len(validated),
-            "visibility_score": round(visibility_score, 2),
-            "visibility_source": "override" if override else "derived",
-            "visibility_reason": override["reason"] if override else "",
-            "required_components": required_components,
-            "available_components": [component_id for component_id in required_components if component_scores.get(component_id, 0) > 0],
-            "gap_state": gap_state,
-        })
-
-    denominator = len(details)
-    pct = lambda count: round(count / denominator * 100, 1) if denominator else 0.0
-    metrics = {
-        "mapped_coverage": pct(mapped_count),
-        "validated_coverage": pct(validated_count),
-        "weighted_detection": round(detection_weighted_sum / total_weight * 100, 1) if total_weight else 0.0,
-        "visibility": round(visibility_weighted_sum / total_weight * 100, 1) if total_weight else 0.0,
-        "visible_threshold_coverage": pct(visible_count),
-        "mapped_techniques": mapped_count,
-        "validated_techniques": validated_count,
-        "visible_techniques": visible_count,
-        "denominator": denominator,
-    }
-    snapshots = [
-        dict(row) for row in db.execute(
-            """
-            SELECT id, mapped_coverage, validated_coverage, weighted_detection,
-                   visibility, visible_threshold_coverage, profile_version,
-                   formula_version, created_by, created_at
-            FROM kpi_snapshots WHERE profile_id=? ORDER BY created_at ASC, id ASC LIMIT 60
-            """,
-            (profile["id"],),
-        ).fetchall()
-    ]
-    return {
-        "profile": dict(profile), "formula_version": KPI_FORMULA_VERSION,
-        "metrics": metrics, "techniques": details, "snapshots": snapshots,
-        "catalog": {"technique_count": len(catalog["techniques"]), "component_count": len(catalog["components"]), "attack_spec_version": catalog["version"]},
-    }
-
-
-@app.route("/api/soc-profiles", methods=["GET", "POST"])
-@role_required_methods({"GET": "viewer", "POST": "admin"})
-def soc_profiles_api():
-    db = get_db()
-    if request.method == "GET":
-        rows = db.execute(
-            """
-            SELECT p.*, COUNT(CASE WHEN pt.included=1 THEN 1 END) AS technique_count
-            FROM soc_profiles p LEFT JOIN soc_profile_techniques pt ON pt.profile_id=p.id
-            GROUP BY p.id ORDER BY p.is_active DESC, p.id DESC
-            """
-        ).fetchall()
-        return jsonify([dict(row) for row in rows])
-    payload = request.get_json(silent=True) or {}
-    name = str(payload.get("name", "")).strip()
-    if not name:
-        return jsonify({"error": "Profile name is required"}), 400
-    catalog = _attack_catalog()
-    cursor = db.execute(
-        "INSERT INTO soc_profiles (name, description, scope, attack_version) VALUES (?, ?, ?, ?)",
-        (name, str(payload.get("description", "")).strip(), str(payload.get("scope", "Kurum geneli")).strip(), catalog["version"]),
-    )
-    profile_id = cursor.lastrowid
-    db.executemany(
-        "INSERT INTO soc_profile_techniques (profile_id, tech_id) VALUES (?, ?)",
-        [(profile_id, tech_id) for tech_id in catalog["techniques"]],
-    )
-    write_audit_log(db, "create", "soc_profile", str(profile_id), f"name={name}", after=payload)
-    db.commit()
-    return jsonify({"id": profile_id}), 201
-
-
-@app.route("/api/soc-profiles/<int:profile_id>", methods=["GET", "PUT"])
-@role_required_methods({"GET": "viewer", "PUT": "admin"})
-def soc_profile_api(profile_id: int):
-    db = get_db()
-    profile = _profile_row(db, profile_id)
-    if not profile:
-        return jsonify({"error": "Profile not found"}), 404
-    if request.method == "GET":
-        catalog = _attack_catalog()
-        rows = db.execute(
-            "SELECT tech_id, included, weight, rationale FROM soc_profile_techniques WHERE profile_id=?",
-            (profile_id,),
-        ).fetchall()
-        techniques = []
-        for row in rows:
-            item = dict(row)
-            item.update(catalog["techniques"].get(row["tech_id"], {"name": "Unknown technique", "tactics": [], "platforms": []}))
-            techniques.append(item)
-        return jsonify({"profile": dict(profile), "techniques": techniques})
-    payload = request.get_json(silent=True) or {}
-    before = dict(profile)
-    name = str(payload.get("name", profile["name"])).strip()
-    scope = str(payload.get("scope", profile["scope"])).strip()
-    description = str(payload.get("description", profile["description"])).strip()
-    if not name or not scope:
-        return jsonify({"error": "Name and scope are required"}), 400
-    make_active = bool(payload.get("is_active", profile["is_active"]))
-    if make_active:
-        db.execute("UPDATE soc_profiles SET is_active=0")
-    db.execute(
-        """
-        UPDATE soc_profiles SET name=?, description=?, scope=?, is_active=?,
-        status='draft', approved_by='', approved_at=NULL, version=version+1,
-        updated_at=CURRENT_TIMESTAMP WHERE id=?
-        """,
-        (name, description, scope, int(make_active), profile_id),
-    )
-    after = dict(_profile_row(db, profile_id))
-    write_audit_log(db, "update", "soc_profile", str(profile_id), "Profile metadata changed; approval reset", before=before, after=after)
-    db.commit()
-    return jsonify(after)
-
-
-@app.route("/api/soc-profiles/<int:profile_id>/techniques", methods=["PUT"])
-@role_required("admin")
-def soc_profile_techniques_api(profile_id: int):
-    db = get_db()
-    profile = _profile_row(db, profile_id)
-    if not profile:
-        return jsonify({"error": "Profile not found"}), 404
-    payload = request.get_json(silent=True) or {}
-    items = payload.get("techniques", [])
-    if not isinstance(items, list) or not items:
-        return jsonify({"error": "techniques must be a non-empty list"}), 400
-    valid_ids = set(_attack_catalog()["techniques"])
-    changed = 0
-    for item in items:
-        tech_id = str(item.get("tech_id", "")).upper()
-        if tech_id not in valid_ids:
-            return jsonify({"error": f"Unknown technique: {tech_id}"}), 400
-        weight = max(1, min(5, int(item.get("weight", 3))))
-        db.execute(
-            """
-            INSERT INTO soc_profile_techniques (profile_id, tech_id, included, weight, rationale)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(profile_id, tech_id) DO UPDATE SET
-                included=excluded.included, weight=excluded.weight, rationale=excluded.rationale
-            """,
-            (profile_id, tech_id, int(bool(item.get("included", True))), weight, str(item.get("rationale", "")).strip()),
-        )
-        changed += 1
-    db.execute(
-        "UPDATE soc_profiles SET status='draft', approved_by='', approved_at=NULL, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        (profile_id,),
-    )
-    write_audit_log(db, "update", "soc_profile_techniques", str(profile_id), f"changed={changed};approval reset", after=items)
-    db.commit()
-    return jsonify({"ok": True, "changed": changed})
-
-
-@app.route("/api/soc-profiles/<int:profile_id>/approve", methods=["POST"])
-@role_required("admin")
-def approve_soc_profile_api(profile_id: int):
-    db = get_db()
-    profile = _profile_row(db, profile_id)
-    if not profile:
-        return jsonify({"error": "Profile not found"}), 404
-    included = db.execute(
-        "SELECT COUNT(*) FROM soc_profile_techniques WHERE profile_id=? AND included=1", (profile_id,)
-    ).fetchone()[0]
-    if not included:
-        return jsonify({"error": "Profile must include at least one technique"}), 409
-    if not profile["description"].strip() or not profile["scope"].strip():
-        return jsonify({"error": "Profile scope and decision description are required for approval"}), 409
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    db.execute(
-        "UPDATE soc_profiles SET status='approved', approved_by=?, approved_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        (g.current_user["username"], now, profile_id),
-    )
-    write_audit_log(db, "approve", "soc_profile", str(profile_id), f"included={included};version={profile['version']}", before=dict(profile), after=dict(_profile_row(db, profile_id)))
-    db.commit()
-    return jsonify(dict(_profile_row(db, profile_id)))
-
-
-@app.route("/api/detection-assessments", methods=["GET"])
-@role_required("viewer")
-def detection_assessments_api():
-    db = get_db()
-    rows = db.execute(
-        """
-        SELECT r.id AS rule_id, r.name, r.source, GROUP_CONCAT(rt.tech_id) AS tech_ids,
-               da.lifecycle_status, da.validation_status, da.detection_score,
-               da.applicable_scope, da.owner, da.validation_method, da.evidence_ref,
-               da.data_dependencies, da.last_validated_at, da.expires_at, da.updated_at
-        FROM rules r LEFT JOIN rule_techniques rt ON rt.rule_id=r.id
-        LEFT JOIN detection_assessments da ON da.rule_id=r.id
-        GROUP BY r.id ORDER BY r.name
-        """
-    ).fetchall()
-    return jsonify([dict(row) for row in rows])
-
-
-@app.route("/api/detection-assessments/<int:rule_id>", methods=["PUT"])
-@role_required("editor")
-def detection_assessment_api(rule_id: int):
-    db = get_db()
-    if not db.execute("SELECT 1 FROM rules WHERE id=?", (rule_id,)).fetchone():
-        return jsonify({"error": "Detection not found"}), 404
-    payload = request.get_json(silent=True) or {}
-    lifecycle = str(payload.get("lifecycle_status", "active"))
-    validation = str(payload.get("validation_status", "untested"))
-    score = int(payload.get("detection_score", 0))
-    if lifecycle not in {"draft", "active", "disabled"} or validation not in {"untested", "validated", "failed", "expired"} or score < -1 or score > 5:
-        return jsonify({"error": "Invalid lifecycle, validation status or score"}), 400
-    method = str(payload.get("validation_method", "")).strip()
-    evidence = str(payload.get("evidence_ref", "")).strip()
-    last_validated = payload.get("last_validated_at") or None
-    if validation == "validated" and (score < 1 or not method or not evidence or not last_validated):
-        return jsonify({"error": "Validated detections require score, method, evidence and validation date"}), 400
-    before_row = db.execute("SELECT * FROM detection_assessments WHERE rule_id=?", (rule_id,)).fetchone()
-    values = (
-        lifecycle, validation, score, str(payload.get("applicable_scope", "Kurum geneli")).strip(),
-        str(payload.get("owner", "")).strip(), method, evidence,
-        str(payload.get("data_dependencies", "")).strip(), last_validated,
-        payload.get("expires_at") or None, g.current_user["username"], rule_id,
-    )
-    db.execute(
-        """
-        INSERT INTO detection_assessments (
-            lifecycle_status, validation_status, detection_score, applicable_scope,
-            owner, validation_method, evidence_ref, data_dependencies,
-            last_validated_at, expires_at, updated_by, rule_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(rule_id) DO UPDATE SET lifecycle_status=excluded.lifecycle_status,
-            validation_status=excluded.validation_status, detection_score=excluded.detection_score,
-            applicable_scope=excluded.applicable_scope, owner=excluded.owner,
-            validation_method=excluded.validation_method, evidence_ref=excluded.evidence_ref,
-            data_dependencies=excluded.data_dependencies, last_validated_at=excluded.last_validated_at,
-            expires_at=excluded.expires_at, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP
-        """,
-        values,
-    )
-    after = dict(db.execute("SELECT * FROM detection_assessments WHERE rule_id=?", (rule_id,)).fetchone())
-    write_audit_log(db, "assess", "detection", str(rule_id), f"validation={validation};score={score}", before=dict(before_row) if before_row else None, after=after)
-    db.commit()
-    return jsonify(after)
-
-
-@app.route("/api/attack-data-components")
-@role_required("viewer")
-def attack_data_components_api():
-    catalog = _attack_catalog()
-    components = sorted(catalog["components"].values(), key=lambda item: item["name"])
-    return jsonify({
-        "attack_spec_version": catalog["version"],
-        "components": components,
-        "technique_components": catalog["tech_components"],
-    })
-
-
-def _telemetry_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    data: dict[str, Any] = {
-        "name": str(payload.get("name", "")).strip(),
-        "producer": str(payload.get("producer", "")).strip(),
-        "destination": str(payload.get("destination", "")).strip(),
-        "scope": str(payload.get("scope", "Kurum geneli")).strip(),
-        "owner": str(payload.get("owner", "")).strip(),
-        "connected_at": payload.get("connected_at") or None,
-        "last_event_at": payload.get("last_event_at") or None,
-        "active": int(bool(payload.get("active", True))),
-        "analytics_ready": int(bool(payload.get("analytics_ready", False))),
-        "notes": str(payload.get("notes", "")).strip(),
-    }
-    for field in QUALITY_FIELDS:
-        data[field] = int(payload.get(field, 0))
-        if data[field] < 0 or data[field] > 5:
-            raise ValueError(f"{field} must be between 0 and 5")
-    components = sorted({str(item).upper().strip() for item in payload.get("components", []) if str(item).strip()})
-    if not data["name"] or not data["scope"]:
-        raise ValueError("Name and scope are required")
-    valid_components = set(_attack_catalog()["components"])
-    unknown = [item for item in components if item not in valid_components]
-    if unknown:
-        raise ValueError(f"Unknown data component: {unknown[0]}")
-    if data["analytics_ready"] and not components:
-        raise ValueError("Analytics-ready telemetry requires at least one data component")
-    return data, components
-
-
-@app.route("/api/telemetry-sources", methods=["GET", "POST"])
-@role_required_methods({"GET": "viewer", "POST": "editor"})
-def telemetry_sources_api():
-    db = get_db()
-    if request.method == "GET":
-        rows = db.execute("SELECT * FROM telemetry_sources ORDER BY name").fetchall()
-        result = []
-        for row in rows:
-            item = dict(row)
-            item["components"] = [
-                component["component_id"] for component in db.execute(
-                    "SELECT component_id FROM telemetry_components WHERE source_id=? ORDER BY component_id", (row["id"],)
-                ).fetchall()
-            ]
-            item["quality_score"] = round(sum(int(item[field]) for field in QUALITY_FIELDS) / (len(QUALITY_FIELDS) * 5) * 100, 1)
-            result.append(item)
-        return jsonify(result)
-    try:
-        data, components = _telemetry_payload(request.get_json(silent=True) or {})
-    except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
-    columns = list(data)
-    cursor = db.execute(
-        f"INSERT INTO telemetry_sources ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
-        [data[column] for column in columns],
-    )
-    source_id = cursor.lastrowid
-    db.executemany(
-        "INSERT INTO telemetry_components (source_id, component_id) VALUES (?, ?)",
-        [(source_id, component_id) for component_id in components],
-    )
-    write_audit_log(db, "create", "telemetry_source", str(source_id), f"components={len(components)}", after={**data, "components": components})
-    db.commit()
-    return jsonify({"id": source_id}), 201
-
-
-@app.route("/api/telemetry-sources/<int:source_id>", methods=["PUT", "DELETE"])
-@role_required("editor")
-def telemetry_source_api(source_id: int):
-    db = get_db()
-    existing = db.execute("SELECT * FROM telemetry_sources WHERE id=?", (source_id,)).fetchone()
-    if not existing:
-        return jsonify({"error": "Telemetry source not found"}), 404
-    before = dict(existing)
-    before["components"] = [row["component_id"] for row in db.execute("SELECT component_id FROM telemetry_components WHERE source_id=?", (source_id,)).fetchall()]
-    if request.method == "DELETE":
-        db.execute("DELETE FROM telemetry_components WHERE source_id=?", (source_id,))
-        db.execute("DELETE FROM telemetry_sources WHERE id=?", (source_id,))
-        write_audit_log(db, "delete", "telemetry_source", str(source_id), before=before)
-        db.commit()
-        return jsonify({"ok": True})
-    merged = {**before, **(request.get_json(silent=True) or {})}
-    try:
-        data, components = _telemetry_payload(merged)
-    except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
-    assignments = ",".join(f"{column}=?" for column in data)
-    db.execute(
-        f"UPDATE telemetry_sources SET {assignments}, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        [data[column] for column in data] + [source_id],
-    )
-    db.execute("DELETE FROM telemetry_components WHERE source_id=?", (source_id,))
-    db.executemany(
-        "INSERT INTO telemetry_components (source_id, component_id) VALUES (?, ?)",
-        [(source_id, component_id) for component_id in components],
-    )
-    after = {**data, "components": components}
-    write_audit_log(db, "update", "telemetry_source", str(source_id), f"components={len(components)}", before=before, after=after)
-    db.commit()
-    return jsonify({"id": source_id})
-
-
-@app.route("/api/soc-profiles/<int:profile_id>/visibility/<tech_id>", methods=["PUT", "DELETE"])
-@role_required("admin")
-def visibility_override_api(profile_id: int, tech_id: str):
-    db = get_db()
-    tech_id = tech_id.upper()
-    if not db.execute("SELECT 1 FROM soc_profile_techniques WHERE profile_id=? AND tech_id=?", (profile_id, tech_id)).fetchone():
-        return jsonify({"error": "Technique is not in the profile"}), 404
-    before_row = db.execute("SELECT * FROM visibility_overrides WHERE profile_id=? AND tech_id=?", (profile_id, tech_id)).fetchone()
-    if request.method == "DELETE":
-        db.execute("DELETE FROM visibility_overrides WHERE profile_id=? AND tech_id=?", (profile_id, tech_id))
-        write_audit_log(db, "delete", "visibility_override", f"{profile_id}:{tech_id}", before=dict(before_row) if before_row else None)
-        db.commit()
-        return jsonify({"ok": True})
-    payload = request.get_json(silent=True) or {}
-    score = int(payload.get("score", -1))
-    reason = str(payload.get("reason", "")).strip()
-    if score < 0 or score > 4 or not reason:
-        return jsonify({"error": "Score 0-4 and an approval reason are required"}), 400
-    db.execute(
-        """
-        INSERT INTO visibility_overrides (profile_id, tech_id, score, reason, approved_by, updated_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(profile_id, tech_id) DO UPDATE SET score=excluded.score,
-            reason=excluded.reason, approved_by=excluded.approved_by, updated_at=CURRENT_TIMESTAMP
-        """,
-        (profile_id, tech_id, score, reason, g.current_user["username"]),
-    )
-    after = dict(db.execute("SELECT * FROM visibility_overrides WHERE profile_id=? AND tech_id=?", (profile_id, tech_id)).fetchone())
-    write_audit_log(db, "override", "visibility", f"{profile_id}:{tech_id}", f"score={score}", before=dict(before_row) if before_row else None, after=after)
-    db.commit()
-    return jsonify(after)
-
-
-@app.route("/api/soc-kpi")
-@role_required("viewer")
-def soc_kpi_api():
-    profile_id = request.args.get("profile_id", type=int)
-    try:
-        return jsonify(_compute_soc_kpis(get_db(), profile_id))
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 404
-
-
-@app.route("/api/soc-kpi/snapshots", methods=["POST"])
-@role_required("admin")
-def soc_kpi_snapshot_api():
-    db = get_db()
-    payload = request.get_json(silent=True) or {}
-    profile_id = payload.get("profile_id")
-    result = _compute_soc_kpis(db, int(profile_id) if profile_id else None)
-    profile = result["profile"]
-    if profile["status"] != "approved":
-        return jsonify({"error": "Only an approved profile can produce an official snapshot"}), 409
-    metrics = result["metrics"]
-    created_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    snapshot_payload = {
-        "profile": profile, "formula_version": KPI_FORMULA_VERSION,
-        "metrics": metrics, "techniques": result["techniques"], "created_at": created_at,
-    }
-    payload_json = json.dumps(snapshot_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
-    numerator = {
-        "mapped": metrics["mapped_techniques"], "validated": metrics["validated_techniques"],
-        "visible": metrics["visible_techniques"],
-    }
-    cursor = db.execute(
-        """
-        INSERT INTO kpi_snapshots (
-            profile_id, profile_version, formula_version, attack_version, scope,
-            mapped_coverage, validated_coverage, weighted_detection, visibility,
-            visible_threshold_coverage, numerator_json, denominator, payload_json,
-            payload_hash, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            profile["id"], profile["version"], KPI_FORMULA_VERSION, profile["attack_version"], profile["scope"],
-            metrics["mapped_coverage"], metrics["validated_coverage"], metrics["weighted_detection"], metrics["visibility"],
-            metrics["visible_threshold_coverage"], json.dumps(numerator), metrics["denominator"], payload_json,
-            payload_hash, g.current_user["username"], created_at,
-        ),
-    )
-    write_audit_log(db, "snapshot", "soc_kpi", str(cursor.lastrowid), f"profile={profile['id']};hash={payload_hash}", after={"metrics": metrics, "payload_hash": payload_hash})
-    db.commit()
-    return jsonify({"id": cursor.lastrowid, "payload_hash": payload_hash, "metrics": metrics}), 201
-
-
-@app.route("/api/soc-kpi/snapshots/<int:snapshot_id>")
-@role_required("viewer")
-def soc_kpi_snapshot_detail_api(snapshot_id: int):
-    row = get_db().execute("SELECT * FROM kpi_snapshots WHERE id=?", (snapshot_id,)).fetchone()
-    if not row:
-        return jsonify({"error": "Snapshot not found"}), 404
-    item = dict(row)
-    calculated_hash = hashlib.sha256(item["payload_json"].encode("utf-8")).hexdigest()
-    item["integrity"] = {"valid": calculated_hash == item["payload_hash"], "calculated_hash": calculated_hash}
-    item["payload"] = json.loads(item.pop("payload_json"))
-    item["numerator"] = json.loads(item.pop("numerator_json"))
-    return jsonify(item)
-
-
-@app.route("/api/soc-kpi/layer")
-@role_required("viewer")
-def soc_kpi_layer_api():
-    mode = request.args.get("mode", "combined")
-    if mode not in {"combined", "detection", "visibility"}:
-        return jsonify({"error": "mode must be combined, detection or visibility"}), 400
-    profile_id = request.args.get("profile_id", type=int)
-    result = _compute_soc_kpis(get_db(), profile_id)
-    techniques = []
-    colors = {
-        "controlled": "#376b18", "detection_gap": "#9a5b00",
-        "visibility_risk": "#a4262c", "blind_spot": "#3b3a39",
-    }
-    for item in result["techniques"]:
-        if mode == "detection":
-            score = item["detection_score"] * 20
-            color = ""
-        elif mode == "visibility":
-            score = item["visibility_score"] * 25
-            color = ""
-        else:
-            score = round((item["detection_score"] / 5 + item["visibility_score"] / 4) * 50, 1)
-            color = colors[item["gap_state"]]
-        technique = {
-            "techniqueID": item["tech_id"], "score": score,
-            "comment": f"Detection {item['detection_score']}/5; Visibility {item['visibility_score']}/4; {item['gap_state']}",
-            "enabled": True,
-        }
-        if color:
-            technique["color"] = color
-        techniques.append(technique)
-    layer = {
-        "name": f"{result['profile']['name']} - {mode}",
-        "versions": {"navigator": "5.1.0", "layer": "4.5"},
-        "domain": "enterprise-attack",
-        "description": f"SOC-CMM {mode} KPI; formula {KPI_FORMULA_VERSION}; profile v{result['profile']['version']}",
-        "techniques": techniques,
-        "gradient": {"colors": ["#3b3a39", "#9a5b00", "#107c10"], "minValue": 0, "maxValue": 100},
-        "metadata": [
-            {"name": "profile_id", "value": str(result["profile"]["id"])},
-            {"name": "formula_version", "value": KPI_FORMULA_VERSION},
-            {"name": "attack_version", "value": result["profile"]["attack_version"]},
-        ],
-    }
-    return jsonify(layer)
 
 
 @app.route("/api/technique-config/<tech_id>", methods=["PUT"])

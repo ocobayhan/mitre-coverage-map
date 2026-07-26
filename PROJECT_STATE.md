@@ -77,31 +77,30 @@ GAP analizi artık üç farklı metriği ayırıyor:
 - Matrix, Veri Kalitesi ve Audit ekranlarının masaüstü/mobil yüklenmesi
 - Tarayıcı konsolunda sıfır severe hata
 
-## SOC-CMM KPI Durumu
+## Sadeleştirme — SOC-CMM Sökümü (2026-07-26, Faz 1)
 
-2026-07-19 itibarıyla ürün iki resmi KPI hattını ayrı hesaplar:
+Ürün 12 nav ekranına ulaşmış, her ekran kendi doğrusunu anlatır hale gelmişti. SOC-CMM olgunluk/kanıt katmanı zorunlu validasyon alanları yüzünden `validated coverage %0` gösteriyor, araç "bozuk" hissettiriyordu. Ürünün tek bir soruya odaklanması kararı alındı:
 
-- ATT&CK 18.1 tabanlı, sürümlü ve onaylanabilir kurum profili
-- Mapped, validated ve risk ağırlıklı detection coverage
-- ATT&CK Data Components ve beş DeTT&CT kalite boyutundan türetilen visibility
-- Detection / visibility / birleşik GAP heatmap modları
-- Mevcut taktik sütunlu ATT&CK Matrix ile SOC-CMM KPI verisinin tek kart ve teknik detay akışında birleşimi
-- Detection yaşam döngüsü, 0-5 skor, test yöntemi, kanıt, sahip ve geçerlilik takibi
-- Telemetri kaynağı, kapsam, hedef platform, 0-5 kalite ve son veri takibi
-- Formül sürümlü, hash'li ve append-only KPI snapshot'ları
-- Snapshot trend görünümü ve ATT&CK Navigator Layer JSON export
-- Profil, değerlendirme, override, telemetri ve snapshot işlemlerinin tam audit kaydı
+> **"Hangi ortamda, hangi ATT&CK tekniğini görebiliyoruz; nerede körüz?"**
 
-Gerçek veri migrasyonu sonrasında taslak profil 691 ATT&CK tekniği içerir. 438 detection `active / untested` olarak envantere alınmıştır. Bu nedenle başlangıç KPI'ları mapped coverage `%15,6`, validated detection coverage `%0` ve visibility `%0` değerindedir. Bu sıfır değerler eksik kanıt ve telemetri envanterini açıkça gösterir; sistem kanıtsız coverage üretmez.
+Kaldırılanlar (7 tablo, 14 endpoint, ~780 satır backend + ~600 satır frontend):
+
+- `soc_profiles`, `soc_profile_techniques`, `detection_assessments`, `telemetry_sources`, `telemetry_components`, `visibility_overrides`, `kpi_snapshots`
+- SOC-CMM KPI çalışma alanı, profil onay/snapshot akışı, telemetri envanteri, visibility override
+- Matrix'in 4 görünüm modu → tek operasyonel görünüm
+
+**Veri kaybı olmadı:** söküm öncesi canlı `soc.db` sorgulandı — `telemetry_sources` / `visibility_overrides` / `kpi_snapshots` tamamen boştu; `detection_assessments`'ın 438 satırının hepsi `untested`, sıfır kanıt / sıfır sahip / sıfır skordu (kural eklendikçe otomatik açılan boş kayıtlar). Söküm öncesi `scripts/backup_db.py` ile doğrulanmış yedek alındı.
+
+`drop_soc_cmm_schema()` idempotent temizlik migration'ı mevcut kurulumlardaki tabloları ve `kpi_snapshots` append-only trigger'larını düşürür; tüm kurulumlar bir kez çalıştırdıktan sonra silinebilir.
 
 ## Sonraki Öncelikler
 
-1. Kapsam Envanteri'nde gerçek ortam/varlık gruplarının ve ürün izleme anketlerinin doldurulması
-2. QRadar connector'ın kurum test instance'ında read-only SEC token ile kabul testi
-3. Connector tespitlerinin bağlı varlık grubuna uygulanabilirliğini belirleyen scope doğrulama akışı
-4. Kalan 5 tespitin analist tarafından MITRE tekniklerine bağlanması
-5. Kurumsal ATT&CK profil kapsamının risk ekipleriyle gözden geçirilip onaylanması
-6. İlk 25 detection için kanıt ve kontrollü doğrulama kampanyası
+1. **Faz 2 — Ortam bazlı kapsama:** `products.category` (tespit kaynağı / önleyici kontrol / zenginleştirme) + Ortam > Varlık Grubu boyutunun matrise bağlanması. Kural: bir teknik bir varlık grubunda kapsanır ⟺ o tekniğe bağlı bir tespit var VE tespitin ürünü o grubu izliyor.
+2. **Faz 3 — Ekran birleştirme:** 12 → 4 (Harita / Envanter / Boşluklar / Ayarlar). `infoPanel` tek başına `index.html`'in yarısı, ayrı route'a taşınacak.
+3. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
+4. Kapsam Envanteri'nde gerçek ortam/varlık gruplarının doldurulması (tablolar şu an boş)
+5. QRadar connector'ın kurum test instance'ında kabul testi (kullanıcı yürütecek)
+6. Kalan 5 tespitin analist tarafından MITRE tekniklerine bağlanması
 7. Kurumsal SSO/OIDC ve merkezi kullanıcı yaşam döngüsü
 8. PostgreSQL geçişi ve çoklu uygulama instance desteği
 9. CI pipeline ve test veritabanıyla otomatik release kontrolü

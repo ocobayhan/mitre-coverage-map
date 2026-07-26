@@ -40,53 +40,15 @@ def main():
         result["metrics"]["tactic_columns"] = len(
             driver.find_elements(By.CLASS_NAME, "tactic-column")
         )
-        driver.find_element(By.CSS_SELECTOR, '[data-matrix-mode="detection"]').click()
-        wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#matrix .matrix-soc-metrics")) > 100)
-        result["metrics"]["matrix_detection_badges"] = len(driver.find_elements(By.CSS_SELECTOR, "#matrix .matrix-soc-metrics"))
-        driver.find_element(By.CSS_SELECTOR, '[data-matrix-mode="combined"]').click()
-        wait.until(lambda browser: "active" in browser.find_element(By.CSS_SELECTOR, '[data-matrix-mode="combined"]').get_attribute("class"))
-        matrix_path = output_dir / "mitre-unified-matrix-desktop.png"
+        matrix_path = output_dir / "mitre-matrix-desktop.png"
         driver.save_screenshot(str(matrix_path))
-        result["screenshots"]["unified_matrix_desktop"] = str(matrix_path)
-        first_detail = driver.find_element(By.CSS_SELECTOR, "#matrix .technique-card .detail-btn")
-        first_detail.click()
-        wait.until(conditions.visibility_of_element_located((By.CSS_SELECTOR, ".modal-soc-summary")))
-        result["metrics"]["matrix_modal_soc_summary"] = len(driver.find_elements(By.CSS_SELECTOR, ".modal-soc-summary"))
-        driver.find_element(By.CSS_SELECTOR, ".modal-soc-open").click()
-        wait.until(conditions.visibility_of_element_located((By.ID, "socDrawer")))
-        result["metrics"]["matrix_to_governance"] = driver.find_element(By.ID, "socKpiPanel").get_attribute("class")
-        driver.find_element(By.ID, "socDrawerClose").click()
+        result["screenshots"]["matrix_desktop"] = str(matrix_path)
 
-        driver.find_element(By.CSS_SELECTOR, '[data-target="socKpiPanel"]').click()
-        wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#socKpiCards .soc-kpi-card")) == 5)
-        wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#socHeatmap .soc-tech-cell")) == 30)
-        soc_path = output_dir / "mitre-soc-cmm-desktop.png"
-        driver.save_screenshot(str(soc_path))
-        result["screenshots"]["soc_cmm_desktop"] = str(soc_path)
-        result["metrics"]["soc_kpi_cards"] = len(driver.find_elements(By.CSS_SELECTOR, "#socKpiCards .soc-kpi-card"))
-        result["metrics"]["soc_priority_gap_cells"] = len(driver.find_elements(By.CSS_SELECTOR, "#socHeatmap .soc-tech-cell"))
-        result["metrics"]["soc_profile_status"] = driver.find_element(By.ID, "socProfileStatus").text
-
-        driver.find_element(By.CSS_SELECTOR, '[data-soc-tab="profile"]').click()
-        wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#socProfileBody tr")) > 100)
-        result["metrics"]["soc_profile_rows"] = len(driver.find_elements(By.CSS_SELECTOR, "#socProfileBody tr"))
-        driver.find_element(By.CSS_SELECTOR, '[data-soc-tab="telemetry"]').click()
-        driver.find_element(By.ID, "socNewTelemetry").click()
-        wait.until(conditions.visibility_of_element_located((By.ID, "socDrawer")))
-        result["metrics"]["soc_component_options"] = len(driver.find_elements(By.CSS_SELECTOR, ".soc-component-option"))
-        driver.find_element(By.ID, "socDrawerClose").click()
-        driver.find_element(By.CSS_SELECTOR, '[data-soc-tab="detections"]').click()
-        wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#socDetectionBody tr")) > 100)
-        result["metrics"]["soc_detection_rows"] = len(driver.find_elements(By.CSS_SELECTOR, "#socDetectionBody tr"))
-        driver.find_element(By.CSS_SELECTOR, '[data-soc-tab="dashboard"]').click()
-
-        driver.set_window_size(390, 844)
-        soc_mobile_path = output_dir / "mitre-soc-cmm-mobile.png"
-        driver.save_screenshot(str(soc_mobile_path))
-        result["screenshots"]["soc_cmm_mobile"] = str(soc_mobile_path)
-        result["metrics"]["soc_mobile_document_width"] = driver.execute_script("return document.documentElement.scrollWidth")
-        result["metrics"]["soc_mobile_viewport_width"] = driver.execute_script("return document.documentElement.clientWidth")
-        driver.set_window_size(1440, 1000)
+        # Teknik detay modali: Mitigations + Tespitler sekmeleri
+        driver.find_element(By.CSS_SELECTOR, "#matrix .technique-card .detail-btn").click()
+        wait.until(conditions.visibility_of_element_located((By.ID, "modalBody")))
+        result["metrics"]["modal_tabs"] = len(driver.find_elements(By.CSS_SELECTOR, "#ruleModal .tab-btn"))
+        driver.find_element(By.ID, "modalClose").click()
 
         driver.find_element(By.CSS_SELECTOR, '[data-target="scopePanel"]').click()
         wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#scopeSummary .ops-stat")) == 4)

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=100" />
+  <link rel="stylesheet" href="/static/styles.css?v=101" />
 </head>
 <body>
   <div class="ms-shell">
@@ -54,13 +54,6 @@
             <rect x="11" y="11" width="6" height="6" rx="1" fill="currentColor"/>
           </svg>
           <span class="nav-label">Matrix</span>
-        </button>
-        <button class="nav-item" data-target="socKpiPanel" id="socKpiNavItem">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <path d="M3 16V9M8 16V5M13 16v-4M17 16V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M2.5 16.5h15" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-          </svg>
-          <span class="nav-label">SOC-CMM KPI</span>
         </button>
         <button class="nav-item" data-target="scopePanel" id="scopeNavItem">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -170,15 +163,6 @@
                 <button class="action-btn btn-add" id="btnExportLayer" title="MITRE Layer JSON">Layer JSON</button>
               </div>
             </div>
-          </div>
-          <div class="matrix-mode-bar">
-            <div class="soc-segmented" id="matrixCoverageMode" aria-label="Matrix görünüm modu">
-              <button class="active" data-matrix-mode="operational">Operasyonel</button>
-              <button data-matrix-mode="detection">Validated Detection</button>
-              <button data-matrix-mode="visibility">Data Visibility</button>
-              <button data-matrix-mode="combined">Birleşik GAP</button>
-            </div>
-            <div class="matrix-mode-context" id="matrixModeContext">Tüm ATT&amp;CK kataloğu</div>
           </div>
           <div class="filter-bar">
             <div class="filter-group">
@@ -336,13 +320,7 @@
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l1.8 3.6 4 .6-2.9 2.8.7 4L8 10.5l-3.6 2 .7-4L2.2 5.7l4-.6L8 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
                 Önem &amp; Ekipler
               </button>
-              <div class="wiki-nav-title wiki-nav-section-title">SOC-CMM</div>
-              <button class="wiki-nav-item" data-wiki="w-soc-kpi">KPI Sözlüğü</button>
-              <button class="wiki-nav-item" data-wiki="w-soc-matrix">Matrix Modları</button>
-              <button class="wiki-nav-item" data-wiki="w-soc-profile">Profil &amp; Snapshot</button>
-              <button class="wiki-nav-item" data-wiki="w-soc-detection">Detection Kanıtı</button>
-              <button class="wiki-nav-item" data-wiki="w-soc-visibility">Data Visibility</button>
-              <button class="wiki-nav-item" data-wiki="w-soc-audit">Audit &amp; Veri Kalitesi</button>
+              <button class="wiki-nav-item" data-wiki="w-audit">Audit &amp; Veri Kalitesi</button>
               <button class="wiki-nav-item" data-wiki="w-scope-registry">Kapsam Envanteri</button>
               <button class="wiki-nav-item" data-wiki="w-qradar-connector">QRadar Connector</button>
             </nav>
@@ -563,7 +541,7 @@
               <div class="wiki-page" id="w-scoring">
                 <h1 class="wiki-page-title">Puanlama Sistemi</h1>
                 <p class="wiki-page-lead">Her teknik için 0–1 arasında bir skor hesaplanır. Bu skor kart rengini ve "kritik boşluk" etiketini belirler.</p>
-                <div class="wiki-warning"><strong>Bu puan operasyonel olgunluk göstergesidir.</strong> SOC-CMM Validated Detection veya Data Visibility KPI sonucu olarak kullanılmaz. Resmi tanımlar için KPI Sözlüğü bölümüne bakın.</div>
+                <div class="wiki-warning"><strong>Bu puan operasyonel olgunluk göstergesidir.</strong> Tespit sayısı, mitigation kapsamı ve ürün çeşitliliğinden türetilir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.</div>
 
                 <div class="wiki-section">
                   <h2 class="wiki-h2">Formül</h2>
@@ -1058,156 +1036,8 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
                 </div>
               </div>
 
-              <!-- SOC-CMM KPI Sözlüğü -->
-              <div class="wiki-page" id="w-soc-kpi">
-                <h1 class="wiki-page-title">SOC-CMM KPI Sözlüğü</h1>
-                <p class="wiki-page-lead">Uygulama iki resmi L2 metriği ayrı hesaplar. Operasyonel kapsama puanı bu KPI'ların yerine geçmez.</p>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">MITRE ATT&amp;CK Coverage</h2>
-                  <div class="wiki-formula">Doğrulanmış Coverage (%) = Doğrulanmış teknik sayısı / Profildeki teknik sayısı × 100</div>
-                  <div class="wiki-info-box">
-                    <p>Bir teknik ancak aktif bir detection kaydı varsa, doğrulama durumu <strong>Validated</strong> ise, puanı en az 1 ise ve doğrulaması sona ermemişse paya dahil olur. <strong>Mapped Coverage</strong> yalnızca eşleştirme varlığını gösterir; resmi doğrulanmış coverage değildir.</p>
-                  </div>
-                </div>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">MITRE ATT&amp;CK Visibility</h2>
-                  <div class="wiki-formula">Visibility (%) = Görünür teknik sayısı / Profildeki teknik sayısı × 100</div>
-                  <div class="wiki-info-box">
-                    <p>Teknik görünürlük skoru 0–4 arasındadır. Skoru <strong>2 veya üzeri</strong> olan teknik görünür kabul edilir. Sonuç; telemetry kaynakları, ATT&amp;CK data component eşleşmeleri, kalite puanları ve varsa yetkili override üzerinden üretilir.</p>
-                  </div>
-                </div>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Sonuç Nasıl Okunur?</h2>
-                  <table class="wiki-table">
-                    <thead><tr><th>Gösterge</th><th>Anlamı</th><th>KPI Durumu</th></tr></thead>
-                    <tbody>
-                      <tr><td>Mapped Coverage</td><td>Tekniğe en az bir aktif kural eşlenmiş</td><td>Hazırlık göstergesi</td></tr>
-                      <tr><td>Validated Coverage</td><td>Kanıtlı ve süresi geçmemiş detection mevcut</td><td>Resmi coverage KPI</td></tr>
-                      <tr><td>Data Visibility</td><td>Gerekli verinin yeterli kaliteyle mevcut olma potansiyeli</td><td>Resmi visibility KPI</td></tr>
-                      <tr><td>Weighted Coverage</td><td>Profil ağırlıklarıyla önceliklendirilmiş doğrulanmış sonuç</td><td>Yönetim göstergesi</td></tr>
-                    </tbody>
-                  </table>
-                  <div class="wiki-warning"><strong>Sıfır sonuç hata değildir.</strong> Kural eşleştirmesi olsa bile doğrulama kanıtı veya telemetry envanteri yoksa resmi KPI doğru biçimde sıfır görünür.</div>
-                </div>
-              </div>
-
-              <!-- Matrix Modları -->
-              <div class="wiki-page" id="w-soc-matrix">
-                <h1 class="wiki-page-title">Matrix Modları</h1>
-                <p class="wiki-page-lead">Aynı ATT&amp;CK matrisi dört ayrı karar görünümü sunar. Üstteki mod seçici bütün kartların anlamını ve lejandı değiştirir.</p>
-
-                <div class="wiki-section">
-                  <table class="wiki-table">
-                    <thead><tr><th>Mod</th><th>Ne Gösterir?</th><th>Ne İçin Kullanılır?</th></tr></thead>
-                    <tbody>
-                      <tr><td><strong>Operasyonel</strong></td><td>Kural, mitigation ve ürün çeşitliliğinden oluşan mevcut olgunluk puanı</td><td>Günlük iyileştirme ve içerik yoğunluğu</td></tr>
-                      <tr><td><strong>Validated Detection</strong></td><td>Kanıtla doğrulanmış detection durumu ve puanı</td><td>SOC-CMM coverage KPI</td></tr>
-                      <tr><td><strong>Data Visibility</strong></td><td>Telemetry ve data component kaynaklı görünürlük</td><td>SOC-CMM visibility KPI</td></tr>
-                      <tr><td><strong>Combined</strong></td><td>Detection ve visibility ilişkisini tek renkte birleştirir</td><td>Öncelik ve kök neden analizi</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Combined Renklerinin Anlamı</h2>
-                  <ul class="wiki-ul">
-                    <li><strong>Yeşil — Kontrollü:</strong> doğrulanmış detection ve yeterli visibility birlikte mevcut.</li>
-                    <li><strong>Koyu amber — Eşlenmiş, bekliyor:</strong> kural var ama doğrulama tamamlanmamış; KPI'ya dahil değildir.</li>
-                    <li><strong>Amber — Görünür, detection yok:</strong> veri hazır fakat kanıtlı detection eksik.</li>
-                    <li><strong>Kırmızı — Detection var, visibility zayıf:</strong> doğrulama mevcut ancak veri sürekliliği riski var.</li>
-                    <li><strong>Gri — Kör nokta:</strong> doğrulanmış detection ve yeterli visibility yok.</li>
-                  </ul>
-                  <div class="wiki-tip">Kartın üzerine gelerek bileşen değerlerini görün; karta tıklayarak eşleşmiş kural, mitigation ve teknik ayrıntılarına geçin.</div>
-                </div>
-              </div>
-
-              <!-- Profil ve Snapshot -->
-              <div class="wiki-page" id="w-soc-profile">
-                <h1 class="wiki-page-title">Profil &amp; Snapshot</h1>
-                <p class="wiki-page-lead">Profil ölçümün paydasını, snapshot ise belirli bir tarihteki değiştirilemez KPI sonucunu tanımlar.</p>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Profil Yönetimi</h2>
-                  <div class="wiki-info-box">
-                    <p>Her profilde kapsam adı, açıklama, ATT&amp;CK sürümü ve dahil edilen teknikler bulunur. Teknik ağırlığı 1–5 arasında belirlenir; ağırlık gerekçesi denetlenebilirlik için yazılmalıdır.</p>
-                    <p>Durumlar <strong>Draft</strong>, <strong>Approved</strong> ve <strong>Retired</strong> şeklindedir. Onaylanmış bir profil değiştirildiğinde yeniden onay gerekir; böylece payda sessizce değişmez.</p>
-                  </div>
-                </div>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Resmi Ölçüm Akışı</h2>
-                  <div class="wiki-steps">
-                    <div class="wiki-step"><div class="wiki-step-num">1</div><div>Kurum kapsamına uygun teknikleri ve ağırlıkları belirleyin.</div></div>
-                    <div class="wiki-step"><div class="wiki-step-num">2</div><div>Profil gerekçelerini kontrol edip profili onaylayın.</div></div>
-                    <div class="wiki-step"><div class="wiki-step-num">3</div><div>Detection kanıtları ile telemetry kalite kayıtlarını tamamlayın.</div></div>
-                    <div class="wiki-step"><div class="wiki-step-num">4</div><div>Snapshot oluşturun; trendi aynı profil ve formül sürümüyle karşılaştırın.</div></div>
-                  </div>
-                  <div class="wiki-info-box"><p>Snapshot; profil, ATT&amp;CK sürümü, formül sürümü, sayaçlar ve bütünlük hash'ini saklar. Oluşturulduktan sonra düzenlenemez; düzeltme gerekiyorsa yeni snapshot alınır.</p></div>
-                </div>
-              </div>
-
-              <!-- Detection Kanıtı -->
-              <div class="wiki-page" id="w-soc-detection">
-                <h1 class="wiki-page-title">Detection Kanıtı</h1>
-                <p class="wiki-page-lead">Kural eşleştirmesi bir başlangıçtır. KPI'ya dahil olmak için detection'ın test edilmesi, kanıtlanması ve güncel tutulması gerekir.</p>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Gerekli Kayıtlar</h2>
-                  <ul class="wiki-ul">
-                    <li><strong>Lifecycle:</strong> Draft, Active veya Disabled.</li>
-                    <li><strong>Validation:</strong> Untested, Validated, Failed veya Expired.</li>
-                    <li><strong>Kanıt:</strong> test yöntemi, kanıt referansı, doğrulayan kişi ve doğrulama tarihi.</li>
-                    <li><strong>Süreklilik:</strong> geçerlilik bitişi, sahip, kapsam ve telemetry bağımlılıkları.</li>
-                  </ul>
-                </div>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Detection Puanı</h2>
-                  <table class="wiki-table">
-                    <thead><tr><th>Puan</th><th>Yorum</th></tr></thead>
-                    <tbody>
-                      <tr><td>-1</td><td>Teknik bu kapsamda uygulanabilir değil</td></tr>
-                      <tr><td>0</td><td>Yok, bilinmiyor veya kanıtlanmamış</td></tr>
-                      <tr><td>1–2</td><td>Temel ya da sınırlı detection</td></tr>
-                      <tr><td>3</td><td>Orta düzey, kullanılabilir detection</td></tr>
-                      <tr><td>4–5</td><td>İyi veya çok güçlü detection</td></tr>
-                    </tbody>
-                  </table>
-                  <div class="wiki-warning">İçe aktarılan mevcut kurallar başlangıçta <strong>Untested</strong> kabul edilir. Sadece eşlenmiş olmaları doğrulanmış coverage oluşturmaz.</div>
-                </div>
-              </div>
-
-              <!-- Data Visibility -->
-              <div class="wiki-page" id="w-soc-visibility">
-                <h1 class="wiki-page-title">Data Visibility</h1>
-                <p class="wiki-page-lead">Visibility, bir güvenlik ürününün lisanslı olmasını değil; gerekli verinin gerçekten toplanmasını, kaliteli olmasını ve ATT&amp;CK data component'lerine bağlanmasını ölçer.</p>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Telemetry Envanteri</h2>
-                  <div class="wiki-info-box"><p>Her kaynak için sahip, kaynak türü, kapsam, saklama süresi, gecikme ve aktiflik bilgisi tutulur. Kaynak daha sonra ATT&amp;CK data component'lerine bağlanır; teknik görünürlüğü bu eşleşmelerden türetilir.</p></div>
-                </div>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Kalite Boyutları (0–5)</h2>
-                  <table class="wiki-table">
-                    <thead><tr><th>Boyut</th><th>Kontrol Sorusu</th></tr></thead>
-                    <tbody>
-                      <tr><td>Cihaz kapsamı</td><td>Hedef cihazların ne kadarı veri gönderiyor?</td></tr>
-                      <tr><td>Alan bütünlüğü</td><td>Detection için gereken alanlar dolu mu?</td></tr>
-                      <tr><td>Zamanlılık</td><td>Veri kabul edilebilir gecikmeyle geliyor mu?</td></tr>
-                      <tr><td>Tutarlılık</td><td>Şema ve değerler kaynaklar arasında kararlı mı?</td></tr>
-                      <tr><td>Saklama</td><td>İnceleme için gereken tarih aralığı korunuyor mu?</td></tr>
-                    </tbody>
-                  </table>
-                  <div class="wiki-tip">Teknik visibility skoru 0–4'tür ve varsayılan olarak bağlı telemetry kalitesinden türetilir. Yetkili override kullanılırsa gerekçe zorunlu tutulmalıdır.</div>
-                </div>
-              </div>
-
               <!-- Audit ve Veri Kalitesi -->
-              <div class="wiki-page" id="w-soc-audit">
+              <div class="wiki-page" id="w-audit">
                 <h1 class="wiki-page-title">Audit &amp; Veri Kalitesi</h1>
                 <p class="wiki-page-lead">KPI'nın güvenilirliği yalnızca sonuçtan değil, sonuca götüren değişikliklerin izlenebilirliğinden gelir.</p>
 
@@ -1215,7 +1045,7 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
                   <h2 class="wiki-h2">Audit Zinciri</h2>
                   <div class="wiki-info-box">
                     <p>Kritik işlemler; kullanıcı, zaman, istek kimliği, işlem türü, hedef kayıt, önceki/yeni değer ve zincir hash'i ile kaydedilir. Her kayıt önceki kaydın hash'ine bağlıdır; zincir doğrulama ekranı olası bütünlük sorunlarını gösterir.</p>
-                    <p>Audit kayıtları ve snapshot'lar normal uygulama akışında güncellenmez veya silinmez. Düzeltmeler yeni bir işlem olarak iz bırakır.</p>
+                    <p>Audit kayıtları normal uygulama akışında güncellenmez veya silinmez. Düzeltmeler yeni bir işlem olarak iz bırakır.</p>
                   </div>
                 </div>
 
@@ -1225,7 +1055,7 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
                     <li>Kanıtsız veya süresi geçmiş doğrulamalar.</li>
                     <li>Sahipsiz detection ve telemetry kayıtları.</li>
                     <li>Eksik data component eşleşmeleri ve düşük kalite puanları.</li>
-                    <li>Onaysız profil, ATT&amp;CK/formül sürümü uyumsuzluğu ve snapshot bütünlüğü.</li>
+                    <li>Ürün kataloğunda bulunmayan kaynaklar ve geçersiz taktik değerleri.</li>
                   </ul>
                   <div class="wiki-warning"><strong>Önerilen yönetişim:</strong> ölçümü hazırlayan ile profili onaylayan kişi farklı olmalı; kritik açıklar Aksiyon Planı'nda sahip ve hedef tarihle takip edilmelidir.</div>
                 </div>
@@ -1595,91 +1425,6 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
           </div>
         </div>
 
-        <div id="socKpiPanel" class="panel">
-          <div class="soc-page">
-            <header class="soc-header">
-              <div>
-                <h1>SOC-CMM KPI</h1>
-                <div class="ops-subtitle">Detection coverage ve data source visibility</div>
-              </div>
-              <div class="soc-header-actions">
-                <select id="socProfileSelect" aria-label="Kurum profili"></select>
-                <span class="soc-status" id="socProfileStatus">Taslak</span>
-                <button class="action-btn btn-neutral" id="socNewProfile">Yeni Profil</button>
-                <button class="action-btn btn-neutral" id="socRefresh" title="KPI verisini yenile">Yenile</button>
-                <button class="action-btn btn-neutral" id="socLayerExport">Layer JSON</button>
-                <button class="action-btn btn-add" id="socSnapshot">Snapshot Oluştur</button>
-              </div>
-            </header>
-
-            <div class="soc-tabs" role="tablist" aria-label="SOC-CMM çalışma alanı">
-              <button class="soc-tab active" data-soc-tab="dashboard">KPI Dashboard</button>
-              <button class="soc-tab" data-soc-tab="profile">Kurum Profili</button>
-              <button class="soc-tab" data-soc-tab="telemetry">Visibility Envanteri</button>
-              <button class="soc-tab" data-soc-tab="detections">Detection Kanıtları</button>
-            </div>
-
-            <section class="soc-tab-panel active" id="soc-dashboard">
-              <div class="soc-kpi-grid" id="socKpiCards"></div>
-              <div class="soc-dashboard-grid">
-                <section class="soc-section soc-heatmap-section">
-                  <div class="soc-section-head">
-                    <div><h2>Öncelikli GAP Kuyruğu</h2><span id="socHeatmapSummary"></span></div>
-                    <div class="soc-segmented" id="socHeatmapMode">
-                      <button class="active" data-mode="combined">Birleşik GAP</button>
-                      <button data-mode="detection">Detection</button>
-                      <button data-mode="visibility">Visibility</button>
-                      <button id="socOpenMatrix" data-mode="matrix">Matrixte Aç</button>
-                    </div>
-                  </div>
-                  <div class="soc-legend" id="socHeatmapLegend"></div>
-                  <div class="soc-heatmap" id="socHeatmap"></div>
-                </section>
-                <section class="soc-section soc-trend-section">
-                  <div class="soc-section-head"><div><h2>Tarihsel Trend</h2><span>Onaylı snapshot serisi</span></div></div>
-                  <div id="socTrend"></div>
-                </section>
-              </div>
-            </section>
-
-            <section class="soc-tab-panel" id="soc-profile">
-              <div class="soc-workbar">
-                <div class="soc-profile-meta" id="socProfileMeta"></div>
-                <div class="soc-work-actions">
-                  <button class="action-btn btn-neutral" id="socIncludeVisible">Görünenleri Dahil Et</button>
-                  <button class="action-btn btn-neutral" id="socExcludeVisible">Görünenleri Hariç Tut</button>
-                  <button class="action-btn btn-neutral" id="socEditProfile">Profili Düzenle</button>
-                  <button class="action-btn btn-add" id="socApproveProfile">Profili Onayla</button>
-                </div>
-              </div>
-              <div class="soc-toolbar">
-                <input type="search" id="socProfileSearch" placeholder="Teknik ID, ad, taktik veya platform" />
-                <select id="socProfileFilter"><option value="included">Kapsamdakiler</option><option value="all">Tümü</option><option value="excluded">Kapsam dışı</option></select>
-              </div>
-              <div class="soc-table-wrap"><table class="soc-table"><thead><tr><th>Kapsam</th><th>Teknik</th><th>Taktik / Platform</th><th>Ağırlık</th><th>Gerekçe</th><th></th></tr></thead><tbody id="socProfileBody"></tbody></table></div>
-            </section>
-
-            <section class="soc-tab-panel" id="soc-telemetry">
-              <div class="soc-workbar">
-                <div><h2>Telemetri ve Data Component Envanteri</h2><span class="ops-subtitle">DeTT&amp;CT kalite boyutları 0-5</span></div>
-                <button class="action-btn btn-add" id="socNewTelemetry">Yeni Kaynak</button>
-              </div>
-              <div class="soc-table-wrap"><table class="soc-table"><thead><tr><th>Kaynak</th><th>Kapsam / Hedef</th><th>Data Component</th><th>Kalite</th><th>Durum</th><th></th></tr></thead><tbody id="socTelemetryBody"></tbody></table><div class="ops-empty" id="socTelemetryEmpty">Telemetri kaydı bulunmuyor.</div></div>
-            </section>
-
-            <section class="soc-tab-panel" id="soc-detections">
-              <div class="soc-workbar"><div><h2>Detection Doğrulama Envanteri</h2><span class="ops-subtitle">Aktiflik, test kanıtı, skor ve geçerlilik</span></div></div>
-              <div class="soc-toolbar"><input type="search" id="socDetectionSearch" placeholder="Detection, ürün, teknik veya sahip" /><select id="socDetectionFilter"><option value="">Tüm durumlar</option><option value="validated">Doğrulandı</option><option value="untested">Test edilmedi</option><option value="failed">Başarısız</option><option value="expired">Süresi doldu</option></select><button class="action-btn btn-add" id="btnStartValidationQueue" title="Filtrelenen detection'ları sırayla değerlendirme kuyruğuna al">Doğrulama Kuyruğunu Başlat</button></div>
-              <div class="soc-table-wrap"><table class="soc-table"><thead><tr><th>Detection</th><th>Teknik</th><th>Yaşam Döngüsü</th><th>Doğrulama</th><th>Skor</th><th>Sahip</th><th>Geçerlilik</th><th></th></tr></thead><tbody id="socDetectionBody"></tbody></table></div>
-            </section>
-          </div>
-
-          <aside class="soc-drawer hidden" id="socDrawer" aria-live="polite">
-            <div class="soc-drawer-head"><h2 id="socDrawerTitle"></h2><span class="soc-queue-badge hidden" id="socQueueBadge"></span><button class="icon-btn" id="socDrawerClose" title="Kapat" aria-label="Kapat">&#x2715;</button></div>
-            <form id="socDrawerForm"><div id="socDrawerBody"></div><div class="soc-drawer-actions"><button type="button" class="action-btn btn-reset" id="socDrawerCancel">İptal</button><button type="button" class="action-btn btn-neutral hidden" id="socQueueSkip">Atla</button><button type="submit" class="action-btn btn-add" id="socDrawerSubmitBtn">Kaydet</button></div></form>
-          </aside>
-        </div>
-
         <div id="dataQualityPanel" class="panel">
           <div class="ops-page">
             <div class="ops-header">
@@ -1871,7 +1616,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=100"></script>
+  <script src="/static/app.js?v=101"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

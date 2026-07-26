@@ -416,8 +416,6 @@ class AppTestCase(unittest.TestCase):
             ("/api/teams", "GET"),
             ("/api/mitigation-notes", "GET"),
             ("/api/mitigation-entries", "GET"),
-            ("/api/soc-profiles", "GET"),
-            ("/api/telemetry-sources", "GET"),
             ("/api/action-items", "GET"),
         ]
         for path, method in read_only_ok:
@@ -430,8 +428,6 @@ class AppTestCase(unittest.TestCase):
             ("/api/teams", "POST", {"name": "x"}, "admin"),
             ("/api/mitigation-notes", "POST", {"mitigation_id": "M1000"}, "editor"),
             ("/api/mitigation-entries", "POST", {"mitigation_id": "M1000", "team": "x", "comment": "x"}, "editor"),
-            ("/api/soc-profiles", "POST", {"name": "x"}, "admin"),
-            ("/api/telemetry-sources", "POST", {"name": "x"}, "editor"),
             ("/api/action-items", "POST", {"title": "x"}, "editor"),
         ]
         for path, method, payload, required_role in writes_blocked:
@@ -463,95 +459,6 @@ class AppTestCase(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 429)
         self.assertEqual(blocked.headers["Retry-After"], str(application.LOGIN_WINDOW_SECONDS))
-
-    def test_soc_kpi_requires_validated_detection_evidence(self):
-        self.login()
-        self.client.post(
-            "/api/rules",
-            json={"name": "Process analytic", "tactic": "execution", "tech": "T1000", "source": "QRadar"},
-        )
-        rule_id = self.client.get("/api/rules").get_json()[0]["id"]
-
-        initial = self.client.get("/api/soc-kpi").get_json()["metrics"]
-        self.assertEqual(initial["mapped_coverage"], 50.0)
-        self.assertEqual(initial["validated_coverage"], 0.0)
-
-        rejected = self.client.put(
-            f"/api/detection-assessments/{rule_id}",
-            json={"validation_status": "validated", "detection_score": 3},
-        )
-        self.assertEqual(rejected.status_code, 400)
-
-        accepted = self.client.put(
-            f"/api/detection-assessments/{rule_id}",
-            json={
-                "lifecycle_status": "active",
-                "validation_status": "validated",
-                "detection_score": 3,
-                "applicable_scope": "Kurum geneli",
-                "owner": "SOC Engineering",
-                "validation_method": "Atomic test",
-                "evidence_ref": "CASE-100",
-                "last_validated_at": "2026-07-19",
-                "expires_at": "2099-07-19",
-            },
-        )
-        self.assertEqual(accepted.status_code, 200)
-        rule = self.client.get("/api/rules").get_json()[0]
-        self.assertEqual(rule["validation_status"], "validated")
-        self.assertEqual(rule["detection_score"], 3)
-        self.assertEqual(rule["owner"], "SOC Engineering")
-        metrics = self.client.get("/api/soc-kpi").get_json()["metrics"]
-        self.assertEqual(metrics["validated_coverage"], 50.0)
-        self.assertEqual(metrics["weighted_detection"], 30.0)
-
-    def test_visibility_uses_data_components_and_quality(self):
-        self.login()
-        response = self.client.post(
-            "/api/telemetry-sources",
-            json={
-                "name": "Endpoint process events",
-                "producer": "Windows",
-                "destination": "SIEM",
-                "scope": "Kurum geneli",
-                "owner": "Platform",
-                "active": True,
-                "analytics_ready": True,
-                "components": ["DC1000"],
-                "device_completeness": 5,
-                "field_completeness": 5,
-                "timeliness": 5,
-                "consistency": 5,
-                "retention": 5,
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        payload = self.client.get("/api/soc-kpi").get_json()
-        technique = next(item for item in payload["techniques"] if item["tech_id"] == "T1000")
-        self.assertEqual(technique["visibility_score"], 4.0)
-        self.assertEqual(payload["metrics"]["visibility"], 50.0)
-        self.assertEqual(payload["metrics"]["visible_threshold_coverage"], 50.0)
-
-    def test_approved_profile_snapshot_is_append_only(self):
-        self.login()
-        profile_id = self.client.get("/api/soc-profiles").get_json()[0]["id"]
-        draft_snapshot = self.client.post("/api/soc-kpi/snapshots", json={"profile_id": profile_id})
-        self.assertEqual(draft_snapshot.status_code, 409)
-        self.assertEqual(self.client.post(f"/api/soc-profiles/{profile_id}/approve").status_code, 200)
-        snapshot = self.client.post("/api/soc-kpi/snapshots", json={"profile_id": profile_id})
-        self.assertEqual(snapshot.status_code, 201)
-        self.assertEqual(len(snapshot.get_json()["payload_hash"]), 64)
-        detail = self.client.get(f"/api/soc-kpi/snapshots/{snapshot.get_json()['id']}").get_json()
-        self.assertTrue(detail["integrity"]["valid"])
-        layer = self.client.get(f"/api/soc-kpi/layer?profile_id={profile_id}&mode=combined").get_json()
-        self.assertEqual(len(layer["techniques"]), 2)
-
-        db = sqlite3.connect(application.DB_PATH)
-        with self.assertRaises(sqlite3.IntegrityError):
-            db.execute("UPDATE kpi_snapshots SET visibility=99 WHERE id=1")
-        with self.assertRaises(sqlite3.IntegrityError):
-            db.execute("DELETE FROM kpi_snapshots WHERE id=1")
-        db.close()
 
     def test_self_service_password_change_requires_correct_current_password(self):
         self.login("viewer", "Viewer123!")

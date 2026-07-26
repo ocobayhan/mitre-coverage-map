@@ -52,24 +52,19 @@ Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `RO
 | `data-quality` | viewer | admin (repair) |
 | `ttp-list`, `technique-detail` | viewer | — |
 | `admin/reset` | — | admin |
-| `soc-profiles` (liste/detay) | viewer | admin |
-| `soc-profiles/<id>/techniques`, `/approve` | — | admin |
-| `detection-assessments` (liste) | viewer | editor (tekil güncelleme) |
-| `attack-data-components` | viewer | — |
-| `telemetry-sources` | viewer | editor |
-| `visibility-overrides` | — | admin |
-| `soc-kpi`, `soc-kpi/layer`, snapshot detay | viewer | admin (snapshot oluşturma) |
 | `technique-config` | viewer | admin |
 | `gap-analysis`, `threat-actors` | viewer | — |
 | `action-items` | viewer | editor |
 
-Genel kural: **viewer** her şeyi okuyabilir (audit, connector, kullanıcı yönetimi hariç), **editor** operasyonel veriyi (tespit, mitigation, telemetri, aksiyon, kapsam anketi) yazabilir, **admin** yapısal/yönetsel şeyleri (kullanıcı, ürün, ekip, connector, ortam/varlık grubu, SOC profili onayı, KPI snapshot, teknik config) değiştirir.
+Genel kural: **viewer** her şeyi okuyabilir (audit, connector, kullanıcı yönetimi hariç), **editor** operasyonel veriyi (tespit, mitigation, aksiyon, kapsam anketi) yazabilir, **admin** yapısal/yönetsel şeyleri (kullanıcı, ürün, ekip, connector, ortam/varlık grubu, teknik config) değiştirir.
 
 ## Frontend Uygulaması (`static/app.js`)
 
 `applyRoleUI()` (app.js:72) — `currentUser.role` `/api/me`'den alınır, `hasRole(minRole)` ile karşılaştırılır, izin yoksa ilgili DOM elemanı `hidden` class'ı ile gizlenir (silinmez — sadece görsel). **Frontend gizleme bir güvenlik sınırı değildir**, backend her zaman kendi kontrolünü yapar; bu yüzden yeni bir admin-only özellik eklerken hem `applyRoleUI()`'a hem backend route'a ayrı ayrı eklemeyi unutma.
 
-Gizlenen öğeler: reset butonu, Ayarlar sekmeleri (CSV, Kullanıcılar, Audit, Ekipler, Connector'lar), Audit nav item'ı, veri kalitesi onarım butonu, SOC-CMM snapshot/onay/profil butonları, telemetri ekleme butonu.
+Gizlenen öğeler: reset butonu, Ayarlar sekmeleri (CSV, Kullanıcılar, Ekipler, Connector'lar), Audit nav item'ı, veri kalitesi onarım butonu.
+
+> `applyRoleUI()` toplam yetkilendirmenin yalnızca bir kısmıdır — geri kalan ~40 kontrol render fonksiyonlarının içindeki inline `hasRole()` çağrılarıdır (kural satırları, modal formları, mitigation girişleri, connector işlemleri, kapsam anketi). Ekran birleştirme/taşıma yaparken bunların her biri taşınmalıdır.
 
 ## Yeni Bir Yetkili Route Eklerken Kontrol Listesi
 
