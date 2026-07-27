@@ -3188,3 +3188,310 @@ button.action-btn, .action-btn {
 .import-badge.new { background: rgba(45, 178, 125, 0.15); color: #7ee2a8; border: 1px solid rgba(45, 178, 125, 0.4); }
 .import-badge.upd { background: rgba(232, 150, 60, 0.15); color: #f0c674; border: 1px solid rgba(232, 150, 60, 0.4); }
 
+
+/* ═══════════════════════════════════════════════════════════
+   FAZ 6 — Arayuz tazeleme (design-system/soc-ui.css'ten)
+   -----------------------------------------------------------
+   Yaklasim design-system/README.md'nin onerdigi kademeli yol:
+   once TOKEN'lar (her sey bunlara referans verdigi icin tek
+   dokunusla butun ekranlar tazelenir), sonra en cok goze batan
+   bilesenler — form elemanlari, kartlar, tablolar, bos durumlar.
+
+   MATRIS DISARIDA BIRAKILDI. .technique-card / .subtech-card /
+   .tactic-* kendi rengini ve olcusunu koruyor (kullanicinin
+   karari: "matrix haric").
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  /* Kenarliklar duz gri yerine saydam beyaz — koyu zeminde
+     "cizik" degil "hafif ayrim" olarak okunuyor. */
+  --d-border:        rgba(255, 255, 255, 0.09);
+  --d-border-md:     rgba(255, 255, 255, 0.13);
+  --d-border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Girdi alanlari yuzeyden daha KOYU olmali — "icine yazilir"
+     hissi veriyor. Onceden yuzeyle ayni tondaydi, bu yuzden
+     kutucuklar duz ve okunaksiz duruyordu. */
+  --d-input-bg:       #151716;
+  --d-input-bg-hover: #191c1a;
+
+  --d-r-sm: 5px;
+  --d-r:    7px;
+  --d-r-lg: 10px;
+
+  --d-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --d-shadow:    0 4px 14px rgba(0, 0, 0, 0.32);
+}
+
+/* ── Form elemanlari ─────────────────────────────────────── */
+input, select, textarea {
+  background: var(--d-input-bg);
+  border: 1px solid var(--d-border-md);
+  border-radius: var(--d-r-sm);
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--d-text-1);
+  transition: border-color .14s, background .14s, box-shadow .14s;
+}
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--d-border-strong);
+  background: var(--d-input-bg-hover);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--d-blue-light);
+  background: var(--d-input-bg-hover);
+  box-shadow: 0 0 0 3px var(--d-blue-tint);
+}
+input::placeholder, textarea::placeholder { color: #6e756f; }
+textarea { line-height: 1.5; padding: 8px 10px; }
+
+/* Yerlesik select oku eski duruyordu — kendi okumuzu ciziyoruz */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a19f9d' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+select:disabled { background-image: none; }
+
+input[type="file"] {
+  padding: 6px 10px;
+  color: var(--d-text-2);
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button {
+  background: var(--d-surface-alt);
+  border: 1px solid var(--d-border-md);
+  border-radius: var(--d-r-sm);
+  color: var(--d-text-1);
+  padding: 4px 12px;
+  margin-right: 10px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .14s, border-color .14s;
+}
+input[type="file"]::file-selector-button:hover {
+  background: var(--d-hover);
+  border-color: var(--d-blue);
+}
+input[type="color"] {
+  padding: 3px;
+  width: 46px;
+  min-height: 34px;
+  cursor: pointer;
+  background: var(--d-input-bg);
+}
+
+/* Mikro etiketler — alan basliklarini govde metninden ayirir */
+.input-wrapper label,
+.filter-group label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--d-text-3);
+}
+
+/* ── Butonlar ────────────────────────────────────────────── */
+button.action-btn, .action-btn {
+  min-height: 34px;
+  border-radius: var(--d-r-sm);
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background .14s, border-color .14s, box-shadow .14s, transform .08s;
+}
+.btn-add {
+  background: var(--d-blue);
+  border-color: var(--d-blue);
+  box-shadow: var(--d-shadow-sm);
+}
+.btn-add:hover:not(:disabled) {
+  background: var(--d-blue-hover);
+  border-color: var(--d-blue-hover);
+  box-shadow: 0 2px 8px rgba(0, 120, 212, 0.32);
+}
+.btn-reset, .btn-neutral {
+  background: var(--d-surface-alt);
+  border-color: var(--d-border-md);
+  color: var(--d-text-2);
+}
+.btn-reset:hover, .btn-neutral:hover {
+  background: var(--d-hover);
+  border-color: var(--d-border-strong);
+  color: var(--d-text-1);
+}
+.action-btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+
+/* ── Kartlar / paneller ──────────────────────────────────── */
+.info-card,
+.settings-tab-panel > .info-card {
+  border-radius: var(--d-r-lg);
+  border-color: var(--d-border);
+  box-shadow: var(--d-shadow-sm);
+}
+.info-card h2 { font-size: 14px; letter-spacing: -0.01em; }
+
+.settings-row {
+  gap: 12px;
+  align-items: flex-end;
+}
+.settings-hint {
+  border-radius: var(--d-r-sm);
+  border-left-width: 2px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+}
+.settings-subtitle {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* Ozet kutulari — yalin cerceve yerine kart */
+.ops-stat, .import-stat {
+  border-radius: var(--d-r);
+}
+.ops-stat-label, .import-stat span {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Tablolar ────────────────────────────────────────────── */
+.ops-table th, .actions-table th, .import-table th, .wiki-table th {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--d-text-3);
+}
+.ops-table tbody tr, .actions-table tbody tr {
+  transition: background .12s;
+}
+.ops-table tbody tr:hover, .actions-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.028);
+}
+
+/* ── Bos durumlar ────────────────────────────────────────── */
+.empty-state {
+  border: 1px dashed var(--d-border-md);
+  border-radius: var(--d-r-lg);
+  background: rgba(255, 255, 255, 0.012);
+  gap: 4px;
+}
+.empty-title { font-size: 13px; font-weight: 600; color: var(--d-text-2); }
+.empty-sub { font-size: 11.5px; color: var(--d-text-3); }
+
+/* ── Sekmeler ────────────────────────────────────────────── */
+.settings-tab-btn, .tab-btn {
+  border-radius: var(--d-r-sm) var(--d-r-sm) 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: color .14s, background .14s;
+}
+
+/* ── Rozetler / cipler ───────────────────────────────────── */
+.tech-chip, .rule-tech-chip .tech-chip, .tech-more {
+  border-radius: 999px;
+  border-color: var(--d-border-md);
+  font-size: 11px;
+  padding: 3px 10px;
+  transition: background .14s, border-color .14s, color .14s;
+}
+.tech-chip:hover { border-color: var(--d-blue); background: var(--d-blue-tint); }
+.user-badge { border-color: var(--d-border-md); }
+
+/* ── Modal ───────────────────────────────────────────────── */
+.modal-content {
+  border-radius: var(--d-r-lg);
+  border-color: var(--d-border-md);
+  box-shadow: var(--d-shadow);
+}
+
+/* ── Ince kaydirma cubugu ────────────────────────────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.11);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); background-clip: content-box; }
+
+
+/* ── Faz 6 duzeltmeleri (gorsel dogrulamadan sonra) ──────── */
+
+/* Kapsam anketi satirlari kendi background'unu tanimladigi icin
+   ozel select okumuz siliniyordu — ok arkaplani geri veriliyor. */
+.scope-monitor-row input,
+.scope-monitor-row select,
+.product-item select,
+.user-item select {
+  background-color: var(--d-input-bg);
+  border: 1px solid var(--d-border-md);
+  border-radius: var(--d-r-sm);
+  padding: 7px 10px;
+}
+.scope-monitor-row select,
+.product-item select,
+.user-item select {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a19f9d' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.scope-monitor-row label > span {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.scope-monitor-row:hover { background: rgba(255, 255, 255, 0.025); }
+
+/* Urun/kullanici/ekip satirlari — sikisik kontroller nefes alsin */
+.product-item, .user-item, .team-item {
+  min-height: 48px;
+  border-radius: var(--d-r);
+  border-color: var(--d-border);
+  background: var(--d-surface-alt);
+  transition: border-color .14s, background .14s;
+}
+.product-item:hover, .user-item:hover, .team-item:hover {
+  border-color: var(--d-border-strong);
+}
+.product-item select { min-width: 150px; }
+.product-delete, .user-delete, .team-delete {
+  min-height: 30px;
+  border-radius: var(--d-r-sm);
+  border-color: var(--d-border-md);
+  padding: 0 12px;
+  font-size: 12px;
+}
+.product-item input[type="color"] { width: 40px; min-height: 30px; }
+
+/* Sekme seridi — aktif sekme alt cizgisi belirginlessin */
+.settings-tab-btn { padding: 9px 14px; }
+.settings-tab-btn.active { color: var(--d-text-1); }
+
+/* Sayfa basliklari */
+.ms-page-title { letter-spacing: -0.015em; }
+
+
+/* Mitigation formu kendi background'unu tanimliyor — ozel select oku
+   silinmesin diye burada da geri veriliyor (scope satirlariyla ayni durum). */
+.mitigation-entry-form select {
+  background-color: var(--d-input-bg);
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a19f9d' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}

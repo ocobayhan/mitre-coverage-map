@@ -228,6 +228,40 @@ Kullanıcı: *"ürünleri düzenleyeceğim… ama onun arayüzünüde yeniler mi
 
 > **Veri notu:** Lumos ortamı `active=0` durumundaydı (27 Temmuz 14:10'daki bir PUT), bu yüzden harita ortam seçicisinde görünmüyordu. Aktif hale getirildi. Ayrıca 11 mitigation kaydının 3'ü artık var olmayan ekiplere bağlı (`DENBEME`, `DENEM`, `DENEME`) — `team` FK değil serbest metin, kullanıcı temizleyecek.
 
+## LLM Eşleme İçe Aktarımı (2026-07-27, Faz 5)
+
+Kullanıcı: *"QRadar'da kuralları export aldığımda… Claude bana bir MITRE sınıflandırması versin, bir kural birden fazla teknikte tespit yapabilir… bu çıktıyı uygulamaya upload ettiğimde uygulama tamamen anlayıp haritalandırmayı ayarlasın."*
+
+**Akış:** kuralları dışa aktar → `Ayarlar > İçe Aktarım`'dan prompt'u kopyala → Claude'a ürün + kural listesiyle ver → dönen JSON'u yükle → önizle → uygula.
+
+**Şema** (`docs/mitre_mapping_prompt.md`, `schema: "soc-coverage-import"`, `version: 1`):
+- `products[]` — yeni ürün katalogu (oluşturmak **admin** ister; editor kural yükleyebilir ama katalogu genişletemez)
+- `rules[]` — isimli kurallar, `techniques[]` dizisi (bir kural N tekniğe eşlenebilir)
+- `product_coverage[]` — ürünün built-in setinin toplu kapsaması; `"<Ürün> — Built-in kapsama"` adlı tek kayda dönüşür. Kullanıcının kararı: her ikisi de desteklensin.
+
+**İki aşamalı, tek planlayıcı:** `/api/import/coverage/preview` hiçbir şey yazmaz, plan döner; `/apply` aynı `_plan_coverage_import()` çıktısını uygular. "Önizlemede gördüğün" ile "olan" ayrışamaz.
+
+**Doğrulama:** teknik ID'leri `technique_config`'e karşı denetlenir (LLM'in ID uydurması bilinen risk — `T9999` test edildi, yakalandı), ürün katalogda veya dosyada olmalı, aynı `(name, product)` iki kez geçemez. **Kısmi uygulama yok** — tek hata varsa hiçbir satır yazılmaz.
+
+**Birleştirme (kullanıcının kararı):** mevcut kuralın teknikleri asla silinmez, eksikler eklenir. Aynı dosya ikinci kez yüklendiğinde her şey `noop`. Bedeli: kaynak sistemden kaldırılan eşleme uygulamada kalır.
+
+**Bu arada CSV import düzeltildi:** aynı `(name, source)` ikinci kez gelince UNIQUE index'e çarpıp **500** dönüyordu. Artık aynı planlayıcıya bağlı ve çoklu satır tek kurala birleşiyor.
+
+**Doğrulandı:** 34/34 test (7 yeni), gerçek MITRE verisiyle uçtan uca — alt teknikler (`T1114.003`) kabul edildi, uydurma ID reddedildi, ikinci yükleme idempotent, mükerrer test verisi temizlendi. `/docs` artık hash ile derin bağlantı destekliyor; bayat "CSV Format" sayfası İçe Aktarım olarak yeniden yazıldı.
+
+## Arayüz Tazeleme (2026-07-27, Faz 6)
+
+Kullanıcı: *"matrix hariç genel tüm arayüzde bir görsellik eksikliği var… özellikle bazı kutucuklar ve yazı yazılacak alanlar çok basit duruyor."*
+
+`design-system/soc-ui.css`'in kendi README'sinde önerdiği kademeli yol izlendi: **önce token'lar** (her şey onlara referans verdiği için tek dokunuşla bütün ekranlar tazelenir), sonra en çok göze batan bileşenler.
+
+- **Kenarlıklar** düz gri (`#3b3a39`) yerine saydam beyaz (`rgba(255,255,255,.09/.13/.18)`) — koyu zeminde "çizik" değil "hafif ayrım" olarak okunuyor.
+- **Girdi alanları** artık yüzeyden **daha koyu** (`--d-input-bg: #151716`). "Çok basit duruyor" şikayetinin asıl sebebi buydu: kutular yüzeyle aynı tondaydı, sınırları görünmüyordu. Odakta 3px'lik yumuşak mavi halka.
+- **Select okları** yerleşik tarayıcı oku yerine SVG. Kendi `background`'unu tanımlayan üç yerde (kapsam anketi, ürün satırları, mitigation formu) ok siliniyordu — hepsine geri verildi.
+- Mikro etiketler (küçük, kalın, harf aralıklı, büyük harf), yumuşatılmış köşe ölçeği (5/7/10px), kart gölgeleri, tablo satır hover'ı, kesikli çerçeveli boş durumlar, ince kaydırma çubuğu.
+
+**Matris bilinçli olarak dışarıda bırakıldı** — `.technique-card` / `.subtech-card` / `.tactic-*` kendi rengini ve ölçüsünü koruyor (kullanıcının kararı: "matrix hariç"). Smoke ile doğrulandı: 14 taktik sütunu, 123 aç/kapa oku, mobil taşma yok, sıfır konsol hatası. `?v=114`.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
