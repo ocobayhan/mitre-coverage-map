@@ -1726,61 +1726,458 @@ def rules():
 
 
 
+# ── Kapsama Ice Aktarimi ─────────────────────────────────────────────────────
+# Kullanici, urun ve kural listesini bir LLM'e verip MITRE eslemesi uretiyor;
+# uretilen dosya buraya yuklenip haritaya donusuyor. Sema ve prompt:
+# docs/mitre_mapping_prompt.md
+#
+# Iki asamali: once /preview (hicbir yazma yok, plan doner), sonra /apply.
+# Yanlis bir dosyanin haritayi aninda bozmamasi icin bilincli tercih.
+#
+# Birlestirme semantigi: mevcut bir kuralin teknikleri ASLA silinmez, yalnizca
+# eksik olanlar eklenir. Uygulamada elle yapilan eslemeler korunur; bedeli,
+# kaynak sistemden kaldirilan bir eslemenin burada kalmasidir.
+IMPORT_SCHEMA_NAME = "soc-coverage-import"
+IMPORT_SCHEMA_VERSION = 1
+_BUILTIN_RULE_SUFFIX = "Built-in kapsama"
+_TECH_ID_RE = re.compile(r"^T\d{4}(\.\d{3})?$")
+
+
+def _known_technique_ids(db: sqlite3.Connection) -> set[str]:
+    return {
+        r["tech_id"] for r in db.execute("SELECT tech_id FROM technique_config").fetchall()
+    }
+
+
+def _normalize_import_payload(raw: Any) -> tuple[dict, list[str]]:
+    """Yuklenen dosyayi kanonik yapiya cevirir ve bicim hatalarini toplar."""
+    errors: list[str] = []
+    if not isinstance(raw, dict):
+        return {}, ["Dosya bir JSON nesnesi olmali."]
+
+    schema = (raw.get("schema") or "").strip()
+    if schema != IMPORT_SCHEMA_NAME:
+        errors.append(
+            f"'schema' alani '{IMPORT_SCHEMA_NAME}' olmali (gelen: '{schema or '-'}')."
+        )
+    try:
+        version = int(raw.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version != IMPORT_SCHEMA_VERSION:
+        errors.append(
+            f"'version' alani {IMPORT_SCHEMA_VERSION} olmali (gelen: {version or '-'})."
+        )
+
+    def as_list(key: str) -> list:
+        value = raw.get(key) or []
+        if not isinstance(value, list):
+            errors.append(f"'{key}' bir dizi olmali.")
+            return []
+        return value
+
+    return (
+        {
+            "products": as_list("products"),
+            "rules": as_list("rules"),
+            "product_coverage": as_list("product_coverage"),
+        },
+        errors,
+    )
+
+
+def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
+    """Dosyayi dogrular ve ne olacagini anlatan bir plan uretir. Yazma yapmaz.
+
+    Plan hem onizlemede gosterilir hem de apply tarafindan aynen uygulanir —
+    boylece "onizlemede gordugun ile olan" ayrisamaz.
+    """
+    payload, errors = _normalize_import_payload(raw)
+    if errors:
+        return {"ok": False, "errors": errors, "products": [], "rules": [], "summary": {}}
+
+    known_techs = _known_technique_ids(db)
+    existing_products = {
+        r["name"].casefold(): r["name"]
+        for r in db.execute("SELECT name FROM products").fetchall()
+    }
+    existing_rules = {
+        (r["name"].casefold(), r["source"].casefold()): {
+            "id": r["id"], "name": r["name"], "source": r["source"],
+        }
+        for r in db.execute("SELECT id, name, source FROM rules").fetchall()
+    }
+    existing_techs_by_rule: dict[int, set[str]] = {}
+    for row in db.execute("SELECT rule_id, tech_id FROM rule_techniques").fetchall():
+        existing_techs_by_rule.setdefault(row["rule_id"], set()).add(row["tech_id"])
+
+    # ── Urunler ──────────────────────────────────────────────────────────
+    product_plan = []
+    declared_products: dict[str, str] = {}
+    for i, item in enumerate(payload["products"], start=1):
+        if not isinstance(item, dict):
+            errors.append(f"products[{i}]: nesne olmali.")
+            continue
+        name = (item.get("name") or "").strip()
+        if not name:
+            errors.append(f"products[{i}]: 'name' zorunlu.")
+            continue
+        category = (item.get("category") or PRODUCT_CATEGORY_DEFAULT).strip()
+        if category not in PRODUCT_CATEGORIES:
+            errors.append(
+                f"products[{i}] ({name}): gecersiz kategori '{category}'. "
+                f"Gecerli: {', '.join(PRODUCT_CATEGORIES)}"
+            )
+            continue
+        declared_products[name.casefold()] = name
+        if name.casefold() in existing_products:
+            product_plan.append({"name": name, "action": "noop", "category": category})
+        else:
+            product_plan.append({
+                "name": name, "action": "create", "category": category,
+                "color": (item.get("color") or "").strip() or _next_product_color(db, len(product_plan)),
+            })
+
+    known_product_names = {**existing_products, **declared_products}
+
+    # ── Kurallar (isimli + urun seviyesi built-in setler) ────────────────
+    incoming: list[dict] = []
+    for i, item in enumerate(payload["rules"], start=1):
+        if not isinstance(item, dict):
+            errors.append(f"rules[{i}]: nesne olmali.")
+            continue
+        incoming.append({
+            "label": f"rules[{i}]",
+            "name": (item.get("name") or "").strip(),
+            "product": (item.get("product") or "").strip(),
+            "techniques": item.get("techniques"),
+            "coverage_level": (item.get("coverage_level") or "full").strip(),
+            "kind": (item.get("kind") or "custom").strip(),
+            "rationale": (item.get("rationale") or "").strip(),
+            "confidence": (item.get("confidence") or "").strip(),
+        })
+    for i, item in enumerate(payload["product_coverage"], start=1):
+        if not isinstance(item, dict):
+            errors.append(f"product_coverage[{i}]: nesne olmali.")
+            continue
+        product = (item.get("product") or "").strip()
+        # Urun seviyesi kapsama tek bir "sanal" kural olarak girer; boylece
+        # hedef (rule_threshold) mantigi bozulmaz ve kaynagi belli olur.
+        incoming.append({
+            "label": f"product_coverage[{i}]",
+            "name": f"{product} — {_BUILTIN_RULE_SUFFIX}" if product else "",
+            "product": product,
+            "techniques": item.get("techniques"),
+            "coverage_level": (item.get("coverage_level") or "partial").strip(),
+            "kind": "builtin",
+            "rationale": (item.get("note") or item.get("rationale") or "").strip(),
+            "confidence": (item.get("confidence") or "").strip(),
+        })
+
+    rule_plan = []
+    seen_keys: set[tuple[str, str]] = set()
+    for item in incoming:
+        label = item["label"]
+        name, product = item["name"], item["product"]
+        if not name or not product:
+            errors.append(f"{label}: 'name' ve 'product' zorunlu.")
+            continue
+        if product.casefold() not in known_product_names:
+            errors.append(
+                f"{label} ({name}): '{product}' urun katalogunda yok ve dosyanin "
+                "products[] bolumunde de tanimli degil."
+            )
+            continue
+        if item["coverage_level"] not in ("low", "partial", "full"):
+            errors.append(
+                f"{label} ({name}): gecersiz coverage_level '{item['coverage_level']}'. "
+                "Gecerli: low, partial, full"
+            )
+            continue
+
+        raw_techs = item["techniques"]
+        if not isinstance(raw_techs, list) or not raw_techs:
+            errors.append(f"{label} ({name}): 'techniques' en az bir teknik iceren dizi olmali.")
+            continue
+        techs, unknown = [], []
+        for t in raw_techs:
+            tid = str(t or "").strip().upper()
+            if not _TECH_ID_RE.match(tid) or tid not in known_techs:
+                unknown.append(str(t))
+                continue
+            if tid not in techs:
+                techs.append(tid)
+        if unknown:
+            errors.append(
+                f"{label} ({name}): taninmayan teknik ID: {', '.join(unknown)}"
+            )
+        if not techs:
+            continue
+
+        key = (name.casefold(), product.casefold())
+        if key in seen_keys:
+            errors.append(f"{label} ({name}): dosyada ayni kural birden fazla kez var.")
+            continue
+        seen_keys.add(key)
+
+        canonical_product = known_product_names[product.casefold()]
+        existing = existing_rules.get(key)
+        if existing:
+            current = existing_techs_by_rule.get(existing["id"], set())
+            added = [t for t in techs if t not in current]
+            rule_plan.append({
+                "name": existing["name"], "product": canonical_product,
+                "action": "update" if added else "noop",
+                "rule_id": existing["id"],
+                "existing_techniques": sorted(current),
+                "added_techniques": added,
+                "techniques": techs,
+                "coverage_level": item["coverage_level"],
+                "kind": item["kind"], "rationale": item["rationale"],
+                "confidence": item["confidence"],
+            })
+        else:
+            rule_plan.append({
+                "name": name, "product": canonical_product, "action": "create",
+                "rule_id": None, "existing_techniques": [], "added_techniques": techs,
+                "techniques": techs, "coverage_level": item["coverage_level"],
+                "kind": item["kind"], "rationale": item["rationale"],
+                "confidence": item["confidence"],
+            })
+
+    summary = {
+        "products_new": sum(1 for p in product_plan if p["action"] == "create"),
+        "rules_new": sum(1 for r in rule_plan if r["action"] == "create"),
+        "rules_updated": sum(1 for r in rule_plan if r["action"] == "update"),
+        "rules_unchanged": sum(1 for r in rule_plan if r["action"] == "noop"),
+        "techniques_added": sum(len(r["added_techniques"]) for r in rule_plan),
+        "errors": len(errors),
+    }
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "products": product_plan,
+        "rules": rule_plan,
+        "summary": summary,
+    }
+
+
+def _next_product_color(db: sqlite3.Connection, offset: int = 0) -> str:
+    """Yeni urune catismayan bir renk sec — kullanici sonradan degistirir."""
+    palette = [
+        "#1565c0", "#2e7d32", "#6a1b9a", "#ef6c00", "#c62828",
+        "#00838f", "#4527a0", "#ad1457", "#37474f", "#9e9d24",
+    ]
+    used = {
+        (r["color"] or "").lower()
+        for r in db.execute("SELECT color FROM products").fetchall()
+    }
+    for i in range(len(palette)):
+        candidate = palette[(offset + i) % len(palette)]
+        if candidate.lower() not in used:
+            return candidate
+    return palette[offset % len(palette)]
+
+
+MAPPING_PROMPT_PATH = BASE_DIR / "docs" / "mitre_mapping_prompt.md"
+
+
+@app.route("/api/import/mapping-prompt", methods=["GET"])
+@role_required("viewer")
+def import_mapping_prompt():
+    """docs/mitre_mapping_prompt.md icindeki prompt blogunu dondurur.
+
+    Dokuman ve arayuz ayrisamasin diye tek kaynak dosyadir; buradaki is
+    yalnizca ```` ile cevrili blogu ayiklamak.
+    """
+    try:
+        text = MAPPING_PROMPT_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return jsonify({"error": "Prompt dokumani bulunamadi."}), 500
+    match = re.search(r"^````text\n(.*?)^````$", text, re.S | re.M)
+    if not match:
+        return jsonify({"error": "Prompt blogu dokumanda bulunamadi."}), 500
+    return jsonify({"prompt": match.group(1).strip()})
+
+
+@app.route("/api/import/coverage/preview", methods=["POST"])
+@role_required("editor")
+def import_coverage_preview():
+    raw, error = _read_import_payload()
+    if error:
+        return jsonify({"error": error}), 400
+    return jsonify(_plan_coverage_import(get_db(), raw))
+
+
+@app.route("/api/import/coverage/apply", methods=["POST"])
+@role_required("editor")
+def import_coverage_apply():
+    raw, error = _read_import_payload()
+    if error:
+        return jsonify({"error": error}), 400
+
+    db = get_db()
+    plan = _plan_coverage_import(db, raw)
+    if not plan["ok"]:
+        # Kismi uygulama yok: hatali bir dosyanin yarisini yazmak, kullaniciyi
+        # neyin girdigini bilmedigi bir duruma sokar.
+        return jsonify({"error": "Dosyada hatalar var, uygulanmadi.", **plan}), 400
+
+    is_admin = ROLE_LEVELS.get(g.current_user["role"], 0) >= ROLE_LEVELS["admin"]
+    new_products = [p for p in plan["products"] if p["action"] == "create"]
+    if new_products and not is_admin:
+        return jsonify({
+            "error": "Dosya yeni urun olusturuyor; bunun icin admin yetkisi gerekir: "
+                     + ", ".join(p["name"] for p in new_products),
+            **plan,
+        }), 403
+
+    applied = _apply_coverage_plan(db, plan)
+    db.commit()
+    return jsonify({"ok": True, "applied": applied, "summary": plan["summary"]})
+
+
+def _apply_coverage_plan(db: sqlite3.Connection, plan: dict) -> dict:
+    """Plani yazar. Cagiran taraf yetkiyi kontrol etmis olmali; commit etmez."""
+    new_products = [p for p in plan["products"] if p["action"] == "create"]
+    for product in new_products:
+        db.execute(
+            "INSERT INTO products (name, color, category) VALUES (?, ?, ?)",
+            (product["name"], product["color"], product["category"]),
+        )
+        write_audit_log(
+            db, action="create", target_type="product", target_id=product["name"],
+            detail="source=import",
+            after={"name": product["name"], "color": product["color"],
+                   "category": product["category"]},
+        )
+
+    created = updated = techs_added = 0
+    for rule in plan["rules"]:
+        if rule["action"] == "noop":
+            continue
+        rule_id = rule["rule_id"]
+        if rule_id is None:
+            rule_id = db.execute(
+                "INSERT INTO rules (name, tactic, tech, source, coverage_level) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (rule["name"], "none", "none", rule["product"], rule["coverage_level"]),
+            ).lastrowid
+            created += 1
+        else:
+            updated += 1
+        for tech_id in rule["added_techniques"]:
+            db.execute(
+                "INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
+                (rule_id, tech_id),
+            )
+            techs_added += 1
+        write_audit_log(
+            db,
+            action="create" if rule["action"] == "create" else "update",
+            target_type="rule", target_id=str(rule_id),
+            detail=f"source=import;product={rule['product']};"
+                   f"techniques={','.join(rule['added_techniques'])}",
+            after={"name": rule["name"], "source": rule["product"],
+                   "added_techniques": rule["added_techniques"],
+                   "kind": rule["kind"], "rationale": rule["rationale"]},
+        )
+
+    write_audit_log(
+        db, action="bulk_create", target_type="rule",
+        detail=f"source=import;created={created};updated={updated};"
+               f"techniques_added={techs_added};products={len(new_products)}",
+    )
+    _invalidate_ttp_cache()
+    return {
+        "products_created": len(new_products),
+        "rules_created": created,
+        "rules_updated": updated,
+        "techniques_added": techs_added,
+    }
+
+
+def _read_import_payload() -> tuple[Any, str | None]:
+    """Dosya yuklemesi veya duz JSON govdesi — ikisini de kabul et."""
+    file = request.files.get("file")
+    if file is not None:
+        try:
+            return json.loads(file.read().decode("utf-8")), None
+        except UnicodeDecodeError:
+            return None, "Dosya UTF-8 olmali."
+        except json.JSONDecodeError as exc:
+            return None, f"Gecersiz JSON: {exc.msg} (satir {exc.lineno})"
+    body = request.get_json(silent=True)
+    if body is None:
+        return None, "JSON dosyasi veya govdesi gerekli."
+    return body, None
+
+
 @app.route("/api/rules/bulk", methods=["POST"])
 @role_required("editor")
 def rules_bulk():
+    """CSV toplu ice aktarim — JSON ice aktarimla ayni planlayiciya baglanir.
+
+    Onceden her satir icin kor bir INSERT yapiyordu; ayni (name, source) ikinci
+    kez gelince UNIQUE index'e carpip 500 donuyordu. Artik ayni kuralin birden
+    fazla satiri tek kurala birlestirilir (bir kural cok teknik) ve mevcut
+    kurallara teknik eklenir.
+    """
     db = get_db()
     file = request.files.get("file")
     if not file:
-        return jsonify({"error": "Missing CSV file"}), 400
+        return jsonify({"error": "CSV dosyasi gerekli"}), 400
 
     import csv
     try:
         content = file.read().decode("utf-8")
-    except Exception:
-        return jsonify({"error": "CSV must be UTF-8 encoded"}), 400
+    except UnicodeDecodeError:
+        return jsonify({"error": "CSV UTF-8 kodlu olmali"}), 400
 
     reader = csv.DictReader(content.splitlines())
-    required = {"name", "tactic", "tech", "source"}
     if not reader.fieldnames:
-        return jsonify({"error": "CSV header must include: name,tactic,tech,source"}), 400
+        return jsonify({"error": "CSV basligi sunlari icermeli: name,tech,source"}), 400
+    headers = {h.strip().lower() for h in reader.fieldnames}
+    if not {"name", "tech", "source"}.issubset(headers):
+        return jsonify({"error": "CSV basligi sunlari icermeli: name,tech,source"}), 400
 
-    header_map = {h.strip().lower(): h for h in reader.fieldnames}
-    if not required.issubset(set(header_map.keys())):
-        return jsonify({"error": "CSV header must include: name,tactic,tech,source"}), 400
-
-    products = {r["name"]: True for r in db.execute("SELECT name FROM products").fetchall()}
-
-    inserted = 0
-    errors = []
+    # Ayni (name, source) satirlarini tek kurala topla — bir kural cok teknik.
+    merged: dict[tuple[str, str], dict] = {}
+    row_errors: list[str] = []
     for i, row in enumerate(reader, start=2):
         norm = {k.strip().lower(): (v or "") for k, v in row.items()}
         name = norm.get("name", "").strip()
-        tactic = norm.get("tactic", "").strip()
         tech = norm.get("tech", "").strip()
         source = norm.get("source", "").strip()
-        if not name or not tactic or not tech or not source:
-            errors.append(f"Satir {i}: eksik alan")
+        if not name or not tech or not source:
+            row_errors.append(f"Satir {i}: name, tech ve source zorunlu")
             continue
-        if source not in products:
-            errors.append(f"Satir {i}: kaynak bulunamadi ({source})")
-            continue
-        row_id = db.execute(
-            "INSERT INTO rules (name, tactic, tech, source) VALUES (?, ?, ?, ?)",
-            (name, tactic, tech, source)
-        ).lastrowid
-        db.execute("INSERT OR IGNORE INTO rule_techniques (rule_id, tech_id) VALUES (?, ?)",
-                   (row_id, tech))
-        inserted += 1
-    write_audit_log(
-        db,
-        action="bulk_create",
-        target_type="rule",
-        detail=f"inserted={inserted};errors={len(errors)}",
-    )
-    _invalidate_ttp_cache()
+        entry = merged.setdefault(
+            (name.casefold(), source.casefold()),
+            {"name": name, "product": source, "techniques": [],
+             "coverage_level": (norm.get("coverage_level") or "full").strip() or "full"},
+        )
+        if tech not in entry["techniques"]:
+            entry["techniques"].append(tech)
+
+    plan = _plan_coverage_import(db, {
+        "schema": IMPORT_SCHEMA_NAME,
+        "version": IMPORT_SCHEMA_VERSION,
+        "rules": list(merged.values()),
+    })
+    errors = row_errors + plan["errors"]
+    if errors:
+        return jsonify({"ok": False, "errors": errors, "summary": plan["summary"]}), 400
+
+    applied = _apply_coverage_plan(db, plan)
     db.commit()
-    return jsonify({"ok": True, "inserted": inserted, "errors": errors})
+    return jsonify({
+        "ok": True,
+        "inserted": applied["rules_created"],
+        "updated": applied["rules_updated"],
+        "techniques_added": applied["techniques_added"],
+        "errors": [],
+    })
 
 
 @app.route("/api/rules/<int:rule_id>/coverage", methods=["PATCH"])

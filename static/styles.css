@@ -3052,3 +3052,139 @@ button.action-btn, .action-btn {
 .conn-badge.good { color: #79c000; background: rgba(87,163,0,.12); }
 .conn-badge.warn { color: #f3a333; background: rgba(202,80,16,.12); }
 .conn-badge.bad { color: #f1707b; background: rgba(209,52,56,.12); }
+
+/* ── Ice Aktarim ekrani ─────────────────────────────────────
+   Uc adim: prompt kopyala -> onizle -> uygula. Onizleme adimi
+   bilincli: yanlis bir dosya haritayi aninda bozmasin.        */
+.import-step {
+  background: var(--d-surface);
+  border: 1px solid var(--d-border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.import-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.import-step-head h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--d-text-1);
+  margin: 0 0 2px;
+}
+.import-step-head p {
+  font-size: 11.5px;
+  color: var(--d-text-3);
+  margin: 0;
+}
+.import-step-head > button { margin-left: auto; flex-shrink: 0; }
+.import-step-no {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--d-blue-tint);
+  color: var(--d-blue-light, #7cb3ff);
+  border: 1px solid var(--d-blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+.import-hint {
+  font-size: 11.5px;
+  color: var(--d-text-3);
+  line-height: 1.5;
+}
+.import-hint a { color: var(--d-blue-light, #7cb3ff); text-decoration: underline; }
+
+.import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.import-stat {
+  flex: 1 1 92px;
+  min-width: 92px;
+  background: var(--d-bg);
+  border: 1px solid var(--d-border);
+  border-radius: 5px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.import-stat strong { font-size: 17px; color: var(--d-text-1); line-height: 1; }
+.import-stat span { font-size: 10px; color: var(--d-text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.import-stat.bad { border-color: var(--d-red); }
+.import-stat.bad strong { color: #ff8a8a; }
+
+.import-error-box {
+  background: rgba(209, 52, 56, 0.08);
+  border-left: 3px solid var(--d-red);
+  border-radius: 4px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #f1a0a6;
+}
+.import-error-box ul { margin: 6px 0 0 16px; }
+.import-error-box li { margin-bottom: 3px; overflow-wrap: anywhere; }
+
+.import-plan h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--d-text-3);
+  margin: 12px 0 6px;
+}
+.import-product-list { margin: 0 0 0 16px; font-size: 12px; color: var(--d-text-2); }
+.import-cat { font-size: 10px; color: var(--d-text-3); }
+
+.import-table-wrap { overflow-x: auto; }
+.import-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.import-table th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--d-text-3);
+  font-weight: 600;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--d-border);
+  white-space: nowrap;
+}
+.import-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--d-border);
+  color: var(--d-text-2);
+  vertical-align: top;
+}
+.import-table tr:last-child td { border-bottom: none; }
+.import-techs code {
+  display: inline-block;
+  background: var(--d-surface-alt);
+  border: 1px solid var(--d-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin: 1px 2px 1px 0;
+  font-size: 10.5px;
+  color: var(--d-text-1);
+}
+.import-badge {
+  display: inline-block;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.import-badge.new { background: rgba(45, 178, 125, 0.15); color: #7ee2a8; border: 1px solid rgba(45, 178, 125, 0.4); }
+.import-badge.upd { background: rgba(232, 150, 60, 0.15); color: #f0c674; border: 1px solid rgba(232, 150, 60, 0.4); }
+

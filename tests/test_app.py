@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import sqlite3
@@ -464,6 +465,158 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(ov["uncovered_techniques"], 1)
         # Mitigation bilgi olarak raporlanır ama kovaları etkilemez.
         self.assertEqual(ov["mitigated_techniques"], 1)
+
+    # ── Kapsama içe aktarımı ────────────────────────────────────────────
+    def _import_payload(self, **overrides):
+        payload = {
+            "schema": application.IMPORT_SCHEMA_NAME,
+            "version": application.IMPORT_SCHEMA_VERSION,
+            "products": [{"name": "Defender for Identity", "category": "tespit_kaynagi"}],
+            "rules": [
+                {"name": "Suspicious LDAP enumeration",
+                 "product": "Defender for Identity",
+                 "techniques": ["T1000", "T1001"],
+                 "coverage_level": "partial", "kind": "builtin"},
+            ],
+            "product_coverage": [
+                {"product": "Defender for Identity", "techniques": ["T1001"],
+                 "coverage_level": "partial", "note": "built-in alert seti"},
+            ],
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_import_preview_does_not_write_anything(self):
+        """Önizleme bir plan döner ama DB'ye dokunmaz — hatalı bir dosyayı
+        geri almak zorunda kalmamanın tek yolu bu."""
+        self.login()
+        before = len(self.client.get("/api/rules").get_json())
+
+        plan = self.client.post(
+            "/api/import/coverage/preview", json=self._import_payload()
+        ).get_json()
+
+        self.assertTrue(plan["ok"], plan["errors"])
+        self.assertEqual(plan["summary"]["products_new"], 1)
+        self.assertEqual(plan["summary"]["rules_new"], 2)  # isimli + built-in seti
+        self.assertEqual(plan["summary"]["techniques_added"], 3)
+        self.assertEqual(len(self.client.get("/api/rules").get_json()), before)
+        self.assertIsNone(
+            self.client.get("/api/products").get_json() and next(
+                (p for p in self.client.get("/api/products").get_json()
+                 if p["name"] == "Defender for Identity"), None),
+            "önizleme ürün oluşturmamalı",
+        )
+
+    def test_import_apply_creates_product_rules_and_builtin_set(self):
+        self.login()
+        result = self.client.post(
+            "/api/import/coverage/apply", json=self._import_payload()
+        )
+        self.assertEqual(result.status_code, 200, result.get_json())
+        applied = result.get_json()["applied"]
+        self.assertEqual(applied["products_created"], 1)
+        self.assertEqual(applied["rules_created"], 2)
+
+        rules = {r["name"]: r for r in self.client.get("/api/rules").get_json()}
+        self.assertEqual(
+            sorted(rules["Suspicious LDAP enumeration"]["techniques"]),
+            ["T1000", "T1001"],
+            "bir kural birden fazla tekniğe eşlenebilmeli",
+        )
+        # Ürün seviyesi kapsama tek bir sanal kural olarak girer
+        builtin_name = f"Defender for Identity — {application._BUILTIN_RULE_SUFFIX}"
+        self.assertIn(builtin_name, rules)
+        self.assertEqual(rules[builtin_name]["techniques"], ["T1001"])
+        self.assertEqual(rules[builtin_name]["coverage_level"], "partial")
+
+    def test_import_merges_techniques_without_dropping_manual_ones(self):
+        """İkinci yükleme mevcut kuralın tekniklerini SİLMEZ, eksikleri ekler.
+
+        Kullanıcının kararı: uygulamada elle yapılan eşlemeler asla
+        kaybolmamalı (bkz. docs/mitre_mapping_prompt.md).
+        """
+        self.login()
+        self.client.post("/api/import/coverage/apply", json=self._import_payload(
+            product_coverage=[],
+            rules=[{"name": "A kuralı", "product": "QRadar", "techniques": ["T1000"]}],
+        ))
+        rule_id = self.client.get("/api/rules").get_json()[0]["id"]
+        # Elle bir teknik daha ekle
+        self.client.post(f"/api/rules/{rule_id}/techniques", json={"tech_id": "T1001"})
+
+        # Aynı kural yeniden yüklenir, dosyada T1001 yok
+        plan = self.client.post("/api/import/coverage/preview", json=self._import_payload(
+            products=[], product_coverage=[],
+            rules=[{"name": "A kuralı", "product": "QRadar", "techniques": ["T1000"]}],
+        )).get_json()
+        self.assertEqual(plan["summary"]["rules_unchanged"], 1)
+        self.assertEqual(plan["summary"]["techniques_added"], 0)
+
+        self.client.post("/api/import/coverage/apply", json=self._import_payload(
+            products=[], product_coverage=[],
+            rules=[{"name": "A kuralı", "product": "QRadar", "techniques": ["T1000"]}],
+        ))
+        techs = self.client.get("/api/rules").get_json()[0]["techniques"]
+        self.assertEqual(sorted(techs), ["T1000", "T1001"], "elle eklenen teknik silinmemeli")
+
+    def test_import_rejects_unknown_technique_and_product(self):
+        """Hatalı dosya kısmen uygulanmaz — ya hepsi ya hiçbiri."""
+        self.login()
+        bad = self._import_payload(products=[], product_coverage=[], rules=[
+            {"name": "Iyi kural", "product": "QRadar", "techniques": ["T1000"]},
+            {"name": "Uydurma teknik", "product": "QRadar", "techniques": ["T9999"]},
+            {"name": "Uydurma urun", "product": "Yok Boyle Urun", "techniques": ["T1000"]},
+        ])
+        preview = self.client.post("/api/import/coverage/preview", json=bad).get_json()
+        self.assertFalse(preview["ok"])
+        self.assertEqual(len(preview["errors"]), 2)
+
+        response = self.client.post("/api/import/coverage/apply", json=bad)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            self.client.get("/api/rules").get_json(), [],
+            "hatalı dosyanın geçerli satırları da yazılmamalı",
+        )
+
+    def test_import_rejects_wrong_schema_header(self):
+        self.login()
+        preview = self.client.post(
+            "/api/import/coverage/preview",
+            json={"version": 1, "rules": []},
+        ).get_json()
+        self.assertFalse(preview["ok"])
+        self.assertTrue(any("schema" in e for e in preview["errors"]))
+
+    def test_import_new_product_requires_admin(self):
+        """Ürün oluşturma admin işi; editor kural yükleyebilir ama katalogu
+        genişletemez (POST /api/products ile aynı kural)."""
+        self.login("editor", "Editor123!")
+        response = self.client.post(
+            "/api/import/coverage/apply", json=self._import_payload()
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("admin", response.get_json()["error"])
+
+    def test_csv_bulk_import_merges_duplicate_rows_instead_of_crashing(self):
+        """Aynı (name, source) ikinci kez gelince eskiden UNIQUE index'e
+        çarpıp 500 dönüyordu; artık tek kurala birleşiyor."""
+        self.login()
+        csv_body = (
+            "name,tactic,tech,source\n"
+            "Coklu teknik kurali,execution,T1000,QRadar\n"
+            "Coklu teknik kurali,persistence,T1001,QRadar\n"
+        )
+        response = self.client.post(
+            "/api/rules/bulk",
+            data={"file": (io.BytesIO(csv_body.encode("utf-8")), "rules.csv")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["inserted"], 1)
+        rules = self.client.get("/api/rules").get_json()
+        self.assertEqual(len(rules), 1)
+        self.assertEqual(sorted(rules[0]["techniques"]), ["T1000", "T1001"])
 
     def test_mitigation_entry_records_optional_product(self):
         """Mitigation'ı hangi ürünle sağladığımız kaydedilir.

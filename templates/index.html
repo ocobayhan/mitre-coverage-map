@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=112" />
+  <link rel="stylesheet" href="/static/styles.css?v=113" />
 </head>
 <body>
   <div class="ms-shell">
@@ -221,7 +221,7 @@
             <p class="page-lead">Ürünleri, kullanıcıları, ekipleri, connector'ları ve veri aktarımını tek yerden yönetin.</p>
             <div class="settings-tabs" id="settingsTabBar">
               <button class="settings-tab-btn active" data-tab="stab-product">Ürün Yönetimi</button>
-              <button class="settings-tab-btn" data-tab="stab-csv" id="settingsCsvTab">CSV Yükleme</button>
+              <button class="settings-tab-btn" data-tab="stab-csv" id="settingsCsvTab">İçe Aktarım</button>
               <button class="settings-tab-btn" data-tab="stab-users" id="settingsUsersTab">Kullanıcılar</button>
               <button class="settings-tab-btn" data-tab="stab-teams" id="settingsTeamsTab">Ekipler</button>
               <button class="settings-tab-btn" data-tab="stab-connectors" id="settingsConnectorsTab">Connector'lar</button>
@@ -258,16 +258,55 @@
             </div>
 
             <div id="stab-csv" class="settings-tab-panel">
-              <div class="settings-row">
-                <input type="file" id="csvFile" accept=".csv" />
-                <button class="action-btn btn-add" id="btnUploadCsv">Yükle</button>
-              </div>
-              <div class="csv-help">
-                <div>CSV dosyası başlık satırı içermelidir.</div>
-                <div>Gerekli sütunlar: <code>name,tactic,tech,source</code></div>
-                <div>Örnek satır: <code>Suspicious PowerShell,Execution,T1059,QRadar</code></div>
-                <div>Kaynak (source) alanı ürün adıyla birebir eşleşmelidir.</div>
-              </div>
+              <!-- 1) Claude'a verilecek prompt -->
+              <section class="import-step">
+                <div class="import-step-head">
+                  <span class="import-step-no">1</span>
+                  <div>
+                    <h3>Eşlemeyi Claude'a ürettir</h3>
+                    <p>Prompt'u kopyala, sonuna ürün ve kural listeni ekleyip Claude'a ver. Dönen JSON'u kaydet.</p>
+                  </div>
+                  <button class="action-btn btn-add" id="btnCopyMappingPrompt">Prompt'u kopyala</button>
+                </div>
+                <div class="import-hint">
+                  Bir kural birden fazla tekniğe eşlenebilir. Ayrıntılı şema ve alan açıklamaları:
+                  <a href="/docs#w-import">Bilgilendirme &rsaquo; İçe Aktarım</a>
+                </div>
+              </section>
+
+              <!-- 2) Dosyayı yükle ve önizle -->
+              <section class="import-step">
+                <div class="import-step-head">
+                  <span class="import-step-no">2</span>
+                  <div>
+                    <h3>Dosyayı önizle</h3>
+                    <p>Hiçbir şey yazılmaz — ne olacağını görürsün.</p>
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <div class="input-wrapper">
+                    <label for="importFile">Eşleme dosyası (.json veya .csv)</label>
+                    <input type="file" id="importFile" accept=".json,.csv" />
+                  </div>
+                  <button class="action-btn btn-add" id="btnImportPreview">Önizle</button>
+                </div>
+              </section>
+
+              <!-- 3) Plan + uygula -->
+              <section class="import-step hidden" id="importPlanSection">
+                <div class="import-step-head">
+                  <span class="import-step-no">3</span>
+                  <div>
+                    <h3>Planı onayla</h3>
+                    <p>Uygula'ya basana kadar veritabanına hiçbir şey yazılmaz.</p>
+                  </div>
+                  <button class="action-btn btn-add" id="btnImportApply">Uygula</button>
+                </div>
+                <div id="importSummary" class="import-summary"></div>
+                <div id="importErrors" class="import-errors"></div>
+                <div id="importPlanTable" class="import-plan"></div>
+              </section>
+
               <div class="upload-result" id="uploadResult"></div>
             </div>
 
@@ -695,7 +734,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=112"></script>
+  <script src="/static/app.js?v=113"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

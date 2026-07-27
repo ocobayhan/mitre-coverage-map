@@ -42,9 +42,9 @@
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1.5L2 4v3.5c0 3.5 2.5 6.5 6 7.5 3.5-1 6-4 6-7.5V4L8 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
                 Mitigation
               </button>
-              <button class="wiki-nav-item" data-wiki="w-csv">
+              <button class="wiki-nav-item" data-wiki="w-import">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="1.5" width="10" height="13" rx="1.5" stroke="currentColor" stroke-width="1.4"/><line x1="5" y1="5.5" x2="11" y2="5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="10.5" x2="9" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-                CSV Format
+                İçe Aktarım
               </button>
               <button class="wiki-nav-item" data-wiki="w-roles">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M1 13c0-2.761 2.239-4 5-4s5 1.239 5 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M11 7l1.5 1.5L15 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -570,55 +570,104 @@
               </div>
 
               <!-- CSV Format -->
-              <div class="wiki-page" id="w-csv">
-                <h1 class="wiki-page-title">CSV Format &amp; Toplu Yükleme</h1>
-                <p class="wiki-page-lead">Mevcut SIEM tespit listelerini CSV olarak yükleyerek tüm tespitleri tek seferde içe aktarabilirsiniz.</p>
+              <div class="wiki-page" id="w-import">
+                <h1 class="wiki-page-title">İçe Aktarım &amp; MITRE Eşleme</h1>
+                <p class="wiki-page-lead">Ürün ve kural listenizi bir LLM'e verip MITRE eşlemesini ürettirin, dönen dosyayı buraya yükleyin. Uygulama eşlemeyi haritaya dönüştürür.</p>
 
                 <div class="wiki-section">
-                  <h2 class="wiki-h2">Gerekli Sütunlar</h2>
+                  <h2 class="wiki-h2">Akış</h2>
+                  <div class="wiki-steps">
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">1</div>
+                      <div>Kurallarınızı SIEM/EDR'den dışa aktarın (QRadar Use Case Manager, Defender custom detections vb.).</div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">2</div>
+                      <div><strong>Ayarlar → İçe Aktarım</strong> ekranından <strong>Prompt'u kopyala</strong>. Prompt'un sonundaki <code>GİRDİ</code> bölümüne ürün ve kural listenizi yazıp Claude'a verin.</div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">3</div>
+                      <div>Dönen JSON'u bir <code>.json</code> dosyasına kaydedin ve <strong>Önizle</strong> ile yükleyin. Bu adımda veritabanına <strong>hiçbir şey yazılmaz</strong>.</div>
+                    </div>
+                    <div class="wiki-step">
+                      <div class="wiki-step-num">4</div>
+                      <div>Planı inceleyin — kaç yeni kural, hangi teknikler eklenecek, hangi satırlar hatalı. Doğruysa <strong>Uygula</strong>.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Bir kural, birden fazla teknik</h2>
+                  <p class="wiki-p">Tek bir tespit kuralı birden fazla ATT&amp;CK tekniğini görebilir. Şema bunu doğrudan destekler — <code>techniques</code> bir dizidir ve kaç eleman isterseniz içerebilir.</p>
+                  <pre class="wiki-code">{
+  "name": "Suspicious PowerShell download",
+  "product": "Defender for Endpoint",
+  "techniques": ["T1059.001", "T1105"],
+  "coverage_level": "full"
+}</pre>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Dosya şeması</h2>
                   <div class="wiki-table-wrap">
                     <table class="wiki-table">
-                      <thead><tr><th>Sütun</th><th>Zorunlu</th><th>Açıklama</th></tr></thead>
+                      <thead><tr><th>Bölüm</th><th>Ne için</th></tr></thead>
                       <tbody>
-                        <tr><td><code>name</code></td><td><span class="wt-required">Evet</span></td><td>Tespit adı (benzersiz olması önerilir)</td></tr>
-                        <tr><td><code>tactic</code></td><td><span class="wt-optional">Hayır</span></td><td>MITRE taktiği (örn. <code>Execution</code>)</td></tr>
-                        <tr><td><code>tech</code></td><td><span class="wt-required">Evet</span></td><td>Teknik ID (örn. <code>T1059</code> veya <code>T1059.001</code>)</td></tr>
-                        <tr><td><code>source</code></td><td><span class="wt-required">Evet</span></td><td>Ürün adı — Ayarlar'da tanımlı adla birebir eşleşmeli</td></tr>
+                        <tr><td><code>schema</code>, <code>version</code></td><td>Sabit: <code>"soc-coverage-import"</code> ve <code>1</code>. Uyuşmazsa dosya reddedilir.</td></tr>
+                        <tr><td><code>products[]</code></td><td>Katalogda olmayan yeni ürünler. Oluşturmak <span class="role-badge role-admin">admin</span> ister.</td></tr>
+                        <tr><td><code>rules[]</code></td><td>İsimli kurallar. <code>name</code>, <code>product</code> ve en az bir <code>techniques</code> zorunlu.</td></tr>
+                        <tr><td><code>product_coverage[]</code></td><td>Ürünün built-in setinin toplu kapsaması. <code>"&lt;Ürün&gt; — Built-in kapsama"</code> adlı tek kayda dönüşür.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="wiki-tip">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#0078d4" stroke-width="1.2"/><path d="M7 4.5v3.5M7 9.5v.5" stroke="#0078d4" stroke-width="1.2" stroke-linecap="round"/></svg>
+                    Tüm alanların ayrıntısı ve Claude'a verilecek prompt'un tam metni: <code>docs/mitre_mapping_prompt.md</code>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Doğrulama kuralları</h2>
+                  <div class="wiki-table-wrap">
+                    <table class="wiki-table">
+                      <thead><tr><th>Kural</th><th>Neden</th></tr></thead>
+                      <tbody>
+                        <tr><td>Teknik ID'leri gerçek olmalı</td><td>Tanınmayan ID (uydurulmuş <code>T9999</code> gibi) hata üretir. LLM'lerin ID uydurması bilinen bir risk.</td></tr>
+                        <tr><td>Ürün katalogda ya da dosyada tanımlı olmalı</td><td><code>rules.source</code> ile <code>products.name</code> arasında FK yok; eşleşmeyen kaynak hiçbir ortamda kapsama sağlamaz.</td></tr>
+                        <tr><td>Aynı kural dosyada iki kez geçemez</td><td>Hangi satırın kazandığı belirsiz kalırdı.</td></tr>
+                        <tr><td><strong>Kısmi uygulama yok</strong></td><td>Tek bir hata varsa hiçbir satır yazılmaz — yarısı girmiş bir dosyayı toparlamak zordur.</td></tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
 
                 <div class="wiki-section">
-                  <h2 class="wiki-h2">Örnek CSV</h2>
-                  <pre class="wiki-code">name,tactic,tech,source
-Suspicious PowerShell Execution,Execution,T1059.001,QRadar
-Mimikatz Detected,Credential Access,T1003.001,Splunk
-Scheduled Task Created,Persistence,T1053.005,QRadar
-Suspicious Network Scan,Discovery,T1046,Defender
-Lateral Movement via SMB,Lateral Movement,T1021.002,Splunk
-Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
+                  <h2 class="wiki-h2">Aynı dosyayı tekrar yüklemek</h2>
+                  <p class="wiki-p">Mevcut bir kural (aynı ad + aynı ürün) yeniden yüklendiğinde <strong>teknikleri silinmez</strong>, yalnızca eksik olanlar eklenir. Uygulamada elle yaptığınız eşlemeler asla kaybolmaz.</p>
+                  <p class="wiki-p">Bunun bedeli: kaynak sistemden kaldırdığınız bir eşleme uygulamada kalır. Kaldırmak için ilgili kuralın teknik çipini <strong>Tespitler</strong> ekranından silin.</p>
                 </div>
 
                 <div class="wiki-section">
-                  <h2 class="wiki-h2">Yükleme Adımları</h2>
-                  <div class="wiki-steps">
-                    <div class="wiki-step">
-                      <div class="wiki-step-num">1</div>
-                      <div>Ayarlar → <strong>CSV Yükleme</strong> sekmesine gidin.</div>
-                    </div>
-                    <div class="wiki-step">
-                      <div class="wiki-step-num">2</div>
-                      <div>Dosyayı seçin ve <strong>Yükle</strong> butonuna tıklayın.</div>
-                    </div>
-                    <div class="wiki-step">
-                      <div class="wiki-step-num">3</div>
-                      <div>Mevcut tespitlerle çakışan satırlar atlanır (deduplication). Yükleme sonucunda kaç tespitin eklendiği raporlanır.</div>
-                    </div>
+                  <h2 class="wiki-h2">CSV alternatifi</h2>
+                  <p class="wiki-p">Basit durumlar için CSV de kabul edilir; aynı doğrulayıcıdan geçer. Bir kuralın birden fazla tekniği varsa her teknik için bir satır yazın — satırlar tek kurala birleştirilir.</p>
+                  <pre class="wiki-code">name,tech,source
+Suspicious PowerShell download,T1059.001,Defender for Endpoint
+Suspicious PowerShell download,T1105,Defender for Endpoint
+Mimikatz Detected,T1003.001,QRadar</pre>
+                  <div class="wiki-table-wrap">
+                    <table class="wiki-table">
+                      <thead><tr><th>Sütun</th><th>Zorunlu</th><th>Açıklama</th></tr></thead>
+                      <tbody>
+                        <tr><td><code>name</code></td><td><span class="wt-required">Evet</span></td><td>Kural adı</td></tr>
+                        <tr><td><code>tech</code></td><td><span class="wt-required">Evet</span></td><td>Teknik ID (<code>T1059</code> veya <code>T1059.001</code>)</td></tr>
+                        <tr><td><code>source</code></td><td><span class="wt-required">Evet</span></td><td>Ürün adı — katalogla birebir eşleşmeli</td></tr>
+                        <tr><td><code>coverage_level</code></td><td><span class="wt-optional">Hayır</span></td><td><code>low</code> / <code>partial</code> / <code>full</code> (varsayılan <code>full</code>)</td></tr>
+                      </tbody>
+                    </table>
                   </div>
                   <div class="wiki-tip">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#0078d4" stroke-width="1.2"/><path d="M7 4.5v3.5M7 9.5v.5" stroke="#0078d4" stroke-width="1.2" stroke-linecap="round"/></svg>
-                    <code>source</code> alanındaki değer, Ayarlar → Ürün Yönetimi'nde tanımlı ürün adıyla <strong>büyük/küçük harf dahil birebir</strong> eşleşmelidir. Eşleşmeyen satırlar yüklenir ama kart rengine katkı sağlamaz.
+                    CSV yolunda satır satır önizleme yoktur. Planı görmek istiyorsanız JSON kullanın.
                   </div>
                 </div>
 
@@ -889,16 +938,26 @@ Malicious Macro Detected,Execution,T1566.001,QRadar</pre>
     // Wiki sekme gecisi — index.html'den bagimsiz, tek dosyalik davranis.
     (function () {
       const content = document.querySelector('.wiki-content');
+      function show(target) {
+        const page = document.getElementById(target);
+        if (!page) return false;
+        document.querySelectorAll('.wiki-nav-item').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.wiki-page').forEach(p => p.classList.remove('active'));
+        document.querySelector(`.wiki-nav-item[data-wiki="${target}"]`)?.classList.add('active');
+        page.classList.add('active');
+        if (content) content.scrollTop = 0;
+        return true;
+      }
       document.querySelectorAll('.wiki-nav-item').forEach(btn => {
         btn.addEventListener('click', () => {
-          const target = btn.dataset.wiki;
-          document.querySelectorAll('.wiki-nav-item').forEach(b => b.classList.remove('active'));
-          document.querySelectorAll('.wiki-page').forEach(p => p.classList.remove('active'));
-          btn.classList.add('active');
-          document.getElementById(target)?.classList.add('active');
-          if (content) content.scrollTop = 0;
+          if (show(btn.dataset.wiki)) history.replaceState(null, '', '#' + btn.dataset.wiki);
         });
       });
+      // /docs#w-import gibi derin baglantilar dogrudan o sayfayi acsin —
+      // uygulamadan "ayrintili sema" linki bunu kullaniyor.
+      const fromHash = location.hash.replace('#', '');
+      if (fromHash) show(fromHash);
+      window.addEventListener('hashchange', () => show(location.hash.replace('#', '')));
     })();
   </script>
 </body>

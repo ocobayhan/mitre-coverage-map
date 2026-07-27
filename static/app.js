@@ -99,8 +99,8 @@ function applyRoleUI() {
     }
   }
 
-  const csvFileInput = document.getElementById('csvFile');
-  if (csvFileInput) csvFileInput.disabled = !hasRole('editor');
+  const importFileInput = document.getElementById('importFile');
+  if (importFileInput) importFileInput.disabled = !hasRole('editor');
 
   // Ayarlar sekmelerini role göre gizle:
   //   CSV Yükleme → editor veya üstü
@@ -2653,30 +2653,182 @@ async function addProduct() {
   renderMatrix();
 }
 
-async function uploadCsv() {
+// ── Kapsama Ice Aktarimi ─────────────────────────────────────────────────────
+// Iki asamali: once /preview (yazma yok) plani gosterir, kullanici gorup
+// onaylayinca /apply yazar. Yanlis bir dosyanin haritayi aninda bozmamasi icin.
+let importPlanPayload = null;   // onizlenen ham dosya icerigi (JSON) veya File (CSV)
+let importPlanIsCsv = false;
+
+async function previewImportFile() {
   if (!hasRole('editor')) {
-    alert('Bu islem icin editor yetkisi gerekir.');
+    alert('Bu işlem için editor yetkisi gerekir.');
     return;
   }
-  const fileInput = document.getElementById('csvFile');
+  const fileInput = document.getElementById('importFile');
   const result = document.getElementById('uploadResult');
+  const section = document.getElementById('importPlanSection');
   result.textContent = '';
-  if (!fileInput.files || fileInput.files.length === 0) {
-    result.textContent = 'Lütfen bir CSV dosyası seçin.';
+  section.classList.add('hidden');
+  importPlanPayload = null;
+
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    result.textContent = 'Lütfen bir dosya seçin.';
     return;
   }
-  const form = new FormData();
-  form.append('file', fileInput.files[0]);
-  const res = await apiFetch('/api/rules/bulk', { method: 'POST', body: form });
+
+  // CSV'nin satir satir onizlemesi yok — eski toplu yol oldugu gibi calisir,
+  // ama artik ayni planlayiciyi kullandigi icin duplicate satirlar birlesiyor.
+  importPlanIsCsv = /\.csv$/i.test(file.name);
+  if (importPlanIsCsv) {
+    importPlanPayload = file;
+    document.getElementById('importSummary').innerHTML =
+      '<div class="import-stat"><strong>CSV</strong><span>Doğrudan yükleme</span></div>';
+    document.getElementById('importErrors').innerHTML = '';
+    document.getElementById('importPlanTable').innerHTML =
+      '<div class="import-hint">CSV yolunda önizleme yok; Uygula doğrudan yükler. ' +
+      'Satır satır plan görmek için JSON kullanın.</div>';
+    const applyBtn = document.getElementById('btnImportApply');
+    if (applyBtn) applyBtn.disabled = false;
+    section.classList.remove('hidden');
+    return;
+  }
+
+  let raw;
+  try {
+    raw = JSON.parse(await file.text());
+  } catch (e) {
+    result.textContent = 'Geçersiz JSON: ' + e.message;
+    return;
+  }
+
+  const res = await apiFetch('/api/import/coverage/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(raw),
+  });
+  const plan = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    result.textContent = plan.error || 'Önizleme başarısız.';
+    return;
+  }
+  importPlanPayload = raw;
+  renderImportPlan(plan);
+  section.classList.remove('hidden');
+}
+
+function renderImportPlan(plan) {
+  const s = plan.summary || {};
+  const stat = (label, value, cls) =>
+    '<div class="import-stat ' + (cls || '') + '"><strong>' + (value ?? 0) +
+    '</strong><span>' + label + '</span></div>';
+  document.getElementById('importSummary').innerHTML =
+    stat('Yeni ürün', s.products_new) +
+    stat('Yeni kural', s.rules_new) +
+    stat('Güncellenecek', s.rules_updated) +
+    stat('Değişmeyen', s.rules_unchanged) +
+    stat('Eklenecek teknik', s.techniques_added) +
+    stat('Hata', s.errors, s.errors ? 'bad' : '');
+
+  const errors = plan.errors || [];
+  document.getElementById('importErrors').innerHTML = errors.length
+    ? '<div class="import-error-box"><strong>' + errors.length +
+      ' hata — dosya uygulanamaz:</strong><ul>' +
+      errors.map(e => '<li>' + _esc(e) + '</li>').join('') + '</ul></div>'
+    : '';
+
+  const rows = (plan.rules || []).filter(r => r.action !== 'noop');
+  const productRows = (plan.products || []).filter(p => p.action === 'create');
+  const badge = a => a === 'create'
+    ? '<span class="import-badge new">yeni</span>'
+    : '<span class="import-badge upd">güncelle</span>';
+
+  const productHtml = productRows.length
+    ? '<h4>Oluşturulacak ürünler</h4><ul class="import-product-list">' +
+      productRows.map(p => '<li>' + _esc(p.name) +
+        ' <span class="import-cat">' + _esc(p.category) + '</span></li>').join('') +
+      '</ul>'
+    : '';
+
+  const ruleHtml = rows.length
+    ? '<h4>Kurallar</h4><div class="import-table-wrap"><table class="import-table">' +
+      '<thead><tr><th></th><th>Kural</th><th>Ürün</th><th>Eklenecek teknikler</th><th>Kapsam</th></tr></thead><tbody>' +
+      rows.map(r =>
+        '<tr><td>' + badge(r.action) + '</td>' +
+        '<td>' + _esc(r.name) + '</td>' +
+        '<td>' + _esc(r.product) + '</td>' +
+        '<td class="import-techs">' +
+        r.added_techniques.map(t => '<code>' + _esc(t) + '</code>').join(' ') + '</td>' +
+        '<td>' + _esc(r.coverage_level) + '</td></tr>').join('') +
+      '</tbody></table></div>'
+    : '<div class="import-hint">Uygulanacak bir değişiklik yok — dosyadaki her şey zaten kayıtlı.</div>';
+
+  document.getElementById('importPlanTable').innerHTML = productHtml + ruleHtml;
+
+  const applyBtn = document.getElementById('btnImportApply');
+  if (applyBtn) applyBtn.disabled = !plan.ok || (rows.length + productRows.length === 0);
+}
+
+async function applyImport() {
+  if (!hasRole('editor')) return;
+  const result = document.getElementById('uploadResult');
+  if (!importPlanPayload) {
+    result.textContent = 'Önce bir dosya önizleyin.';
+    return;
+  }
+
+  let res;
+  if (importPlanIsCsv) {
+    const form = new FormData();
+    form.append('file', importPlanPayload);
+    res = await apiFetch('/api/rules/bulk', { method: 'POST', body: form });
+  } else {
+    res = await apiFetch('/api/import/coverage/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(importPlanPayload),
+    });
+  }
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    result.textContent = payload.error || 'Yükleme baÅŸarısız.';
+    result.textContent = payload.error || 'Uygulama başarısız.';
+    if (payload.summary) renderImportPlan(payload);
     return;
   }
+
   await reloadData();
   renderMatrix();
-  const errors = (payload.errors || []).slice(0, 10).join(' | ');
-  result.textContent = `Yüklendi: ${payload.inserted}. Hata: ${payload.errors.length}` + (errors ? ` (${errors})` : '');
+  const a = payload.applied || {
+    products_created: 0,
+    rules_created: payload.inserted,
+    rules_updated: payload.updated,
+    techniques_added: payload.techniques_added,
+  };
+  result.textContent =
+    'Uygulandı — ' + (a.products_created || 0) + ' ürün, ' +
+    (a.rules_created || 0) + ' yeni kural, ' +
+    (a.rules_updated || 0) + ' güncellenen kural, ' +
+    (a.techniques_added || 0) + ' teknik eşlemesi.';
+  document.getElementById('importPlanSection').classList.add('hidden');
+  importPlanPayload = null;
+}
+
+async function copyMappingPrompt() {
+  const res = await apiFetch('/api/import/mapping-prompt');
+  if (!res.ok) { alert('Prompt alınamadı.'); return; }
+  const data = await res.json();
+  const btn = document.getElementById('btnCopyMappingPrompt');
+  try {
+    await navigator.clipboard.writeText(data.prompt);
+    if (btn) {
+      const old = btn.textContent;
+      btn.textContent = 'Kopyalandı ✓';
+      setTimeout(() => { btn.textContent = old; }, 1800);
+    }
+  } catch {
+    // Pano izni yoksa kullanici elle kopyalayabilsin
+    window.prompt('Prompt (Ctrl+C ile kopyalayın):', data.prompt);
+  }
 }
 
 async function addUser() {
@@ -2739,8 +2891,9 @@ async function changeOwnPassword() {
 function wireSettings() {
   const addBtn = document.getElementById('btnAddProduct');
   if (addBtn) addBtn.addEventListener('click', addProduct);
-  const uploadBtn = document.getElementById('btnUploadCsv');
-  if (uploadBtn) uploadBtn.addEventListener('click', uploadCsv);
+  document.getElementById('btnImportPreview')?.addEventListener('click', previewImportFile);
+  document.getElementById('btnImportApply')?.addEventListener('click', applyImport);
+  document.getElementById('btnCopyMappingPrompt')?.addEventListener('click', copyMappingPrompt);
   const addUserBtn = document.getElementById('btnAddUser');
   if (addUserBtn) addUserBtn.addEventListener('click', addUser);
   document.getElementById('connectorSave')?.addEventListener('click', saveConnector);
