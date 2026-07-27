@@ -1827,7 +1827,8 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
     """
     payload, errors = _normalize_import_payload(raw)
     if errors:
-        return {"ok": False, "errors": errors, "products": [], "rules": [], "summary": {}}
+        return {"ok": False, "errors": errors, "warnings": [], "products": [], "rules": [], "summary": {}}
+    warnings: list[str] = []
 
     known_techs = _known_technique_ids(db)
     existing_products = {
@@ -1930,10 +1931,21 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
             )
             continue
 
+        # Teknik taninmasi UYARIdir, hata degil: bir LLM'in urettigi ID
+        # gercekte var olmayabilir (mitre.json'da olmayan bir numara). Tek
+        # satirlik bir tanima hatasi yuzunden yuzlerce satirlik dosyanin
+        # tamami reddedilmesin — gecersiz ID'ler atlanir, kural (varsa kalan
+        # gecerli tekniklerle, yoksa tekniksiz) yine de eklenir. Kullanici
+        # Veri Kalitesi ekranindan tamamlar; ayni yol elle "tekniksiz kural"
+        # eklemekle birebir aynidir.
         raw_techs = item["techniques"]
-        if not isinstance(raw_techs, list) or not raw_techs:
-            errors.append(f"{label} ({name}): 'techniques' en az bir teknik iceren dizi olmali.")
+        if not isinstance(raw_techs, list):
+            errors.append(f"{label} ({name}): 'techniques' bir dizi olmali.")
             continue
+        if not raw_techs:
+            warnings.append(
+                f"{label} ({name}): teknik listesi bos — kural tekniksiz eklenecek."
+            )
         techs, unknown = [], []
         for t in raw_techs:
             tid = str(t or "").strip().upper()
@@ -1943,11 +1955,10 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
             if tid not in techs:
                 techs.append(tid)
         if unknown:
-            errors.append(
-                f"{label} ({name}): taninmayan teknik ID: {', '.join(unknown)}"
+            warnings.append(
+                f"{label} ({name}): taninmayan teknik ID (atlandi, MITRE katalogunda yok): "
+                f"{', '.join(unknown)}"
             )
-        if not techs:
-            continue
 
         key = (name.casefold(), product.casefold())
         if key in seen_keys:
@@ -1986,11 +1997,19 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
         "rules_updated": sum(1 for r in rule_plan if r["action"] == "update"),
         "rules_unchanged": sum(1 for r in rule_plan if r["action"] == "noop"),
         "techniques_added": sum(len(r["added_techniques"]) for r in rule_plan),
+        # Bu satirdan sonra hicbir gecerli teknigi kalmayan kurallar — yeni
+        # olsun mevcut olsun. Kullanicinin elle tamamlamasi gereken liste.
+        "rules_without_technique": sum(
+            1 for r in rule_plan
+            if not r["existing_techniques"] and not r["added_techniques"]
+        ),
         "errors": len(errors),
+        "warnings": len(warnings),
     }
     return {
         "ok": not errors,
         "errors": errors,
+        "warnings": warnings,
         "products": product_plan,
         "rules": rule_plan,
         "summary": summary,
@@ -2069,7 +2088,10 @@ def import_coverage_apply():
 
     applied = _apply_coverage_plan(db, plan)
     db.commit()
-    return jsonify({"ok": True, "applied": applied, "summary": plan["summary"]})
+    return jsonify({
+        "ok": True, "applied": applied,
+        "summary": plan["summary"], "warnings": plan["warnings"],
+    })
 
 
 def _apply_coverage_plan(db: sqlite3.Connection, plan: dict) -> dict:
@@ -2209,6 +2231,7 @@ def rules_bulk():
     db.commit()
     return jsonify({
         "ok": True,
+        "warnings": plan["warnings"],
         "inserted": applied["rules_created"],
         "updated": applied["rules_updated"],
         "techniques_added": applied["techniques_added"],

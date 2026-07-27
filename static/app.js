@@ -2739,13 +2739,25 @@ function renderImportPlan(plan) {
     stat('Güncellenecek', s.rules_updated) +
     stat('Değişmeyen', s.rules_unchanged) +
     stat('Eklenecek teknik', s.techniques_added) +
+    stat('Tekniksiz kalacak', s.rules_without_technique, s.rules_without_technique ? 'warn' : '') +
+    stat('Uyarı', s.warnings, s.warnings ? 'warn' : '') +
     stat('Hata', s.errors, s.errors ? 'bad' : '');
 
+  // Hata = engelleyici (yapısal: bozuk şema, katalogda olmayan ürün — dosya
+  // hiç uygulanamaz). Uyarı = engellemez (örn. tanınmayan teknik ID'si —
+  // o satır geçerli kısmıyla veya tekniksiz eklenir, sonradan tamamlanır).
   const errors = plan.errors || [];
   document.getElementById('importErrors').innerHTML = errors.length
     ? '<div class="import-error-box"><strong>' + errors.length +
       ' hata — dosya uygulanamaz:</strong><ul>' +
       errors.map(e => '<li>' + _esc(e) + '</li>').join('') + '</ul></div>'
+    : '';
+
+  const warnings = plan.warnings || [];
+  document.getElementById('importWarnings').innerHTML = warnings.length
+    ? '<div class="import-warning-box"><strong>' + warnings.length +
+      ' uyarı — uygulanabilir, gözden geçir:</strong><ul>' +
+      warnings.map(w => '<li>' + _esc(w) + '</li>').join('') + '</ul></div>'
     : '';
 
   const rows = (plan.rules || []).filter(r => r.action !== 'noop');
@@ -2764,13 +2776,17 @@ function renderImportPlan(plan) {
   const ruleHtml = rows.length
     ? '<h4>Kurallar</h4><div class="import-table-wrap"><table class="import-table">' +
       '<thead><tr><th></th><th>Kural</th><th>Ürün</th><th>Eklenecek teknikler</th><th>Kapsam</th></tr></thead><tbody>' +
-      rows.map(r =>
-        '<tr><td>' + badge(r.action) + '</td>' +
-        '<td>' + _esc(r.name) + '</td>' +
-        '<td>' + _esc(r.product) + '</td>' +
-        '<td class="import-techs">' +
-        r.added_techniques.map(t => '<code>' + _esc(t) + '</code>').join(' ') + '</td>' +
-        '<td>' + _esc(r.coverage_level) + '</td></tr>').join('') +
+      rows.map(r => {
+        const orphan = !r.existing_techniques.length && !r.added_techniques.length;
+        const techCell = orphan
+          ? '<span class="import-badge warn">teknik yok</span>'
+          : r.added_techniques.map(t => '<code>' + _esc(t) + '</code>').join(' ');
+        return '<tr><td>' + badge(r.action) + '</td>' +
+          '<td>' + _esc(r.name) + '</td>' +
+          '<td>' + _esc(r.product) + '</td>' +
+          '<td class="import-techs">' + techCell + '</td>' +
+          '<td>' + _esc(r.coverage_level) + '</td></tr>';
+      }).join('') +
       '</tbody></table></div>'
     : '<div class="import-hint">Uygulanacak bir değişiklik yok — dosyadaki her şey zaten kayıtlı.</div>';
 

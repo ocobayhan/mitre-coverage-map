@@ -241,7 +241,7 @@ Kullanıcı: *"QRadar'da kuralları export aldığımda… Claude bana bir MITRE
 
 **İki aşamalı, tek planlayıcı:** `/api/import/coverage/preview` hiçbir şey yazmaz, plan döner; `/apply` aynı `_plan_coverage_import()` çıktısını uygular. "Önizlemede gördüğün" ile "olan" ayrışamaz.
 
-**Doğrulama:** teknik ID'leri `technique_config`'e karşı denetlenir (LLM'in ID uydurması bilinen risk — `T9999` test edildi, yakalandı), ürün katalogda veya dosyada olmalı, aynı `(name, product)` iki kez geçemez. **Kısmi uygulama yok** — tek hata varsa hiçbir satır yazılmaz.
+**Doğrulama:** teknik ID'leri `technique_config`'e karşı denetlenir (LLM'in ID uydurması bilinen risk — `T9999` test edildi, yakalandı), ürün katalogda veya dosyada olmalı, aynı `(name, product)` iki kez geçemez. Yapısal hatalarda (ürün, şema) **kısmi uygulama yok** — tek hata varsa hiçbir satır yazılmaz. Tanınmayan teknik ID'si ise **uyarıdır**, dosyayı durdurmaz — bkz. aşağıdaki "Teknik tanıma artık uyarı" bölümü (gerçek veriyle karşılaşılan sorun sonrası eklendi).
 
 **Birleştirme (kullanıcının kararı):** mevcut kuralın teknikleri asla silinmez, eksikler eklenir. Aynı dosya ikinci kez yüklendiğinde her şey `noop`. Bedeli: kaynak sistemden kaldırılan eşleme uygulamada kalır.
 
@@ -272,7 +272,7 @@ Kullanıcının ihtiyacı: QRadar/Defender kural listelerini bir LLM'e verip MIT
 
 **Birleştirme semantiği (kullanıcı kararı):** mevcut kuralın teknikleri **asla silinmez**, eksikler eklenir. Uygulamada elle yapılan eşlemeler korunur; bedeli, kaynak sistemden kaldırılan bir eşlemenin burada kalması.
 
-**Kısmi uygulama yok:** bir tek hata varsa 400 döner, geçerli satırlar da yazılmaz.
+**Yapısal hatalarda kısmi uygulama yok:** bir tek hata varsa 400 döner, geçerli satırlar da yazılmaz. (27 Temmuz'daki bu karar tanınmayan teknik ID'sini de "hata" sayıyordu — 28 Temmuz'da gerçek veriyle bunun pratikte çalışmadığı görüldü, aşağıya bakın.)
 
 ### Ürün iddiası ≠ tespit (Faz 5 sonu, kullanıcı kararı)
 
@@ -291,6 +291,25 @@ Backend `detected = named_rule_count > 0`, frontend `namedRuleCount()` ile aynı
 **Bu arada düzeltilen bug:** eski CSV toplu içe aktarımı her satır için kör `INSERT` yapıyordu; aynı `(name, source)` ikinci kez gelince UNIQUE index'e çarpıp **500** dönüyordu. Artık aynı planlayıcıya bağlı — aynı kuralın satırları tek kurala birleşiyor (bir kural çok teknik).
 
 **Doğrulandı:** 35/35 test (8 yeni). Gerçek veriyle: DFE ürün iddiası (T1055/T1003/T1547) yüklendi → `Tespit 0`, üç teknik de boşluk listesinde, skor %30, kartlar kesikli amber. Sonra T1055'e isimli kural eklendi → kovaya girdi, `Tespit 1`, skor %80. `?v=115`.
+
+### Teknik tanıma artık uyarı, hata değil (2026-07-28)
+
+Kullanıcı gerçek QRadar kural setini (374 kural) prompt'tan geçirip yükleyince **38 satır** `taninmayan teknik ID` hatası verdi — `T1685`, `T1686` (ve `.001`/`.004`/`.005` alt teknikleri). Kontrol: kullanıcının `data/mitre.json`'ında en yüksek teknik numarası **T1681** — yani bu ID'ler gerçek MITRE ID'si değil, eşlemeyi üreten LLM'in hallüsinasyonu. O ana kadarki tasarım bunu **hata** sayıyordu, yani tek satırlık bir hallüsinasyon **374 kuralın tamamını** reddettiriyordu — hiç uygulanamıyordu.
+
+Çözüm: `_plan_coverage_import()`'da hata/uyarı ayrımı netleştirildi.
+
+| | Hata (engelleyici, tüm dosyayı durdurur) | Uyarı (engellemez) |
+|---|---|---|
+| Kapsam | bozuk şema, eksik `name`/`product`, katalogda olmayan ürün, geçersiz `category`/`coverage_level`, mükerrer `(name,product)` | **tanınmayan teknik ID'si**, boş `techniques: []` |
+| Sonuç | `/apply` 400, hiçbir satır yazılmaz | o satırdan geçersiz ID atlanır; kural kalan geçerli tekniklerle veya **tekniksiz** eklenir |
+
+Tekniksiz kalan kural yeni bir kavram değil — elle "tekniksiz kural" eklemekle birebir aynı yol, sonuç Veri Kalitesi ekranında `unmapped_rule` olarak zaten görünüyordu. Sadece içe aktarım bu yola artık **izin veriyor**, önceden tek bir hallüsinasyonda tüm dosyayı reddediyordu.
+
+- `_plan_coverage_import()`: `warnings: list[str]` eklendi, dönen sözlükte `errors`'dan ayrı. `summary.rules_without_technique` — bu import sonrası toplam tekniği (mevcut + eklenen) sıfır kalacak kural sayısı.
+- UI: yeni "Tekniksiz kalacak" ve "Uyarı" stat kutucukları (amber), ayrı uyarı kutusu (`.import-warning-box`, kırmızı hata kutusundan görsel olarak farklı), plan tablosunda tekniksiz kalan satırlarda kesikli "teknik yok" rozeti. Uygula butonu artık yalnızca gerçek `errors`'a bakıyor.
+- Prompt (`docs/mitre_mapping_prompt.md`) güncellendi: "ID uydurma" talimatı hâlâ geçerli ama artık "reddedilir" değil "atlanır, kural tekniksiz kalır" diyor — LLM'e yanlış bir güvenlik ağı vaat etmiyor.
+
+**Doğrulandı:** 36/36 test (`test_import_treats_unknown_technique_as_warning_not_blocking_error`, `test_import_still_rejects_unknown_product_atomically`), gerçek senaryo (T1685/T1686) tarayıcıda uçtan uca: önizleme `ok:true`, 3 uyarı, 2 kural tekniksiz oluştu, ikisi de Veri Kalitesi'nde `unmapped_rule` olarak çıktı. `?v=116`.
 
 ### Veri temizliği (2026-07-27)
 

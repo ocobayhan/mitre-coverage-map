@@ -599,23 +599,54 @@ class AppTestCase(unittest.TestCase):
         techs = self.client.get("/api/rules").get_json()[0]["techniques"]
         self.assertEqual(sorted(techs), ["T1000", "T1001"], "elle eklenen teknik silinmemeli")
 
-    def test_import_rejects_unknown_technique_and_product(self):
-        """Hatalı dosya kısmen uygulanmaz — ya hepsi ya hiçbiri."""
+    def test_import_treats_unknown_technique_as_warning_not_blocking_error(self):
+        """Tanınmayan teknik ID'si TÜM dosyayı reddettirmez.
+
+        Bir LLM'in ürettiği ID gerçekte var olmayabilir (mitre.json'da
+        bulunmayan bir numara). Geçersiz ID'ler o satırdan atlanır; kural
+        varsa kalan geçerli tekniklerle, hiç kalmadıysa tekniksiz eklenir —
+        elle "tekniksiz kural" eklemekle birebir aynı yol. Kullanıcı bunu
+        Veri Kalitesi ekranından tamamlar. Yapısal hatalar (katalogda
+        olmayan ürün gibi) hâlâ tüm dosyayı reddettirir.
+        """
+        self.login()
+        payload = self._import_payload(products=[], product_coverage=[], rules=[
+            {"name": "Iyi kural", "product": "QRadar", "techniques": ["T1000"]},
+            {"name": "Kismen taninan", "product": "QRadar", "techniques": ["T1000", "T9999"]},
+            {"name": "Hic taninmayan", "product": "QRadar", "techniques": ["T9999"]},
+        ])
+        preview = self.client.post("/api/import/coverage/preview", json=payload).get_json()
+        self.assertTrue(preview["ok"], preview["errors"])
+        self.assertEqual(preview["errors"], [])
+        self.assertEqual(len(preview["warnings"]), 2)
+        self.assertEqual(preview["summary"]["rules_without_technique"], 1)
+
+        response = self.client.post("/api/import/coverage/apply", json=payload)
+        self.assertEqual(response.status_code, 200, response.get_json())
+
+        rules = {r["name"]: r for r in self.client.get("/api/rules").get_json()}
+        self.assertEqual(rules["Iyi kural"]["techniques"], ["T1000"])
+        self.assertEqual(rules["Kismen taninan"]["techniques"], ["T1000"])
+        self.assertEqual(rules["Hic taninmayan"]["techniques"], [],
+                         "tekniksiz de olsa kural eklenmeli, sonradan elle eslenir")
+
+    def test_import_still_rejects_unknown_product_atomically(self):
+        """Yapısal hatalar (katalogda olmayan ürün gibi) hâlâ tüm dosyayı
+        reddettirir — kısmi uygulama yoktur, sadece teknik tanıma gevşetildi."""
         self.login()
         bad = self._import_payload(products=[], product_coverage=[], rules=[
             {"name": "Iyi kural", "product": "QRadar", "techniques": ["T1000"]},
-            {"name": "Uydurma teknik", "product": "QRadar", "techniques": ["T9999"]},
             {"name": "Uydurma urun", "product": "Yok Boyle Urun", "techniques": ["T1000"]},
         ])
         preview = self.client.post("/api/import/coverage/preview", json=bad).get_json()
         self.assertFalse(preview["ok"])
-        self.assertEqual(len(preview["errors"]), 2)
+        self.assertEqual(len(preview["errors"]), 1)
 
         response = self.client.post("/api/import/coverage/apply", json=bad)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             self.client.get("/api/rules").get_json(), [],
-            "hatalı dosyanın geçerli satırları da yazılmamalı",
+            "yapisal hatali dosyanin gecerli satirlari da yazilmamali",
         )
 
     def test_import_rejects_wrong_schema_header(self):

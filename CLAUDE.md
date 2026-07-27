@@ -79,6 +79,11 @@ Key patterns:
   `_plan_coverage_import()`. Schema + the LLM prompt live in
   `docs/mitre_mapping_prompt.md`, served to the UI via
   `GET /api/import/mapping-prompt` — never duplicate the prompt in code.
+  The plan distinguishes `errors` (structural — blocks the whole file) from
+  `warnings` (e.g. an unrecognized technique ID — an LLM-generated ID that
+  isn't in `technique_config`; that row is skipped, the rule is still
+  created, with or without the surviving valid techniques). Don't conflate
+  the two: a single hallucinated ID must not block 300+ otherwise-valid rows.
 
 ## MITRE Data Setup
 

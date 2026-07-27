@@ -26,9 +26,34 @@ tekniklerine eşlemeni ve sonucu tek bir JSON dosyası olarak üretmeni istiyoru
 
 1. Verilen her **kural** için, o kuralın gerçekten tespit edebileceği ATT&CK
    tekniklerini belirle.
-2. Verilen her **ürün** için, ürünün *hazır/built-in* tespit setinin kapsadığı
-   teknikleri ayrıca listele (kural kural değil, ürün seviyesinde toplu).
+2. `(built-in)` işaretli her **ürün** için, ürünün *hazır/built-in* tespit
+   setinin kapsadığı teknikleri ayrıca listele (kural kural değil, ürün
+   seviyesinde toplu) — bkz. "Built-in tetikleme" bölümü.
 3. Sonucu aşağıdaki JSON şemasına birebir uyacak şekilde üret.
+
+## Built-in tetikleme — TEK geçerli yöntem
+
+GİRDİ'de bir ürün başlığının **hemen yanına** `(built-in)` yaz:
+
+```
+**DFE (built-in)**
+```
+
+Bunu gördüğünde o ürün için `product_coverage[]` üret — kendi bilgine
+dayanarak o ürünün hazır/varsayılan tespit setinin kapsadığı teknikleri
+listele. Başlığın altına ayrıca isimli kurallar da yazılmışsa (senin özel
+yazdığın custom kurallar), onları `rules[]`'a normal şekilde ekle; ikisi
+birbirini dışlamaz, aynı ürün için hem `rules[]` hem `product_coverage[]`
+üretebilirsin.
+
+**`(built-in)` yoksa product_coverage ÜRETME.** Sadece ürün adı yazıp altına
+hiç kural koymamak "bu ürünü kataloğa ekle, henüz kuralı yok" demektir —
+built-in tahmini istemek değildir. Belirsizlik bırakma: işaret yoksa
+`product_coverage[]` boş kalır, o ürün için yalnızca `products[]`'ta bir
+kayıt olur (varsa).
+
+**`(built-in)` ibaresi ürün adının parçası değildir** — çıktıdaki `product`
+alanına yazma. `**DFE (built-in)**` başlığı → `product: "DFE"`.
 
 ## Eşleme kuralları — bunlara harfiyen uy
 
@@ -38,14 +63,24 @@ tekniklerine eşlemeni ve sonucu tek bir JSON dosyası olarak üretmeni istiyoru
   `T1059` yerine onu kullan. Emin değilsen ana tekniği yaz.
 - **Yalnızca gerçek ATT&CK Enterprise ID'leri kullan** (`T####` veya
   `T####.###`). ID uydurma. Emin olmadığın bir tekniği yazma — uygulama
-  tanımadığı ID'yi reddeder ve dosyanın tamamı uygulanmaz.
+  tanımadığı bir ID'yi görürse o ID'yi atlar ve kuralı **tekniksiz** ekler
+  (dosyanın tamamını reddetmez, ama o kural haritada görünmez ve elle
+  tamamlanması gerekir). Bu bir güvenlik ağıdır, dayanma: uydurma ID üretmek
+  yerine gerçekten emin olmadığın kuralı olduğu gibi bırak, kullanıcı
+  tamamlasın.
 - **Tahmin etme, gerekçelendir.** Her eşleme için `rationale` alanına bir
   cümlelik gerekçe yaz ("PowerShell komut satırı argümanlarını izliyor").
 - **Emin olmadığında `confidence` alanını düşür**, eşlemeyi silme. Kullanıcı
   düşük güvenli eşlemeleri gözden geçirecek.
 - **Kural adını değiştirme.** Sana verilen adı birebir kullan — uygulama
   kuralları ada göre eşleştiriyor, ad değişirse yeni kural oluşur.
-- **Ürün adını da değiştirme.** Aynı ürün her satırda aynı yazılmalı.
+- **Ürün adı BENİM belirlediğim isimdir, sen karar vermezsin.** Aşağıdaki
+  GİRDİ bölümünde her kural grubunun üstüne bir ürün adı başlığı yazacağım
+  (`**<ürün adı>**`). O başlığı `product` alanında **harfi harfine, hiç
+  değiştirmeden** kullan — kısaltma, İngilizceleştirme, resmi/pazarlama adına
+  çevirme, normalize etme yok. "DFE" yazdıysam çıktıda da "DFE" olacak,
+  "Microsoft Defender for Endpoint" yazmayacaksın. Aynı ürün için farklı iki
+  yazım kullanırsan uygulama onları iki ayrı ürün sanır.
 
 ## coverage_level nasıl seçilir
 
@@ -101,16 +136,20 @@ dosyasına kaydedilebilir olmalı.
 
 ### Alan kuralları
 
-- `products[]` — yalnızca kurumun **yeni** ürünlerini listele. `category`
-  şunlardan biri olmalı: `tespit_kaynagi` (tespit üretir, haritayı boyar),
-  `onleyici_kontrol` (firewall/AV/yama — tespit üretmez), `zenginlestirme`
-  (CTI beslemesi). Emin değilsen `tespit_kaynagi` yaz.
+- `products[]` — GİRDİ'deki ürün başlıklarını **birebir aynı yazımla** buraya
+  da kopyala (`rules[]`/`product_coverage[]` içindeki `product` alanıyla
+  karakter karakter eşleşmeli). `category` şunlardan biri olmalı:
+  `tespit_kaynagi` (tespit üretir, haritayı boyar), `onleyici_kontrol`
+  (firewall/AV/yama — tespit üretmez), `zenginlestirme` (CTI beslemesi).
+  Emin değilsen `tespit_kaynagi` yaz. Bu ürünün uygulamada zaten var olup
+  olmadığını bilemezsin — varsa uygulama yok sayar (`noop`), sorun değil.
 - `rules[]` — isimli her kural için bir kayıt. `kind`: kullanıcının kendi
   yazdığı kurallar için `custom`, ürünle gelenler için `builtin`.
-- `product_coverage[]` — ürünün built-in setinin toplu kapsaması. Uygulama
-  bunu `"<Ürün> — Built-in kapsama"` adlı tek bir kayda dönüştürür.
-  Built-in kuralların **isimlerini biliyorsan** `rules[]` içinde tek tek yaz;
-  bilmiyorsan burayı kullan. İkisini aynı anda kullanabilirsin.
+- `product_coverage[]` — ürünün built-in setinin toplu kapsaması. **Yalnızca
+  GİRDİ'de `(built-in)` işaretli ürünler için üret** (bkz. "Built-in
+  tetikleme"). Uygulama bunu `"<Ürün> — Built-in kapsama"` adlı tek bir kayda
+  dönüştürür. Built-in kuralların isimlerini biliyorsan onları ayrıca
+  `rules[]` içinde tek tek de yazabilirsin — ikisi birbirini dışlamaz.
 
   > **Bunun ağırlığı bilinçli olarak düşüktür.** Ürün seviyesi bir iddia
   > tekniği "Tespit" kovasına sokmaz — yalnızca skora katkı yapar (kart amber
@@ -122,28 +161,21 @@ dosyasına kaydedilebilir olmalı.
 
 ## GİRDİ
 
-### Ürünler
+Ürün adlarını BEN belirliyorum — her grubun başlığı, o gruptaki kuralların
+`product` alanına birebir geçecek isimdir. Aşağıya ürün başlığı + altına
+kural adlarını yaz:
 
-<!-- Buraya tespit yeteneği olan ürünlerini yaz. Örnek:
-- Defender for Endpoint P2
-- Defender for Identity
-- Defender for Office 365
-- QRadar
--->
+<!-- Örnek:
 
-### Kurallar
+**DFE (built-in)**
+- Özel yazdığım bir custom kural varsa buraya yazarım
+(built-in işareti gördüğün için P2'nin hazır tespit setini de ayrıca
+product_coverage olarak üretirsin — yukarıdaki "Built-in tetikleme" kuralı)
 
-<!-- Ürün başlığı altında kural adlarını listele. Örnek:
-
-**QRadar — manuel kurallarım**
+**QRadar**
 - a kuralı
 - b kuralı
-
-**Defender for Endpoint P2 — manuel custom detection'larım**
-- c kuralı
-
-Ayrıca "Defender for Endpoint P2 built-in kurallarını da kapsama olarak ekle"
-gibi bir not düşersen, o ürün için product_coverage üretirim.
+(built-in yok, sadece bu iki isimli kural rules[]'a girer)
 -->
 ````
 
@@ -206,14 +238,32 @@ isimli tespit gerekir.
 yaklaşıktır; senin tenant'ındaki gerçek alert kataloğu değildir. Mümkünse
 konsoldan gerçek listeyi dışa aktar, model hafızasına dayanma.
 
-### Doğrulama kuralları
+### Doğrulama kuralları — hata (engelleyici) ve uyarı (engellemeyen) ayrımı
 
-- Teknik ID'leri `T####` / `T####.###` biçiminde **ve** `technique_config`
-  tablosunda kayıtlı olmalı. Tanınmayan ID hata üretir.
-- Aynı `(name, product)` çifti dosyada iki kez geçemez.
-- Katalogda olmayan ve `products[]`'ta da tanımlanmayan ürün hata üretir.
-- **Kısmi uygulama yoktur.** Bir tek hata varsa `/apply` 400 döner ve hiçbir
-  satır yazılmaz.
+**Hata** yapısal bir sorundur; tek bir hata bile dosyanın tamamını reddettirir
+(`/apply` 400 döner, hiçbir satır yazılmaz):
+
+- `schema`/`version` yanlış veya eksik
+- `name`/`product` eksik
+- Katalogda olmayan ve `products[]`'ta da tanımlanmayan ürün
+- Geçersiz `category` veya `coverage_level`
+- Aynı `(name, product)` çifti dosyada iki kez geçiyor
+
+**Uyarı** dosyayı reddettirmez, o satırı etkiler:
+
+- **Tanınmayan teknik ID'si.** Bir LLM'in ürettiği `T####` her zaman gerçek
+  olmayabilir — `technique_config` tablosunda (senin `data/mitre.json`'ında)
+  yoksa bu bir uyarıdır, hata değil. O ID satırdan atlanır; kuralın kalan
+  geçerli teknikleri varsa onlarla, hiç kalmadıysa **tekniksiz** eklenir —
+  elle "tekniksiz kural" eklemekle birebir aynı yol. Önizlemede "teknik yok"
+  rozetiyle işaretlenir, uyguladıktan sonra **Veri Kalitesi** ekranında
+  `unmapped_rule` olarak listelenir; oradan veya kural satırından elle teknik
+  ekleyerek tamamlarsın.
+- Boş `techniques: []` — aynı şekilde tekniksiz kural olarak eklenir.
+
+Yani **kısmi uygulama** teknik tanıma sorunları için vardır, yapısal
+sorunlar için yoktur: bir dosyada hem uydurma ID'ler hem katalogda olmayan
+bir ürün varsa, ürün hatası dosyanın tamamını yine de durdurur.
 
 ### Birleştirme semantiği
 
