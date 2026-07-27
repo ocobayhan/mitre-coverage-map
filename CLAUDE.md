@@ -50,7 +50,10 @@ soc.db              — SQLite database (auto-created on first run, not committe
 SQLite at `soc.db`. Schema is created and migrated entirely inside `init_db()` in `app.py`. Migrations are idempotent (use `IF NOT EXISTS`, check for columns via `PRAGMA table_info`, check for index via `PRAGMA index_list`).
 
 Key tables:
-- `rules` — detection rules with `(name, source)` UNIQUE constraint
+- `rules` — detection rules with `(name, source)` UNIQUE constraint.
+  `origin` distinguishes evidence strength: `named` (a real, named detection —
+  fills the "Tespit" bucket) vs `product_claim` (product-level bulk claim from
+  an import's `product_coverage[]` — scores but never fills the bucket).
 - `rule_techniques` — many-to-many: one rule → many MITRE technique IDs
 - `products` — security products (name, color)
 - `mitigation_entries` — who mitigates what, with which product (`product_id` → `products.id`, nullable).
@@ -71,6 +74,11 @@ Key patterns:
 - `POST /api/rules` requires `name` + `source`; `tactic`/`tech` are optional
 - `GET /api/mitre-min` returns minified MITRE data (attack-patterns, courses-of-action, mitigates relationships only) — cached in memory, invalidated by file mtime
 - `POST /api/admin/reset` requires `{ confirm: "RESET" }` — deletes all rules/mitigations, optionally reseeds from `data/rules_seed.json`
+- Coverage import is two-phase: `POST /api/import/coverage/preview` returns a
+  plan and writes nothing; `…/apply` executes that same plan. Both go through
+  `_plan_coverage_import()`. Schema + the LLM prompt live in
+  `docs/mitre_mapping_prompt.md`, served to the UI via
+  `GET /api/import/mapping-prompt` — never duplicate the prompt in code.
 
 ## MITRE Data Setup
 

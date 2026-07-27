@@ -111,6 +111,13 @@ dosyasına kaydedilebilir olmalı.
   bunu `"<Ürün> — Built-in kapsama"` adlı tek bir kayda dönüştürür.
   Built-in kuralların **isimlerini biliyorsan** `rules[]` içinde tek tek yaz;
   bilmiyorsan burayı kullan. İkisini aynı anda kullanabilirsin.
+
+  > **Bunun ağırlığı bilinçli olarak düşüktür.** Ürün seviyesi bir iddia
+  > tekniği "Tespit" kovasına sokmaz — yalnızca skora katkı yapar (kart amber
+  > olur, kesikli çerçeveyle işaretlenir). Tek satırlık bir iddianın 120
+  > tekniği birden kapsanmış göstermesi, haritanın cevapladığı soruyla
+  > ("bu tekniği gerçekten görebiliyor muyuz") çelişirdi. İsimli kural her
+  > zaman daha değerlidir.
 - Boş kalan dizileri (`products`, `product_coverage`) yazmayabilirsin.
 
 ## GİRDİ
@@ -182,6 +189,22 @@ fonksiyonundadır.
 `rules[]` ile aynı alanlar, ama `name` yerine ürün adından türetilir:
 `"<Ürün> — Built-in kapsama"`. `note` alanı `rationale` yerine geçer.
 Varsayılan `coverage_level` burada `partial`.
+
+Oluşan kayıt `rules.origin = 'product_claim'` ile işaretlenir. Etkisi:
+
+| | İsimli kural (`rules[]`) | Ürün iddiası (`product_coverage[]`) |
+|---|---|---|
+| "Tespit" kovası | **girer** | girmez |
+| Kapsama skoru | girer | **girer** (varsayılan `partial` = 0.60) |
+| Harita | dolgu rengi + normal çerçeve | dolgu rengi + **kesikli amber çerçeve** |
+
+Yani `partial` bir ürün iddiası, hedefi 2 olan bir teknikte 0.60/2 = **%30**
+skor üretir — kart griden ambere döner ama asla yeşile ulaşmaz. Yeşil için
+isimli tespit gerekir.
+
+**Uyarı:** bir LLM'in bir ürünün built-in kural setine dair bilgisi
+yaklaşıktır; senin tenant'ındaki gerçek alert kataloğu değildir. Mümkünse
+konsoldan gerçek listeyi dışa aktar, model hafızasına dayanma.
 
 ### Doğrulama kuralları
 

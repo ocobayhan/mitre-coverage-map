@@ -530,6 +530,45 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(rules[builtin_name]["techniques"], ["T1001"])
         self.assertEqual(rules[builtin_name]["coverage_level"], "partial")
 
+    def test_product_claim_scores_but_does_not_fill_detection_bucket(self):
+        """Ürün seviyesi toplu iddia skora katkı yapar ama "Tespit" kovasına
+        girmez.
+
+        Aksi halde tek satırlık bir `product_coverage` kaydı 120 tekniği birden
+        kapsanmış gösterir ve manşet metrik, yazılmış tek bir kural olmadan
+        şişerdi. Kova sert kanıt ister: adı olan bir tespit.
+        """
+        self.login()
+        self.client.post("/api/import/coverage/apply", json=self._import_payload(
+            products=[], rules=[],
+            product_coverage=[{"product": "QRadar", "techniques": ["T1000"],
+                               "coverage_level": "partial"}],
+        ))
+
+        ov = self.client.get("/api/gap-analysis").get_json()
+        overview = ov["overview"]
+        self.assertEqual(overview["detected_techniques"], 0,
+                         "ürün iddiası tek başına tekniği tespitli saymamalı")
+        self.assertEqual(overview["uncovered_techniques"], 2)
+
+        # Tespitsiz teknikler listesinde, ama skoru var
+        gaps = {g["tech_id"]: g for g in ov["critical_gaps"]}
+        self.assertIn("T1000", gaps, "ürün iddiası tekniği boşluk listesinden çıkarmamalı")
+        self.assertEqual(gaps["T1000"]["rule_count"], 1)
+        self.assertEqual(gaps["T1000"]["named_rule_count"], 0)
+        # ...skoru var: partial (0.60) / hedef 2 = %30 -> kart amber, gri degil
+        self.assertAlmostEqual(gaps["T1000"]["coverage_score"], 0.3, places=2)
+
+        # Adi olan bir tespit eklenince kova dolar
+        self.client.post("/api/import/coverage/apply", json=self._import_payload(
+            products=[], product_coverage=[],
+            rules=[{"name": "Gercek kural", "product": "QRadar",
+                    "techniques": ["T1000"]}],
+        ))
+        after = self.client.get("/api/gap-analysis").get_json()
+        self.assertNotIn("T1000", {g["tech_id"] for g in after["critical_gaps"]})
+        self.assertEqual(after["overview"]["detected_techniques"], 1)
+
     def test_import_merges_techniques_without_dropping_manual_ones(self):
         """İkinci yükleme mevcut kuralın tekniklerini SİLMEZ, eksikleri ekler.
 

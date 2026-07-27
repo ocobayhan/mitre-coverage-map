@@ -900,6 +900,7 @@ def init_db() -> None:
         drop_technique_importance(db)
         build_technique_config(db)
         ensure_rule_coverage_level(db)
+        ensure_rule_origin(db)
         drop_soc_cmm_schema(db)
     finally:
         db.close()
@@ -910,6 +911,26 @@ def ensure_rule_coverage_level(db: sqlite3.Connection) -> None:
     if "coverage_level" not in cols:
         db.execute(
             "ALTER TABLE rules ADD COLUMN coverage_level TEXT NOT NULL DEFAULT 'full'"
+        )
+        db.commit()
+
+
+def ensure_rule_origin(db: sqlite3.Connection) -> None:
+    """rules.origin — kanit gucu. Kova ile skoru ayirmak icin.
+
+    'named'         : adi olan gercek bir tespit kurali. Sert kanit.
+    'product_claim' : "bu urun su teknikleri kapsiyor" seklinde urun seviyesi
+                      toplu iddia (ice aktarimdaki product_coverage[]).
+
+    Bir urun iddiasi skora katkida bulunur (kart amber olur) ama teknigi
+    "Tespit" kovasina SOKMAZ — tek satirlik bir iddianin 120 tekniği birden
+    kapsanmis gostermesi, haritanin cevapladigi soruyla ("bu teknigi gercekten
+    gorebiliyor muyuz") celisirdi.
+    """
+    cols = {r[1] for r in db.execute("PRAGMA table_info(rules)").fetchall()}
+    if "origin" not in cols:
+        db.execute(
+            "ALTER TABLE rules ADD COLUMN origin TEXT NOT NULL DEFAULT 'named'"
         )
         db.commit()
 
@@ -1199,10 +1220,11 @@ def _compute_gap_analysis(
     rule_stats_by_tech: dict[str, dict[str, Any]] = {}
     for row in db.execute(
         """
-        SELECT rt.tech_id, r.source, r.coverage_level, COUNT(DISTINCT r.id) AS rule_count
+        SELECT rt.tech_id, r.source, r.coverage_level, r.origin,
+               COUNT(DISTINCT r.id) AS rule_count
         FROM rule_techniques rt
         JOIN rules r ON r.id = rt.rule_id
-        GROUP BY rt.tech_id, r.source, r.coverage_level
+        GROUP BY rt.tech_id, r.source, r.coverage_level, r.origin
         """
     ).fetchall():
         weight = 1.0 if scope_weights is None else scope_weights.get(row["source"], 0.0)
@@ -1210,9 +1232,13 @@ def _compute_gap_analysis(
             continue
         level_weight = {"low": 0.25, "partial": 0.60}.get(row["coverage_level"], 1.00)
         stats = rule_stats_by_tech.setdefault(
-            row["tech_id"], {"rule_count": 0, "effective_rule_count": 0.0, "_products": set()}
+            row["tech_id"],
+            {"rule_count": 0, "named_rule_count": 0, "effective_rule_count": 0.0,
+             "_products": set()},
         )
         stats["rule_count"] += int(row["rule_count"])
+        if row["origin"] != "product_claim":
+            stats["named_rule_count"] += int(row["rule_count"])
         stats["effective_rule_count"] += level_weight * weight * int(row["rule_count"])
         if row["source"] in detection_sources:
             stats["_products"].add(row["source"])
@@ -1238,6 +1264,7 @@ def _compute_gap_analysis(
         teid = info["external_id"]
         rule_stats = rule_stats_by_tech.get(teid, {})
         rule_count = int(rule_stats.get("rule_count", 0))
+        named_rule_count = int(rule_stats.get("named_rule_count", 0))
         effective_rule_count = float(rule_stats.get("effective_rule_count", 0.0))
         product_count = int(rule_stats.get("product_count", 0))
         mits_for_tech = tech_to_mitigations.get(teid, set())
@@ -1253,7 +1280,11 @@ def _compute_gap_analysis(
         # turetilen "onem" kavrami kaldirildi — kullanici karari, bkz.
         # PROJECT_STATE.md Faz 4.
         coverage_score = min(effective_rule_count / rule_threshold, 1.0)
-        detected = rule_count > 0
+        # Kova SERT kanit ister: adi olan en az bir tespit. Urun seviyesi toplu
+        # iddia (origin='product_claim') skora katkida bulunur ama teknigi
+        # "Tespit" kovasina sokmaz — yoksa tek satirlik bir iddia 120 tekniği
+        # birden kapsanmis gosterirdi. Bkz. ensure_rule_origin().
+        detected = named_rule_count > 0
         mature = coverage_score >= 1.0
         all_techs.append({
             "tech_id": teid,
@@ -1261,6 +1292,7 @@ def _compute_gap_analysis(
             "is_subtechnique": info["is_subtechnique"],
             "tactics": info["tactics"],
             "rule_count": rule_count,
+            "named_rule_count": named_rule_count,
             "effective_rule_count": round(effective_rule_count, 2),
             "rule_threshold": rule_threshold,
             "product_count": product_count,
@@ -1363,6 +1395,7 @@ def _compute_gap_analysis(
             "tactic": t["tactics"][0] if t["tactics"] else "",
             "group_count": t["group_count"],
             "rule_count": t["rule_count"],
+            "named_rule_count": t["named_rule_count"],
             "effective_rule_count": t["effective_rule_count"],
             "rule_threshold": t["rule_threshold"],
             "product_count": t["product_count"],
@@ -1670,7 +1703,7 @@ def rules():
     db = get_db()
     if request.method == "GET":
         rows = db.execute("""
-            SELECT r.id, r.name, r.tactic, r.tech, r.source, r.coverage_level,
+            SELECT r.id, r.name, r.tactic, r.tech, r.source, r.coverage_level, r.origin,
                    GROUP_CONCAT(rt.tech_id) as techs
             FROM rules r
             LEFT JOIN rule_techniques rt ON rt.rule_id = r.id
@@ -1853,6 +1886,7 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
             "techniques": item.get("techniques"),
             "coverage_level": (item.get("coverage_level") or "full").strip(),
             "kind": (item.get("kind") or "custom").strip(),
+            "origin": "named",
             "rationale": (item.get("rationale") or "").strip(),
             "confidence": (item.get("confidence") or "").strip(),
         })
@@ -1870,6 +1904,7 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
             "techniques": item.get("techniques"),
             "coverage_level": (item.get("coverage_level") or "partial").strip(),
             "kind": "builtin",
+            "origin": "product_claim",
             "rationale": (item.get("note") or item.get("rationale") or "").strip(),
             "confidence": (item.get("confidence") or "").strip(),
         })
@@ -1933,16 +1968,16 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
                 "added_techniques": added,
                 "techniques": techs,
                 "coverage_level": item["coverage_level"],
-                "kind": item["kind"], "rationale": item["rationale"],
-                "confidence": item["confidence"],
+                "kind": item["kind"], "origin": item["origin"],
+                "rationale": item["rationale"], "confidence": item["confidence"],
             })
         else:
             rule_plan.append({
                 "name": name, "product": canonical_product, "action": "create",
                 "rule_id": None, "existing_techniques": [], "added_techniques": techs,
                 "techniques": techs, "coverage_level": item["coverage_level"],
-                "kind": item["kind"], "rationale": item["rationale"],
-                "confidence": item["confidence"],
+                "kind": item["kind"], "origin": item["origin"],
+                "rationale": item["rationale"], "confidence": item["confidence"],
             })
 
     summary = {
@@ -2059,9 +2094,10 @@ def _apply_coverage_plan(db: sqlite3.Connection, plan: dict) -> dict:
         rule_id = rule["rule_id"]
         if rule_id is None:
             rule_id = db.execute(
-                "INSERT INTO rules (name, tactic, tech, source, coverage_level) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (rule["name"], "none", "none", rule["product"], rule["coverage_level"]),
+                "INSERT INTO rules (name, tactic, tech, source, coverage_level, origin) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (rule["name"], "none", "none", rule["product"],
+                 rule["coverage_level"], rule.get("origin", "named")),
             ).lastrowid
             created += 1
         else:

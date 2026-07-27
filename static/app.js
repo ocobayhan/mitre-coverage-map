@@ -1810,6 +1810,14 @@ function rulesInScope(rules, weightMap) {
   return (rules || []).filter(r => scopeWeight(r, weightMap) > 0);
 }
 
+// "Tespit" kovasi SERT kanit ister: adi olan gercek bir tespit kurali.
+// Urun seviyesi toplu iddia (origin='product_claim') skora katkida bulunur
+// ama kovaya girmez — tek satirlik bir iddia 120 tekniği birden kapsanmis
+// gosterirdi. Backend'deki ensure_rule_origin() ile ayni kural.
+function namedRuleCount(rules) {
+  return (rules || []).filter(r => r.origin !== 'product_claim').length;
+}
+
 function effectiveRuleCount(rules, weightMap) {
   return (rules || []).reduce(
     (total, rule) => total + ruleCoverageWeight(rule) * scopeWeight(rule, weightMap), 0
@@ -1954,10 +1962,11 @@ function applySourceDots(card, sources) {
 
 // Kart görselleri: dolgu rengi YALNIZCA tespite bakar; mitigation ayrı bir
 // kalkan işareti olarak gösterilir (renge karışmaz) — Faz 4 kararı.
-function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount, envRatio = null) {
+function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount, envRatio = null, namedCount = rulesCount) {
   const score = computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount);
   card.style.backgroundColor = scoreToColor(score);
-  card.classList.toggle('covered', rulesCount > 0);
+  card.classList.toggle('covered', namedCount > 0);
+  card.classList.toggle('claim-only', namedCount === 0 && rulesCount > 0);
   card.classList.toggle('mitigated', mitigationCount > 0);
 
   const cfg = techniqueConfig[techId] || {};
@@ -1967,6 +1976,7 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
     name: (card.querySelector('.tc-name') || {}).textContent || '', rulesCount, weightedRuleCount: Math.round(weightedRuleCount * 100) / 100, mitigationCount,
     sources: [...new Set(Array.isArray(sources) ? sources : [])],
     score: Math.round(score * 100),
+    namedCount,
     threshold: techniqueThreshold(techId),
     mitTotal: getMitigationTotal(techId),
     groupCount: cfg.group_count || 0,
@@ -1986,7 +1996,7 @@ function updateTechniqueCard(parentId) {
   const sources = linkedRules.map(r => r.source);
   const score = computeScore(parentId, rulesCount, mitigationCount, sources, effectiveRuleCount(linkedRules, weightMap));
   card.style.backgroundColor = scoreToColor(score);
-  card.classList.toggle('covered', rulesCount > 0);
+  card.classList.toggle('covered', namedRuleCount(linkedRules) > 0);
   card.classList.toggle('mitigated', mitigationCount > 0);
 }
 
@@ -2000,7 +2010,7 @@ function updateSubtechCard(techId) {
   const sources = enriched.map(r => r.source);
   const score = computeScore(techId, rulesCount, mitigationCount, sources, effectiveRuleCount(enriched, weightMap));
   card.style.backgroundColor = scoreToSubColor(score);
-  card.classList.toggle('covered', rulesCount > 0);
+  card.classList.toggle('covered', namedRuleCount(enriched) > 0);
   card.classList.toggle('mitigated', mitigationCount > 0);
 }
 
@@ -2064,7 +2074,8 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs, weightMap = 
       ruleCount: rulesForSub.length, weighted: weightedCount,
       mitigationCount, envRatio: null, isSub: true,
     });
-    applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
+    applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources,
+                          weightedCount, null, namedRuleCount(rulesForSub));
     // Alt teknikler daha soluk gösterilir — ana tekniğin görsel ağırlığını korur
     const subScore = computeScore(st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
     subCard.style.backgroundColor = scoreToSubColor(subScore);
@@ -3257,6 +3268,7 @@ function renderMatrix() {
         name: tech.name,
         tactic: tactic,
         rule_count: parentRuleCount,
+        named_rule_count: namedRuleCount(parentRules),
         mitigation_checked: parentMitCount,
         products: Array.from(new Set(parentSources)),
         score: computeScore(tech.id, parentRuleCount, parentMitCount, parentSources, effectiveRuleCount(parentRules, scopeWeights))
@@ -3272,6 +3284,7 @@ function renderMatrix() {
           name: st.name,
           tactic: tactic,
           rule_count: subRuleCount,
+          named_rule_count: namedRuleCount(subRules),
           mitigation_checked: subMitCount,
           products: Array.from(new Set(subSources)),
           score: computeScore(st.id, subRuleCount, subMitCount, subSources, effectiveRuleCount(subRules, scopeWeights))
@@ -3296,7 +3309,8 @@ function renderMatrix() {
         ruleCount: rulesForCell.length, weighted, mitigationCount, envRatio, isSub: false,
       });
       applyTechniqueVisuals(
-        card, tech.id, rulesForCell.length, mitigationCount, sources, weighted, envRatio
+        card, tech.id, rulesForCell.length, mitigationCount, sources, weighted,
+        envRatio, namedRuleCount(rulesForCell)
       );
 
       const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches, scopeWeights);
@@ -3361,13 +3375,13 @@ function updateMatrixStats() {
   // İki ayrık kova — toplamı totalP. Mitigation ayrı kova değil; haritada
   // kalkan işareti olarak görünür, burada bilgi amaçlı ayrıca sayılır.
   const totalP    = parents.length;
-  const detected  = parents.filter(r => r.rule_count > 0).length;
+  const detected  = parents.filter(r => r.named_rule_count > 0).length;
   const uncovered = totalP - detected;
   const mitigated = parents.filter(r => r.mitigation_checked > 0).length;
   const covPct    = totalP ? Math.round(detected / totalP * 100) : 0;
 
   const totalS    = subs.length;
-  const detectedS = subs.filter(r => r.rule_count > 0).length;
+  const detectedS = subs.filter(r => r.named_rule_count > 0).length;
 
   const avgScore = totalP
     ? Math.round(parents.reduce((s, r) => s + r.score, 0) / totalP * 100)
@@ -3416,6 +3430,10 @@ function wireScoreTooltip() {
             <span class="score-tooltip-label">Tespit</span>
             <span class="score-tooltip-val">${d.rulesCount} adet · ${weightedRules}/${d.threshold} etkin</span>
           </div>
+          ${d.namedCount === 0 && d.rulesCount > 0 ? `<div class="score-tooltip-row">
+            <span class="score-tooltip-label" style="color:#f0c674">Yalnız ürün iddiası</span>
+            <span class="score-tooltip-val" style="color:#f0c674">Adı olan tespit yok</span>
+          </div>` : ''}
           <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${ruleBar.toFixed(0)}%;background:#4f86c6"></div></div>
           <div class="score-tooltip-row">
             <span class="score-tooltip-label">\xdcr\xfcnler</span>

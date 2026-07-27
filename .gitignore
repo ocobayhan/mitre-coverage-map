@@ -8,3 +8,6 @@ data/*.db
 *.log
 NUL
 backups/
+
+# Gercek kural adlari ve kural yedekleri — kurum ici veri, repoya girmez
+exports/

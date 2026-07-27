@@ -3495,3 +3495,12 @@ button.action-btn, .action-btn {
   background-repeat: no-repeat;
   background-position: right 10px center;
 }
+
+/* Yalnizca urun seviyesi iddiayla "kapsanan" teknikler — kesikli kenarlik.
+   Skoru var (kart amber) ama adi olan bir tespit yok, o yuzden "Tespit"
+   kovasina girmiyor. Bkz. app.py ensure_rule_origin(). */
+.technique-card.claim-only,
+.subtech-card.claim-only {
+  border-style: dashed;
+  border-color: #f0c674;
+}

@@ -262,6 +262,47 @@ Kullanıcı: *"matrix hariç genel tüm arayüzde bir görsellik eksikliği var�
 
 **Matris bilinçli olarak dışarıda bırakıldı** — `.technique-card` / `.subtech-card` / `.tactic-*` kendi rengini ve ölçüsünü koruyor (kullanıcının kararı: "matrix hariç"). Smoke ile doğrulandı: 14 taktik sütunu, 123 aç/kapa oku, mobil taşma yok, sıfır konsol hatası. `?v=114`.
 
+## Kapsama İçe Aktarımı (2026-07-27, Faz 5)
+
+Kullanıcının ihtiyacı: QRadar/Defender kural listelerini bir LLM'e verip MITRE eşlemesi ürettirmek, çıkan dosyayı uygulamaya yükleyip haritayı otomatik kurmak. Bir kural birden fazla tekniğe eşlenebilmeli.
+
+**Şema:** `soc-coverage-import` v1 — `products[]` + `rules[]` + `product_coverage[]`. Prompt ve şema referansı: **[docs/mitre_mapping_prompt.md](docs/mitre_mapping_prompt.md)**. Uygulama prompt'u `GET /api/import/mapping-prompt` ile o dosyadan okuyup kopyalatıyor; doküman ve arayüz ayrışamıyor.
+
+**İki aşamalı akış (kullanıcı kararı):** `POST /api/import/coverage/preview` hiçbir şey yazmadan bir plan döner (N yeni kural, M güncellenecek, hatalar, değişecek teknikler); `…/apply` aynı planı uygular. Aynı `_plan_coverage_import()` ikisini de besliyor, yani "önizlemede gördüğün" ile "olan" ayrışamaz.
+
+**Birleştirme semantiği (kullanıcı kararı):** mevcut kuralın teknikleri **asla silinmez**, eksikler eklenir. Uygulamada elle yapılan eşlemeler korunur; bedeli, kaynak sistemden kaldırılan bir eşlemenin burada kalması.
+
+**Kısmi uygulama yok:** bir tek hata varsa 400 döner, geçerli satırlar da yazılmaz.
+
+### Ürün iddiası ≠ tespit (Faz 5 sonu, kullanıcı kararı)
+
+İnceleme sırasında çıkan sorun: `detected = rule_count > 0` ikiliydi, ağırlığa bakmıyordu. Tek bir `product_coverage` satırı ("DfE built-in şu 120 tekniği kapsıyor") manşet metriği `0/216` → `120/216` yapardı — hem de arkasında yazılmış tek bir kural olmadan. Kart renkleri dürüst kalıyordu (`partial` 0.60 / hedef 2 = %30, amber) ama üstteki sayı yalan söylüyordu.
+
+Çözüm: **`rules.origin`** sütunu (`named` | `product_claim`).
+
+| | İsimli kural | Ürün iddiası |
+|---|---|---|
+| "Tespit" kovası | girer | **girmez** |
+| Kapsama skoru | girer | girer (`partial` = 0.60) |
+| Harita | normal çerçeve | **kesikli amber çerçeve** (`.claim-only`) |
+
+Backend `detected = named_rule_count > 0`, frontend `namedRuleCount()` ile aynı kural. Tooltip'te "Yalnız ürün iddiası — adı olan tespit yok" satırı çıkıyor.
+
+**Bu arada düzeltilen bug:** eski CSV toplu içe aktarımı her satır için kör `INSERT` yapıyordu; aynı `(name, source)` ikinci kez gelince UNIQUE index'e çarpıp **500** dönüyordu. Artık aynı planlayıcıya bağlı — aynı kuralın satırları tek kurala birleşiyor (bir kural çok teknik).
+
+**Doğrulandı:** 35/35 test (8 yeni). Gerçek veriyle: DFE ürün iddiası (T1055/T1003/T1547) yüklendi → `Tespit 0`, üç teknik de boşluk listesinde, skor %30, kartlar kesikli amber. Sonra T1055'e isimli kural eklendi → kovaya girdi, `Tespit 1`, skor %80. `?v=115`.
+
+### Veri temizliği (2026-07-27)
+
+Kullanıcı yeni sistemle baştan girmek için mevcut tespitlerin silinmesini istedi. Silmeden önce:
+
+- `backups/soc-20260727-154403.db.gz` — tam DB yedeği
+- `exports/rules_backup_20260727.json` — 438 kuralın tamamı, **içe aktarım şemasında** (olduğu gibi geri yüklenebilir)
+- `exports/qradar_rules_20260727.txt` / `.md` — 374 QRadar kural adı, prompt'a yapıştırmaya hazır
+- `exports/rules_without_technique_20260727.json` — hiç tekniğe bağlı olmayan 5 kural
+
+438 kural + 462 teknik eşlemesi API üzerinden tek tek silindi (audit zincirinde iz var). Kaynak dağılımı: QRadar 374, DFE 57, Other 4, DefIdentity 2, Fortigate Firewall 1. Ürünler, ortamlar, ekipler, mitigation kayıtları ve teknik hedefleri korundu.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).

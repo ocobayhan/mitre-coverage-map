@@ -102,10 +102,12 @@ MITRE Navigator'a yakın, yoğun bir ızgara kullanılır — taktik başına bi
 
 | Metrik | Anlamı |
 |---|---|
-| **Tespit** | Tekniğe bağlı en az bir tespit (kural) var — *görebiliyoruz* |
-| **Kapsamsız** | Hiç tespit yok — *asıl aksiyon listesi* |
+| **Tespit** | Tekniğe bağlı **adı olan** en az bir tespit var — *görebiliyoruz* |
+| **Kapsamsız** | Adı olan hiç tespit yok — *asıl aksiyon listesi* |
 
 `Mitigation` ayrıca sayılır ama bir kova değildir; kovalarla kesişir ve yalnızca bilgi amaçlıdır.
+
+**Kova sert kanıt ister.** İçe aktarımdaki `product_coverage[]` — yani *"bu ürün şu teknikleri kapsıyor"* şeklindeki ürün seviyesi toplu iddia — skora katkı yapar ama tekniği **Tespit kovasına sokmaz** (`rules.origin = 'product_claim'`). Tek satırlık bir iddianın 120 tekniği birden kapsanmış göstermesi, haritanın cevapladığı soruyla çelişirdi. Haritada bu teknikler **kesikli amber çerçeveyle** işaretlenir: skoru var, sert kanıtı yok.
 
 **Payda ana tekniklerdir.** Alt teknikler paydaya girmez: kurallar neredeyse tamamen ana tekniğe eşlenir ve bir alt tekniğe yazılan kural zaten ana tekniğe sayılır. Alt teknikler haritada görünür ve kendi renklerini alır, ayrıca bir metrikte bilgi olarak gösterilir — düşük değer "alt teknik eşlemesi yapılmamış" anlamına gelir.
 
