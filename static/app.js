@@ -1961,7 +1961,9 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
 
   const cfg = techniqueConfig[techId] || {};
   card.dataset.scoreData = JSON.stringify({
-    techId, rulesCount, weightedRuleCount: Math.round(weightedRuleCount * 100) / 100, mitigationCount,
+    techId,
+    // fillTechniqueCell once calistigi icin ad hucreden okunabiliyor
+    name: (card.querySelector('.tc-name') || {}).textContent || '', rulesCount, weightedRuleCount: Math.round(weightedRuleCount * 100) / 100, mitigationCount,
     sources: [...new Set(Array.isArray(sources) ? sources : [])],
     score: Math.round(score * 100),
     threshold: techniqueThreshold(techId),
@@ -2014,6 +2016,33 @@ function refreshTechniqueCardsForMitigation(mitId) {
   parents.forEach(pid => updateTechniqueCard(pid));
 }
 
+/** Teknik hücresinin içeriğini kurar — ana teknik ve alt teknik aynı düzeni
+ *  kullanır, yalnızca ölçek farklı. Kompakt olması için kimlik ve sayaçlar
+ *  tek bir alt satırda toplanır; mitigation dolguyu değil köşedeki kalkanı
+ *  etkiler. */
+function fillTechniqueCell(cell, { id, name, ruleCount, weighted, mitigationCount, envRatio, isSub }) {
+  const marks = [];
+  if (mitigationCount > 0) {
+    marks.push(`<span class="tc-shield" title="${mitigationCount} işaretli mitigation — kapsama skoruna girmez">M</span>`);
+  }
+  // Rozet yalnizca en az bir ortamda tespit varken anlamli; sifir olan kart
+  // zaten koyu gri, ustune "0/2" yazmak gurultu.
+  if (envRatio && envRatio.covered > 0) {
+    const full = envRatio.covered === envRatio.total;
+    marks.push(`<span class="tc-env ${full ? 'full' : 'partial'}" title="${envRatio.covered}/${envRatio.total} ortamda tespit var">${envRatio.covered}/${envRatio.total}</span>`);
+  }
+  const target = techniqueThreshold(id);
+  const shown = Math.round(weighted * 10) / 10;
+  cell.innerHTML = `
+    <div class="tc-name">${_esc(name)}</div>
+    <div class="tc-foot">
+      <span class="tc-id">${_esc(id)}</span>
+      <span class="tc-marks">${marks.join('')}</span>
+      <span class="tc-count ${ruleCount ? '' : 'zero'}" title="${shown} etkin tespit / hedef ${target}">${shown}/${target}</span>
+    </div>`;
+  cell.classList.toggle('is-sub', !!isSub);
+}
+
 function buildSubtechContainer(parentId, enrichedData, allowedSubs, weightMap = scopeWeightMap()) {
   const container = document.createElement('div');
   container.className = 'subtech-container';
@@ -2029,19 +2058,15 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs, weightMap = 
     const mitigationCount = getCheckedMitigationCountForTech(st.id);
     const sources = rulesForSub.map(r => r.source);
     const weightedCount = effectiveRuleCount(rulesForSub, weightMap);
+    fillTechniqueCell(subCard, {
+      id: st.id, name: st.name,
+      ruleCount: rulesForSub.length, weighted: weightedCount,
+      mitigationCount, envRatio: null, isSub: true,
+    });
     applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
     // Alt teknikler daha soluk gösterilir — ana tekniğin görsel ağırlığını korur
     const subScore = computeScore(st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
     subCard.style.backgroundColor = scoreToSubColor(subScore);
-
-    const idEl = document.createElement('div');
-    idEl.className = 'technique-id';
-    idEl.textContent = st.id;
-    const nameEl = document.createElement('div');
-    nameEl.className = 'technique-name';
-    nameEl.textContent = st.name;
-    subCard.appendChild(idEl);
-    subCard.appendChild(nameEl);
 
     subCard.style.cursor = 'pointer';
     subCard.onclick = (e) => {
@@ -3060,8 +3085,8 @@ function renderMatrix() {
   let visibleColumns = 0;
 
   document.getElementById('totalRules').innerText = userRules.length;
-  const uniqueParents = new Set(enrichedData.map(r => r.parentId));
-  document.getElementById('coveredTechs').innerText = uniqueParents.size;
+  // Ust bardaki "Tespitli" sayisi updateMatrixStats() icinde ayarlanir —
+  // seçili ortam ve filtrelerle aynı sayıyı göstermesi için tek kaynak orası.
 
   tacticOrder.forEach(tactic => {
     const col = document.createElement('div');
@@ -3125,45 +3150,40 @@ function renderMatrix() {
       card.dataset.techId = tech.id;
       currentRulesByParent[tech.id] = rulesForCell.length;
 
-      if (rulesForCell.length > 0) {
-        card.style.borderColor = '#fff';
-      }
-
       const mitigationCount = getCheckedMitigationCountForTech(tech.id);
       const sources = rulesForCell.map(r => r.source);
+      const weighted = effectiveRuleCount(rulesForCell, scopeWeights);
+      // Birleşik modda (ortam seçilmemişken) kaç ortamda tespit olduğunu göster.
+      const envRatio = scopeWeights ? null : envCoverageRatio(parentRules);
+      // Once icerik, sonra gorseller — applySourceDots karta DOM ekliyor,
+      // innerHTML sonradan yazilirsa noktalar silinirdi.
+      fillTechniqueCell(card, {
+        id: tech.id, name: tech.name,
+        ruleCount: rulesForCell.length, weighted, mitigationCount, envRatio, isSub: false,
+      });
       applyTechniqueVisuals(
-        card, tech.id, rulesForCell.length, mitigationCount, sources,
-        effectiveRuleCount(rulesForCell, scopeWeights)
+        card, tech.id, rulesForCell.length, mitigationCount, sources, weighted, envRatio
       );
-
-      const idEl = document.createElement('div');
-      idEl.className = 'technique-id';
-      idEl.textContent = tech.id;
-      const nameEl = document.createElement('div');
-      nameEl.className = 'technique-name';
-      nameEl.textContent = tech.name;
-
-      const detailBtn = document.createElement('button');
-      detailBtn.className = 'detail-btn';
-      detailBtn.textContent = 'Detay';
-      detailBtn.onclick = (e) => {
-        e.stopPropagation();
-        openModal(tech.id, tech.name, rulesForCell);
-      };
-
-      card.appendChild(idEl);
-      card.appendChild(nameEl);
-      card.appendChild(detailBtn);
 
       const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches, scopeWeights);
       card.style.cursor = 'pointer';
-      if (subContainer.children.length > 0) card.classList.add('has-subtechs');
-      card.onclick = () => {
-        if (subContainer && subContainer.children.length > 0) {
+
+      // Alt teknikleri olan kartta aç/kapa oku; ok dışına tıklamak detayı açar.
+      if (subContainer.children.length > 0) {
+        card.classList.add('has-subtechs');
+        const toggle = document.createElement('button');
+        toggle.className = 'tc-toggle';
+        toggle.type = 'button';
+        toggle.setAttribute('aria-label', 'Alt teknikleri aç/kapat');
+        toggle.textContent = '▸';
+        toggle.onclick = (e) => {
+          e.stopPropagation();
           const isOpen = subContainer.classList.toggle('open');
           card.classList.toggle('expanded', isOpen);
-        }
-      };
+        };
+        card.insertBefore(toggle, card.firstChild);
+      }
+      card.onclick = () => openModal(tech.id, tech.name, rulesForCell);
 
       col.appendChild(card);
       col.appendChild(subContainer);
@@ -3219,6 +3239,10 @@ function updateMatrixStats() {
     ? Math.round(parents.reduce((s, r) => s + r.score, 0) / totalP * 100)
     : 0;
 
+  // Ust bar ile serit ayni sayiyi gostersin — ortam secilince ikisi birden duser
+  const topCovered = document.getElementById('coveredTechs');
+  if (topCovered) topCovered.textContent = `${detected} / ${totalP}`;
+
   const setVal = (id, text, cls) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -3253,6 +3277,7 @@ function wireScoreTooltip() {
         tip = document.createElement('div');
         tip.className = 'score-tooltip';
         tip.innerHTML = `
+          <div class="score-tooltip-title">${_esc(d.techId)} · ${_esc(d.name || '')}</div>
           <div class="score-tooltip-row">
             <span class="score-tooltip-label">Tespit</span>
             <span class="score-tooltip-val">${d.rulesCount} adet · ${weightedRules}/${d.threshold} etkin</span>
@@ -3380,7 +3405,7 @@ function renderGapDashboard(data) {
       <div class="gap-stat-sub">Hiç tespit yok</div>
     </div>
     <div class="gap-stat-card">
-      <div class="gap-stat-val">${mitigated} ⛨</div>
+      <div class="gap-stat-val">${mitigated}</div>
       <div class="gap-stat-lbl">Mitigation'ı Olan</div>
       <div class="gap-stat-sub">Bilgi — skora ve renge girmez</div>
     </div>
@@ -4007,7 +4032,9 @@ function renderTtpList(data, filter) {
   data.forEach(tg => tg.techniques.forEach(t => {
     if (!t.is_subtechnique) {
       totalTechs++;
-      if (t.rule_count > 0 || t.mitigation_entry_count > 0) coveredTechs++;
+      // Tek doğru tanım: kapsanan = en az bir tespiti olan. Mitigation ayrı
+      // gösterilir, kapsama sayısına girmez (bkz. README "Kapsanan ne demek").
+      if (t.rule_count > 0) coveredTechs++;
     }
   }));
   const totalEl = document.getElementById('ttpTotalCount');

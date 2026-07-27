@@ -181,7 +181,7 @@ Kullanıcı: *"importance level kısmını kaldıralım, 0.70 falan filan hiç g
 skor = min(etkin tespit sayısı / teknik hedefi, 1)
 ```
 
-- **Mitigation skora girmez** — haritada ayrı kalkan işareti (⛨). "Yalnız mitigation ile kapsanan" kovası kaldırıldı; kullanıcı bu kavramdan vazgeçti. Renk yalnızca tespite bakar çünkü haritanın sorusu "görebiliyor muyuz".
+- **Mitigation skora girmez** — haritada ayrı **M** rozeti. "Yalnız mitigation ile kapsanan" kovası kaldırıldı; kullanıcı bu kavramdan vazgeçti. Renk yalnızca tespite bakar çünkü haritanın sorusu "görebiliyor muyuz".
 - **Ürün çeşitliliği skora girmez** — ürün noktaları zaten gösteriyor.
 - **Kaldırılanlar:** `technique_config.importance` (sütun `ALTER TABLE ... DROP COLUMN` ile düşürüldü), `_importance_to_level`, `_LEVEL_TO_FLOAT`, `CRITICAL_GAP_IMPORTANCE/SCORE`, `isCriticalGap()`, kritik boşluk kavramı.
 - **Teknik hedefi:** `rule_threshold` tüm teknikler için `DEFAULT_RULE_THRESHOLD = 2` ile başlar (önceden mitre.json'dan otomatik türetiliyordu). Admin teknik detayı modalinden değiştirir; migration eski `auto` değerleri 2'ye çeker, `admin` override'ları korur (9 satır korundu).
@@ -189,6 +189,24 @@ skor = min(etkin tespit sayısı / teknik hedefi, 1)
 - **Metrikler 3 kova → 2:** Tespit / Kapsamsız. Mitigation bilgi olarak ayrıca sayılır.
 
 **Doğrulandı:** Yalnız mitigation'ı olan T1583 artık **%0** (eskiden %30 alıp "kapsanmış" görünüyordu). Teknik hedefini 2→6 yapınca T1133 %50 turuncudan %17 kırmızıya döndü. Matris ve backend birebir aynı: 216 / 103 tespit / 113 kapsamsız / 111 mitigation / %39 ort.
+
+## Harita Yeniden Tasarımı (2026-07-27, Faz 4c)
+
+Kullanıcı: *"Harita kısmında görselliği değiştirmek istiyorum, kutu boyutları ve arkaplan renklendirmesi MITRE için uygun değil"* + düzeltme: *"alt teknikler her zaman görünür yok bunu yap demedim, açılır kapanır yap ya, üst tekniklerde ağaç gibi olsun."*
+
+**Yeni hücre:** MITRE Navigator'a yakın yoğun ızgara. Sütun genişliği 200–240px → 176–208px, kart min-height 52px → 38px. İçerik iki satıra indi: üstte teknik adı (tek satır, taşarsa `…`), altta `ID · M rozeti · ortam rozeti · etkin/hedef`. Tek fonksiyon üretiyor — `fillTechniqueCell()` — ana teknik ve alt teknik aynı düzeni paylaşıyor.
+
+- **"Detay" butonu kalktı.** Kart gövdesine tıklamak modali açar, sol kenardaki ok alt teknik ağacını açar/kapatır (`.tc-toggle`, açıkken 90° döner). Ağaç davranışı korundu — kullanıcının açık talebi.
+- **Mitigation `M` rozeti** (mor pill). `⛨` (U+26E8) Windows'ta tofu çiziyordu; harf rozeti her fontta aynı görünüyor.
+- **Ortam rozeti** yalnızca birleşik modda **ve** en az bir ortamda tespit varken çıkıyor. Her karta `0/2` basmak gürültüydü.
+- **Zengin tooltip** artık `T1078 · Valid Accounts` başlığı taşıyor; native `title` kaldırıldı (ikisi üst üste biniyordu).
+- Ürün noktaları hücrenin sağ üstüne taşındı — alt satır artık sayaca ait.
+
+**Bu arada bulunan iki tutarsızlık düzeltildi:**
+1. Üst bardaki "Kapsanan: 103" ortam seçiminden etkilenmiyordu; Lumos seçiliyken şerit 80 derken üst bar 103 diyordu. Artık tek kaynak `updateMatrixStats()` — ikisi de `103 / 216` ↔ `80 / 216`. Etiket "Tespitli teknik" oldu.
+2. Liste Görünümü hâlâ emekli tanımı (`rule_count > 0 || mitigation_entry_count > 0`) kullanıyordu — tespite indirildi.
+
+**Doğrulandı:** 25/25 test, browser smoke sıfır konsol hatası, 14 taktik sütunu, 123 aç/kapa oku, ağaç açılıp kapanıyor (6 konteyner / 23 alt kart), ortam değişimi rozetleri gizliyor ve sayıları 103→80 düşürüyor. `styles.css`/`app.js` → `?v=110`.
 
 ## Sonraki Öncelikler
 

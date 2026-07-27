@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=109" />
+  <link rel="stylesheet" href="/static/styles.css?v=110" />
 </head>
 <body>
   <div class="ms-shell">
@@ -32,7 +32,7 @@
       <div class="ms-topbar-right">
         <div class="ms-topbar-stats">
           <div class="stat-item">Toplam Tespit: <span class="stat-val" id="totalRules">0</span></div>
-          <div class="stat-item">Kapsanan: <span class="stat-val" id="coveredTechs">0</span></div>
+          <div class="stat-item" title="Seçili ortam ve filtrelere göre en az bir tespiti olan ana teknik sayısı">Tespitli teknik: <span class="stat-val" id="coveredTechs">0</span></div>
         </div>
         <div class="ms-user-area">
           <span id="userBadge" class="user-badge"></span>
@@ -100,7 +100,7 @@
           <div class="ms-page-header">
             <div class="matrix-title-block">
               <h1 class="ms-page-title">ATT&amp;CK Coverage Matrix</h1>
-              <span id="matrixModeDescription">Kural, mitigation ve ürün çeşitliliğine göre operasyonel olgunluk</span>
+              <span id="matrixModeDescription">Renk = etkin tespit / teknik hedefi. <strong>M</strong> rozeti mitigation'ı gösterir, renge karışmaz.</span>
             </div>
             <div class="ms-command-bar">
               <div class="legend" id="legendContainer"></div>
@@ -647,8 +647,8 @@
         let cells = colData.map(c => {
           const card = c.cards[i];
           if (!card) return '<td class="pdf-empty"></td>';
-          const idEl = card.querySelector('.technique-id');
-          const nmEl = card.querySelector('.technique-name');
+          const idEl = card.querySelector('.tc-id');
+          const nmEl = card.querySelector('.tc-name');
           const techId = idEl ? idEl.textContent.trim() : (card.dataset.techId || '');
           const name = nmEl ? nmEl.textContent.trim() : '';
           const bg = card.style.backgroundColor || '';
@@ -695,7 +695,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=109"></script>
+  <script src="/static/app.js?v=110"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

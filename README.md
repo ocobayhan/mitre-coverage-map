@@ -75,9 +75,26 @@ etkin ağırlık = kapsam seviyesi (low 0.25 | partial 0.60 | full 1.00)
 
 **Teknik hedefi** (`technique_config.rule_threshold`) tüm teknikler için aynı değerle başlar (`DEFAULT_RULE_THRESHOLD = 2`); admin teknik detayı modalinden teknik bazında değiştirir. Bir tekniğin hedefini yükseltmek kartını anında kırmızıya çeker — "bu teknik için 2 tespit yetmez" demenin yolu budur.
 
-**Mitigation skora girmez.** Haritada ayrı bir kalkan işareti (⛨) olarak gösterilir; renk yalnızca tespite bakar çünkü haritanın cevapladığı soru *"bu tekniği görebiliyor muyuz"*. Ürün çeşitliliği de skora girmez — kartın üzerindeki ürün noktaları bunu zaten gösterir.
+**Mitigation skora girmez.** Haritada ayrı bir **M** rozeti olarak gösterilir; renk yalnızca tespite bakar çünkü haritanın cevapladığı soru *"bu tekniği görebiliyor muyuz"*. Ürün çeşitliliği de skora girmez — kartın üzerindeki ürün noktaları bunu zaten gösterir.
 
 > Bu puan bir olgunluk göstergesidir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.
+
+### Harita hücresi nasıl okunur?
+
+MITRE Navigator'a yakın, yoğun bir ızgara kullanılır — taktik başına bir sütun, teknik başına eşit yükseklikte bir hücre.
+
+```
+┌────────────────────────────────┐
+│ ▸ Valid Accounts          ● ●  │  ← ok: alt teknikleri aç/kapat · noktalar: tespit üreten ürünler
+│   T1078   M   2/2       12.6/2 │  ← ID · mitigation rozeti · ortam rozeti · etkin tespit / hedef
+└────────────────────────────────┘
+```
+
+- **Dolgu rengi** yalnızca skoru gösterir: 0 tespit koyu gri → hedefin altı amber → hedef ve üstü yeşil
+- **`M` rozeti** o teknikte işaretli mitigation olduğunu söyler; renge ve skora karışmaz
+- **Ortam rozeti** (`2/2`) yalnızca *Tüm ortamlar (birleşik)* modunda ve yalnızca en az bir ortamda tespit varsa çıkar. Tek ortam seçiliyken anlamsız olduğu için gizlenir
+- **Hücre gövdesine tıklamak** teknik detay modalini açar; **oka tıklamak** alt teknik ağacını açar/kapatır. Alt teknikler kendi renklerini alır ama kapsama oranının paydasına girmez
+- Hover'da tespit/hedef, ürünler, mitigation, ortam ve tekniği kullanan tehdit grubu sayısını içeren bir özet çıkar
 
 ### "Kapsanan" ne demek?
 

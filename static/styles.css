@@ -284,8 +284,8 @@ h1, h2, h3 { margin: 0; }
 .matrix-container {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(200px, 240px);
-  gap: 8px;
+  grid-auto-columns: minmax(176px, 208px);
+  gap: 6px;
   padding: 4px 4px 16px;
   align-content: start;
 }
@@ -293,12 +293,12 @@ h1, h2, h3 { margin: 0; }
 .tactic-column {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 200px;
+  gap: 2px;
+  min-width: 176px;
   background: var(--d-surface);
   border: 1px solid var(--d-border);
   border-radius: 4px;
-  padding: 6px;
+  padding: 5px;
 }
 
 .tactic-header {
@@ -317,17 +317,22 @@ h1, h2, h3 { margin: 0; }
   z-index: 10;
 }
 
-/* ── Technique Cards ────────────────────────────────────── */
+/* ── Technique Cards ────────────────────────────────────────
+   Navigator tarzi yogun izgara: her hucre esit yukseklikte,
+   ad tek satir (tasarsa …), kimlik ve sayaclar tek alt satirda.
+   Dolgu rengi = kapsama skoru; mitigation dolguyu degil kosedeki
+   kalkani etkiler.                                             */
 .technique-card {
   background: var(--d-bg);
   border: 1px solid var(--d-border);
   border-radius: 3px;
-  padding: 6px 8px;
-  min-height: 44px;
+  padding: 4px 6px 3px;
+  min-height: 38px;
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  gap: 1px;
   transition: background 0.15s, border-color 0.15s;
   color: var(--d-text-2);
   cursor: pointer;
@@ -338,68 +343,134 @@ h1, h2, h3 { margin: 0; }
   border-color: var(--d-blue-light);
   color: var(--d-text-1);
 }
-.technique-card.covered { opacity: 1; color: var(--d-text-1); }
+.technique-card.covered { opacity: 1; color: var(--d-text-1); border-color: var(--d-border-strong, #4a5568); }
+.technique-card.has-subtechs { padding-left: 16px; }
 
-.technique-id {
-  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
-  font-size: 10px;
-  color: var(--d-text-3);
-  margin-bottom: 2px;
-}
-
-.technique-name {
+.tc-name {
   font-weight: 500;
   font-size: 11.5px;
-  line-height: 1.2;
+  line-height: 1.25;
   color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.detail-btn {
-  margin-top: 5px;
-  align-self: flex-start;
-  background: var(--d-surface-alt);
+.tc-foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  line-height: 1;
+}
+
+.tc-id {
+  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
+  color: var(--d-text-3);
+  opacity: 0.85;
+}
+
+.tc-marks { display: flex; align-items: center; gap: 3px; }
+
+/* Mitigation isareti — skora girmez, yalnizca "onlemi var" bilgisi.
+   Ozel bir sembol yerine harf rozeti: her Windows fontunda ayni cizilir. */
+.tc-shield {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 11px;
+  height: 11px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 3px;
+  color: #cfc6f5;
+  background: rgba(138,127,209,0.32);
+  border: 1px solid rgba(138,127,209,0.55);
+}
+
+/* Birlesik modda kac ortamda tespit var */
+.tc-env {
+  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
+  font-size: 9px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.14);
+}
+.tc-env.full { color: #7ee2a8; }
+.tc-env.partial { color: #f0c674; }
+
+/* Etkin tespit / hedef — kartin sag alt kosesinde */
+.tc-count {
+  margin-left: auto;
+  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
   color: var(--d-text-2);
-  border: 1px solid var(--d-border);
-  border-radius: 2px;
-  padding: 2px 8px;
-  font-size: 11px;
+  opacity: 0.9;
+  padding-right: 2px;
+}
+.tc-count.zero { color: var(--d-text-3); opacity: 0.6; }
+
+/* Urun noktalari ust satira tasindi — alt satir artik sayaca ait */
+.technique-card > .product-dots,
+.subtech-card > .product-dots {
+  top: 4px;
+  bottom: auto;
+  right: 5px;
+}
+
+/* Alt teknik ac/kapa oku */
+.tc-toggle {
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 16px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--d-text-3);
+  font-size: 10px;
+  line-height: 1;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s, border-color 0.15s;
+  transition: transform 0.15s, color 0.15s;
 }
-.detail-btn:hover {
-  background: var(--d-hover);
-  color: var(--d-text-1);
-  border-color: var(--d-blue);
-}
+.tc-toggle:hover { color: var(--d-text-1); }
+.technique-card.expanded .tc-toggle { transform: translateY(-50%) rotate(90deg); }
 
-/* ── Subtechniques ──────────────────────────────────────── */
+/* ── Subtechniques (acilir/kapanir agac) ────────────────── */
 .subtech-container {
   display: block;
   max-height: 0;
   overflow: hidden;
   transition: max-height 0.2s ease;
-  margin-left: 10px;
-  border-left: 2px solid var(--d-blue-tint);
-  padding-left: 6px;
+  margin-left: 9px;
+  border-left: 1px solid var(--d-blue-tint);
+  padding-left: 5px;
 }
-.subtech-container.open { max-height: 1200px; }
+.subtech-container.open { max-height: 1600px; }
 
 .subtech-card {
   background: var(--d-bg);
   border: 1px solid var(--d-border);
   border-radius: 3px;
-  padding: 5px 8px;
-  margin: 4px 0;
-  min-height: 36px;
+  padding: 3px 5px 2px;
+  margin: 2px 0;
+  min-height: 30px;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  gap: 1px;
   position: relative;
   transition: background 0.15s;
   color: var(--d-text-2);
+  cursor: pointer;
 }
 .subtech-card:hover { filter: brightness(1.4); color: var(--d-text-1); }
+.subtech-card .tc-name { font-size: 10.5px; font-weight: 400; }
+.subtech-card .tc-foot { font-size: 9px; }
 
 /* ── Source stripe & dots ───────────────────────────────── */
 .source-stripe {
@@ -1387,6 +1458,14 @@ button.action-btn {
 .score-tooltip-bar { height: 4px; background: var(--d-bg); border-radius: 2px; margin-bottom: 6px; }
 .score-tooltip-fill { height: 100%; border-radius: 2px; }
 .score-tooltip-divider { border-top: 1px solid var(--d-border); margin: 6px 0; }
+.score-tooltip-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--d-text-1);
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--d-border);
+}
 
 /* ── Critical Gap ───────────────────────────────────────── */
 /* ── Subteknik expand göstergesi ─────────────────────────── */
@@ -2721,11 +2800,9 @@ button.action-btn, .action-btn {
 .mstat-lbl { font-size: 9px; line-height: 1.2; text-align: center; }
 .tactic-column { background: #1e211f; border-color: #3d423e; }
 .tactic-header { min-height: 31px; display: flex; align-items: center; justify-content: center; }
-.technique-card { min-height: 52px; padding: 7px 8px; border-color: #444944; }
+.technique-card { border-color: #444944; }
 .technique-card:hover, .subtech-card:hover { filter: brightness(1.18); box-shadow: inset 0 0 0 1px rgba(85,169,227,.25); }
-.technique-id { color: #9ba39d; }
-.technique-name { font-size: 11px; line-height: 1.3; }
-.detail-btn { min-height: 24px; padding: 2px 7px; border-radius: 3px; }
+.tc-id { color: #9ba39d; }
 
 .quality-summary, .audit-summary { border-color: #414642; }
 .quality-summary, .audit-summary { border-radius: 5px; overflow: hidden; }

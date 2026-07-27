@@ -63,8 +63,14 @@ def main():
             driver.find_elements(By.CSS_SELECTOR, "#matrixScopeSelect option")
         )
 
+        # Faz 4c: alt teknik agaci acilir/kapanir kaliyor
+        result["metrics"]["subtech_toggles"] = len(
+            driver.find_elements(By.CSS_SELECTOR, "#matrix .technique-card .tc-toggle")
+        )
+
         # Teknik detay modali: Mitigations + Tespitler + Aksiyonlar
-        driver.find_element(By.CSS_SELECTOR, "#matrix .technique-card .detail-btn").click()
+        # (Faz 4c: "Detay" butonu kalkti — kartin govdesine tiklaniyor)
+        driver.find_element(By.CSS_SELECTOR, "#matrix .technique-card .tc-name").click()
         wait.until(conditions.visibility_of_element_located((By.ID, "modalBody")))
         result["metrics"]["modal_tabs"] = len(driver.find_elements(By.CSS_SELECTOR, "#ruleModal .tab-btn"))
         # Duplike mitigation ozeti kaldirildi — 0 olmali
@@ -78,7 +84,8 @@ def main():
             driver.find_elements(By.CSS_SELECTOR, '.nav-item[data-section]')
         )
         _open_panel(driver, wait, "inventory", "scopePanel")
-        wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#scopeSummary .ops-stat")) == 4)
+        # Faz 4a: varlik grubu seviyesi kalkti — ozet 4 kutudan 3'e indi
+        wait.until(lambda browser: len(browser.find_elements(By.CSS_SELECTOR, "#scopeSummary .ops-stat")) == 3)
         scope_path = output_dir / "mitre-scope-registry-desktop.png"
         driver.save_screenshot(str(scope_path))
         result["screenshots"]["scope_registry_desktop"] = str(scope_path)
