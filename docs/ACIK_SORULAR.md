@@ -11,11 +11,13 @@ konular. Her madde: ne bulundu, neden önemli, hangi seçenekler var.
 
 *(Bu madde, çözülen "Kapsanan tanımı" tartışmasından çıktı — bkz. PROJECT_STATE.md)*
 
-Mitigation artık kapsama skorunun %30'u ve "Yalnız Mitigation" ayrı bir metrik.
-Ancak **hangi tekniğin mitigation ile karşılandığı hâlâ bilinçli bir karar değil**,
-global mitigation kutucuğunun yan etkisi:
+Faz 4b/4d'den sonra mitigation **skora hiç girmiyor** — haritada yalnızca `M`
+rozeti olarak görünüyor. Bu, sorunun aciliyetini düşürdü ama çözmedi:
+**hangi tekniğin mitigation ile karşılandığı hâlâ bilinçli bir karar değil**,
+MITRE'nin toplu eşlemesinin yan etkisi:
 
-- 9 işaretli mitigation → 392 tekniği etkiliyor
+- 9 kayıtlı mitigation → 392 tekniği etkiliyor (887 hücrenin 527'sinde `M` rozeti
+  çıkıyor; bu yoğunlukta rozet bilgi taşımıyor)
 - Tek başına `M1018 User Account Management` → **120 teknik**
 - `M1056 "Pre-compromise"` bir kontrol bile değil (MITRE placeholder'ı) → 84 teknik
 
@@ -37,8 +39,10 @@ bu bilinçliydi (kimsenin kapsama sayısı sessizce değişmesin diye). Ama ger�
 - `Manage Engine` → ne olduğuna göre değişir (yama yönetimiyse `onleyici_kontrol`)
 - `Other` → içeriği belirsiz
 
-Doğru sınıflandırma yapılana kadar ürün çeşitliliği bileşeni (%20) olduğundan
-yüksek hesaplanıyor.
+Kategori artık skoru etkilemiyor (ürün çeşitliliği bileşeni Faz 4b'de kaldırıldı),
+ama `_detection_source_names()` üzerinden **hangi tespitlerin sayılacağını** hâlâ
+belirliyor: `onleyici_kontrol` işaretlenen bir ürünün kuralları kapsamaya girmez.
+Yani yanlış kategori doğrudan yanlış kapsama demek.
 
 **Yapılacak:** Ayarlar > Ürün Yönetimi'nden kullanıcı sınıflandırır.
 
@@ -58,3 +62,17 @@ teorik).
 
 **Seçenek:** `rules.product_id` FK migration'ı. Şu an gerekmiyor; ürün
 yeniden adlandırma özelliği eklenirse zorunlu hale gelir.
+
+---
+
+## 5. Mitigation `team` alanı serbest metin (FK yok) 🧹 VERİ TEMİZLİĞİ
+
+`mitigation_entries.team` bir `teams` FK'sı değil, kaydedildiği andaki ekip adının
+kopyası. Form artık `teams` kataloğundan seçtiriyor ama eski kayıtlar öyle değil:
+11 kaydın 3'ü artık var olmayan ekiplere bağlı (`DENBEME`, `DENEM`, `DENEME`).
+
+Ekip **yeniden adlandırılırsa** eski kayıtlar eski adla kalır — `rules.source` ile
+aynı sınıf sorun (bkz. madde 4).
+
+**Seçenek:** `team_id` FK migration'ı, veya Veri Kalitesi ekranına "kataloğda
+olmayan ekip" uyarısı. Şimdilik kullanıcının elle temizlemesi bekleniyor.
