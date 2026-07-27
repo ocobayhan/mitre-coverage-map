@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=108" />
+  <link rel="stylesheet" href="/static/styles.css?v=109" />
 </head>
 <body>
   <div class="ms-shell">
@@ -150,24 +150,19 @@
               <span class="mstat-lbl">Tespit</span>
             </div>
             <div class="mstat-sep"></div>
-            <div class="mstat" title="Tespiti yok ama işaretli mitigation'ı var — önlemişiz ama göremiyoruz">
-              <span class="mstat-val" id="ms-mitonly">—</span>
-              <span class="mstat-lbl">Yalnız Mitigation</span>
-            </div>
-            <div class="mstat-sep"></div>
-            <div class="mstat" title="Ne tespiti ne mitigation'ı var">
+            <div class="mstat" title="Hiç tespiti olmayan ana teknikler">
               <span class="mstat-val" id="ms-uncovered">—</span>
               <span class="mstat-lbl">Kapsamsız</span>
             </div>
             <div class="mstat-sep"></div>
-            <div class="mstat" title="Ortalama kapsama skoru: %50 tespit + %30 mitigation + %20 ürün çeşitliliği">
-              <span class="mstat-val" id="ms-score">—</span>
-              <span class="mstat-lbl">Ort. Skor</span>
+            <div class="mstat" title="İşaretli mitigation'ı olan teknikler — bilgi amaçlı, skoru ve kart rengini etkilemez">
+              <span class="mstat-val" id="ms-mitigated">—</span>
+              <span class="mstat-lbl">Mitigation</span>
             </div>
             <div class="mstat-sep"></div>
-            <div class="mstat" title="Önemi yüksek (≥0.7) ama skoru düşük (<0.35) teknikler">
-              <span class="mstat-val" id="ms-gap">—</span>
-              <span class="mstat-lbl">Kritik Boşluk</span>
+            <div class="mstat" title="Ortalama kapsama skoru = etkin tespit sayısı / teknik hedefi">
+              <span class="mstat-val" id="ms-score">—</span>
+              <span class="mstat-lbl">Ort. Skor</span>
             </div>
             <div class="mstat-sep"></div>
             <div class="mstat" title="Kendi kuralı olan alt teknikler — kurallar çoğunlukla ana tekniğe eşlenir, bu sayı düşükse alt teknik eşlemesi yapılmamış demektir">
@@ -700,7 +695,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=108"></script>
+  <script src="/static/app.js?v=109"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

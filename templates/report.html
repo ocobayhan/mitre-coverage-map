@@ -236,14 +236,14 @@
         <div class="rpt-card-sub">Görebiliyoruz — tespit (kural) zorunlu</div>
       </div>
       <div class="rpt-card">
-        <div class="rpt-card-val">{{ gap.overview.mitigation_only_techniques }}</div>
-        <div class="rpt-card-lbl">Yalnız Mitigation</div>
-        <div class="rpt-card-sub">Önlemişiz ama göremiyoruz</div>
-      </div>
-      <div class="rpt-card">
         <div class="rpt-card-val red">{{ gap.overview.uncovered_techniques }}</div>
         <div class="rpt-card-lbl">Kapsamsız</div>
-        <div class="rpt-card-sub">Ne tespit ne mitigation</div>
+        <div class="rpt-card-sub">Hiç tespit yok</div>
+      </div>
+      <div class="rpt-card">
+        <div class="rpt-card-val">{{ gap.overview.mitigated_techniques }}</div>
+        <div class="rpt-card-lbl">Mitigation'ı Olan</div>
+        <div class="rpt-card-sub">Bilgi — kapsama skoruna girmez</div>
       </div>
       <div class="rpt-card">
         <div class="rpt-card-val red">{{ gap.overview.critical_gap_count }}</div>
@@ -315,7 +315,7 @@
           <th>Teknik ID</th>
           <th>Ad</th>
           <th>Taktik</th>
-          <th>Önem</th>
+          <th>Tehdit Grubu</th>
           <th>Tespit</th>
         </tr>
       </thead>
@@ -325,17 +325,14 @@
           <td><strong>{{ g_item.tech_id }}</strong></td>
           <td>{{ g_item.name }}</td>
           <td style="color:#605e5c">{{ g_item.tactic | replace('-', ' ') | title }}</td>
-          <td>
-            <span class="imp-dot imp-{{ g_item.importance_level }}"></span>
-            Seviye {{ g_item.importance_level }}
-          </td>
+          <td>{{ g_item.group_count }} tehdit grubu</td>
           <td>{{ g_item.rule_count }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-      <div class="rpt-empty">Kritik boşluk yok. Tüm yüksek öncelikli teknikler kapsanmış.</div>
+      <div class="rpt-empty">Tespitsiz teknik yok.</div>
     {% endif %}
   </div>
 

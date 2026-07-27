@@ -54,9 +54,10 @@ ROLE_LEVELS = {"viewer": 1, "editor": 2, "admin": 3}
 PRODUCT_CATEGORIES = ("tespit_kaynagi", "onleyici_kontrol", "zenginlestirme")
 PRODUCT_CATEGORY_DEFAULT = "tespit_kaynagi"
 
-# Kritik bosluk esigi — static/app.js isCriticalGap() ile ayni olmali.
-CRITICAL_GAP_IMPORTANCE = 0.70
-CRITICAL_GAP_SCORE = 0.35
+# Bir teknik icin "yeterli kapsama" sayilacak tespit sayisi. Tum teknikler bu
+# degerle baslar; admin teknik bazinda degistirebilir (technique_config).
+# static/app.js DEFAULT_RULE_THRESHOLD ile ayni olmali.
+DEFAULT_RULE_THRESHOLD = 2
 
 # rules.source ile products.name arasinda FK yok; kopru yalnizca isim esitligi.
 # Eslesmeyen bir kaynak, ortam bazli kapsama hesabinda hicbir varlik grubuna
@@ -304,15 +305,39 @@ def migrate_rule_techniques(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+def drop_technique_importance(db: sqlite3.Connection) -> None:
+    """technique_config.importance sutununu kaldirir (idempotent).
+
+    "Onem seviyesi" kavrami opak ve yonetilemezdi (0.3-1.0 arasi, mitre.json'daki
+    grup/arac sayilarindan turetiliyordu); kaldirildi. Ayni migration'da
+    otomatik hesaplanmis rule_threshold degerleri de tek varsayilana cekilir —
+    eski degerler (1-5) artik anlamini yitirmis auto-turetimlerdi. Admin'in elle
+    ayarladiklari (source='admin') korunur.
+    """
+    cols = {r[1] for r in db.execute("PRAGMA table_info(technique_config)").fetchall()}
+    if "importance" not in cols:
+        return
+    db.execute("ALTER TABLE technique_config DROP COLUMN importance")
+    db.execute(
+        "UPDATE technique_config SET rule_threshold=? WHERE source='auto'",
+        (DEFAULT_RULE_THRESHOLD,),
+    )
+    db.commit()
+
+
 def build_technique_config(db: sqlite3.Connection) -> None:
-    """Parse mitre.json to compute per-technique importance and rule_threshold.
+    """Teknik bazli hedef tespit sayisini ve MITRE kullanim sayaclarini kurar.
 
-    Importance is derived from how many threat groups (intrusion-sets) and
-    tools/malware use each technique (via 'uses' relationships).
-      importance = clamp(0.3 + 0.7 * (group_count*2 + tool_count) / 60, 0.3, 1.0)
-      rule_threshold = clamp(1 + group_count // 8, 1, 5)
+    Hedef (rule_threshold) her teknik icin ayni degerle (DEFAULT_RULE_THRESHOLD)
+    baslar; admin dilerse teknik bazinda degistirir. Onceden hem bu hedef hem de
+    bir "onem" puani mitre.json'daki grup/arac iliskilerinden otomatik
+    turetiliyordu — opak ve yonetilemez oldugu icin kaldirildi (Faz 4 karari).
 
-    Idempotent: skips if any 'auto' rows already exist.
+    group_count / tool_count bilgi olarak korunur: tespitsiz teknikleri
+    onceliklendirirken "kac tehdit grubu bu teknigi kullaniyor" objektif bir
+    sinyal saglar. Bu bir ayar degildir, siralama icin veridir.
+
+    Idempotent: 'auto' kaynakli satir varsa atlar.
     """
     if db.execute("SELECT 1 FROM technique_config WHERE source='auto' LIMIT 1").fetchone():
         return  # already built
@@ -363,19 +388,15 @@ def build_technique_config(db: sqlite3.Connection) -> None:
         elif src in tool_stix:
             tool_counts.setdefault(tid, set()).add(src)
 
-    # Compute importance and rule_threshold for each technique
-    rows = []
-    for _stix_id, tid in tech_stix.items():
-        g = len(group_counts.get(tid, set()))
-        t = len(tool_counts.get(tid, set()))
-        raw = g * 2 + t
-        importance = round(min(0.3 + 0.7 * (raw / 60.0), 1.0), 3)
-        rule_threshold = max(1, min(5, 1 + g // 8))
-        rows.append((tid, importance, rule_threshold, "auto", g, t))
-
+    # Her teknik ayni hedefle baslar; grup/arac sayaclari bilgi olarak yazilir.
+    rows = [
+        (tid, DEFAULT_RULE_THRESHOLD, "auto",
+         len(group_counts.get(tid, set())), len(tool_counts.get(tid, set())))
+        for _stix_id, tid in tech_stix.items()
+    ]
     db.executemany(
         "INSERT OR IGNORE INTO technique_config "
-        "(tech_id, importance, rule_threshold, source, group_count, tool_count) VALUES (?,?,?,?,?,?)",
+        "(tech_id, rule_threshold, source, group_count, tool_count) VALUES (?,?,?,?,?)",
         rows,
     )
     db.commit()
@@ -882,14 +903,15 @@ def init_db() -> None:
                 PRIMARY KEY (rule_id, tech_id)
             );
 
-            -- technique_config: her MITRE tekniği için data-driven önem skoru ve kural eşiği.
-            -- importance (0.3–1.0): tehdit grubu/araç kullanım sıklığından hesaplanır.
-            -- rule_threshold (1–10): "yeterli kapsama" sayılacak minimum kural sayısı.
+            -- technique_config: teknik bazlı hedef tespit sayısı.
+            -- rule_threshold (1–10): "yeterli kapsama" sayılacak tespit sayısı.
+            --   Tüm teknikler DEFAULT_RULE_THRESHOLD ile başlar, admin değiştirir.
+            -- group_count / tool_count: mitre.json'dan gelen kullanım sayaçları —
+            --   yalnızca önceliklendirme bilgisi, skoru etkilemez.
             -- source: 'auto' (mitre.json parse) | 'admin' (el ile override).
             CREATE TABLE IF NOT EXISTS technique_config (
                 tech_id          TEXT PRIMARY KEY,
-                importance       REAL NOT NULL DEFAULT 0.5,
-                rule_threshold   INTEGER NOT NULL DEFAULT 3,
+                rule_threshold   INTEGER NOT NULL DEFAULT 2,
                 source           TEXT NOT NULL DEFAULT 'auto',
                 group_count      INTEGER NOT NULL DEFAULT 0,
                 tool_count       INTEGER NOT NULL DEFAULT 0
@@ -913,6 +935,7 @@ def init_db() -> None:
         ensure_scope_registry_schema(db)
         migrate_rule_techniques(db)
         migrate_consolidate_rules(db)
+        drop_technique_importance(db)
         build_technique_config(db)
         ensure_rule_coverage_level(db)
         drop_soc_cmm_schema(db)
@@ -1248,9 +1271,9 @@ def _compute_gap_analysis(
     )
 
     tech_config = {
-        r["tech_id"]: {"importance": r["importance"], "rule_threshold": r["rule_threshold"]}
+        r["tech_id"]: {"rule_threshold": r["rule_threshold"], "group_count": r["group_count"]}
         for r in db.execute(
-            "SELECT tech_id, importance, rule_threshold FROM technique_config"
+            "SELECT tech_id, rule_threshold, group_count FROM technique_config"
         ).fetchall()
     }
 
@@ -1265,21 +1288,17 @@ def _compute_gap_analysis(
         covered_mitigation_count = len(mits_for_tech & covered_mits)
         mitigation_checked = covered_mitigation_count > 0
         tc = tech_config.get(teid, {})
-        importance = tc.get("importance", 0.5)
-        rule_threshold = max(1, int(tc.get("rule_threshold", 3)))
-        rule_score = min(effective_rule_count / rule_threshold, 1.0)
-        mitigation_score = (
-            min(covered_mitigation_count / len(mits_for_tech), 1.0)
-            if mits_for_tech else 0.0
-        )
-        diversity_score = min(product_count / 2, 1.0)
-        coverage_score = min(
-            rule_score * 0.50 + mitigation_score * 0.30 + diversity_score * 0.20,
-            1.0,
-        )
+        rule_threshold = max(1, int(tc.get("rule_threshold", DEFAULT_RULE_THRESHOLD)))
+        # ── Kapsama skoru — tek satirda aciklanabilir ────────────────────────
+        #   skor = min(etkin tespit sayisi / teknik hedefi, 1)
+        # Mitigation skora GIRMEZ (haritada ayri kalkan isareti olarak gosterilir),
+        # urun cesitliligi de girmez (urun noktalari olarak zaten gorunuyor).
+        # Onceki 3 bilesenli agirlikli harman (0.50/0.30/0.20) ve MITRE'den
+        # turetilen "onem" kavrami kaldirildi — kullanici karari, bkz.
+        # PROJECT_STATE.md Faz 4.
+        coverage_score = min(effective_rule_count / rule_threshold, 1.0)
         detected = rule_count > 0
-        mature = coverage_score >= 0.70
-        imp_level = _importance_to_level(importance)
+        mature = coverage_score >= 1.0
         all_techs.append({
             "tech_id": teid,
             "name": info["name"],
@@ -1294,8 +1313,8 @@ def _compute_gap_analysis(
             "coverage_score": round(coverage_score, 3),
             "covered": detected,
             "mature": mature,
-            "importance": importance,
-            "importance_level": imp_level,
+            # Onceliklendirme icin objektif MITRE sinyali — ayar degil, bilgi.
+            "group_count": int(tc.get("group_count", 0) or 0),
         })
 
     parents = [t for t in all_techs if not t["is_subtechnique"]]
@@ -1308,18 +1327,15 @@ def _compute_gap_analysis(
     # Alt tekniğe yazılan kural zaten ana tekniğe sayılır (rule_techniques →
     # parent eşlemesi), alt teknikler ayrıca bilgi olarak raporlanır.
     #
-    # Tek bir "kapsanan" sayısı yerine üç ayrık kova (toplamı = ana teknik
-    # sayısı). Böylece "yalnızca önleyici kontrolle karşılanan" teknikler
-    # kaybolmaz ama tespit varmış gibi de görünmez:
-    #   detected        → tespit var (görebiliyoruz)
-    #   mitigation_only → tespit yok, mitigation var (göremiyoruz ama önlemişiz)
-    #   uncovered       → ikisi de yok (asıl aksiyon listesi)
+    # İki ayrık kova (toplamı = ana teknik sayısı):
+    #   detected  → tespit var (görebiliyoruz)
+    #   uncovered → tespit yok (asıl aksiyon listesi)
+    # Mitigation ayrı bir kova DEĞİL — haritada kalkan işareti olarak gösterilir;
+    # "yalnız mitigation ile kapsanan" kavramından vazgeçildi (Faz 4 kararı).
     total_techniques = len(parents)
     detected_techniques = sum(1 for t in parents if t["covered"])
-    mitigation_only_techniques = sum(
-        1 for t in parents if not t["covered"] and t["mitigation_checked"] > 0
-    )
-    uncovered_techniques = total_techniques - detected_techniques - mitigation_only_techniques
+    uncovered_techniques = total_techniques - detected_techniques
+    mitigated_techniques = sum(1 for t in parents if t["mitigation_checked"])
 
     total_subtechniques = len(subs)
     detected_subtechniques = sum(1 for t in subs if t["covered"])
@@ -1328,16 +1344,10 @@ def _compute_gap_analysis(
     average_score = round(
         sum(t["coverage_score"] for t in parents) / max(total_techniques, 1) * 100, 1
     )
-    # Kritik boşluklar: yüksek öneme rağmen olgunluk skoru %35'in altında.
-    # Payda ana teknikler olduğu için burada da yalnızca ana teknikler sayılır —
-    # aksi halde matris şeridi (21) ile bu liste (92) farklı sayı gösteriyordu.
-    # Eşik doğrudan importance >= 0.70 (bkz. README "Kapsama Puanlaması" ve
-    # static/app.js isCriticalGap). importance_level >= 4 kullanılmıyor: o
-    # kova 0.73'ten başlıyor ve iki taraf 1 teknik farklı sayıyordu.
-    critical_gaps_list = [
-        t for t in parents
-        if t["importance"] >= CRITICAL_GAP_IMPORTANCE and t["coverage_score"] < CRITICAL_GAP_SCORE
-    ]
+    # Tespitsiz teknikler — "önem seviyesi" kavramı kaldırıldığı için artık
+    # eşik yok: hiç tespiti olmayan her ana teknik listeye girer. Sıralama,
+    # MITRE'den gelen objektif sinyalle yapılır (kaç tehdit grubu kullanıyor).
+    critical_gaps_list = [t for t in parents if not t["covered"]]
     coverage_pct = (
         round(detected_techniques / total_techniques * 100, 1) if total_techniques else 0.0
     )
@@ -1385,16 +1395,17 @@ def _compute_gap_analysis(
                 "average_score_pct": round(entry["score_total"] / entry["total"] * 100, 1),
             })
 
+    # Sıralama: en çok tehdit grubunun kullandığı teknik başta — objektif
+    # MITRE sinyali, kullanıcının yöneteceği bir ayar değil.
     critical_gaps_sorted = sorted(
-        critical_gaps_list, key=lambda x: (-x["importance"], x["name"])
+        critical_gaps_list, key=lambda x: (-x["group_count"], x["name"])
     )[:50]
     critical_gaps_out = [
         {
             "tech_id": t["tech_id"],
             "name": t["name"],
             "tactic": t["tactics"][0] if t["tactics"] else "",
-            "importance_level": t["importance_level"],
-            "importance": t["importance"],
+            "group_count": t["group_count"],
             "rule_count": t["rule_count"],
             "effective_rule_count": t["effective_rule_count"],
             "rule_threshold": t["rule_threshold"],
@@ -1409,10 +1420,11 @@ def _compute_gap_analysis(
         "overview": {
             # Payda: ana teknikler (bkz. yukarıdaki kapsama tanımı)
             "total_techniques": total_techniques,
-            # Üç ayrık kova — toplamı total_techniques
+            # İki ayrık kova — toplamı total_techniques
             "detected_techniques": detected_techniques,
-            "mitigation_only_techniques": mitigation_only_techniques,
             "uncovered_techniques": uncovered_techniques,
+            # Bilgi: kaç teknikte işaretli mitigation var (kovalarla kesişir)
+            "mitigated_techniques": mitigated_techniques,
             "coverage_pct": coverage_pct,           # tespit / ana teknik
             "mature_techniques": mature_techniques,
             "maturity_pct": (
@@ -3316,10 +3328,10 @@ def ttp_list():
 
     # Technique config
     tc_rows = db.execute(
-        "SELECT tech_id, importance, rule_threshold FROM technique_config"
+        "SELECT tech_id, rule_threshold, group_count FROM technique_config"
     ).fetchall()
     technique_config_map = {
-        r["tech_id"]: {"importance": r["importance"], "rule_threshold": r["rule_threshold"]}
+        r["tech_id"]: {"rule_threshold": r["rule_threshold"], "group_count": r["group_count"]}
         for r in tc_rows
     }
 
@@ -3328,8 +3340,7 @@ def ttp_list():
     for _stix_id, info in tech_by_stix.items():
         teid = info["external_id"]
         tc = technique_config_map.get(teid, {})
-        importance = tc.get("importance", 0.5)
-        rule_threshold = tc.get("rule_threshold", 3)
+        rule_threshold = tc.get("rule_threshold", DEFAULT_RULE_THRESHOLD)
         mits_for_tech = tech_to_mitigations.get(teid, set())
         tech_data = {
             "tech_id": teid,
@@ -3339,8 +3350,8 @@ def ttp_list():
             "rule_count": rule_count_by_tech.get(teid, 0),
             "mitigation_entry_count": len(mits_for_tech & covered_mits),
             "total_mitigations": len(mits_for_tech),
-            "importance": importance,
             "rule_threshold": rule_threshold,
+            "group_count": tc.get("group_count", 0) or 0,
         }
         for tactic in info["tactics"]:
             tactic_techs.setdefault(tactic, []).append(tech_data)
@@ -3361,18 +3372,6 @@ def ttp_list():
     TTP_LIST_CACHE["data"] = result
     TTP_LIST_CACHE["dirty"] = False
     return jsonify(result)
-
-
-def _importance_to_level(imp: float) -> int:
-    if imp >= 0.91:
-        return 5
-    if imp >= 0.73:
-        return 4
-    if imp >= 0.57:
-        return 3
-    if imp >= 0.39:
-        return 2
-    return 1
 
 
 @app.route("/api/technique-detail/<tech_id>")
@@ -3481,11 +3480,9 @@ def technique_detail(tech_id: str):
 
     # Technique config
     tc = db.execute(
-        "SELECT importance, rule_threshold FROM technique_config WHERE tech_id = ?",
+        "SELECT rule_threshold, group_count, tool_count FROM technique_config WHERE tech_id = ?",
         (tech_id,),
     ).fetchone()
-    importance = tc["importance"] if tc else 0.5
-    rule_threshold = tc["rule_threshold"] if tc else 3
 
     return jsonify({
         "tech_id": tech_id,
@@ -3493,9 +3490,11 @@ def technique_detail(tech_id: str):
         "description": (tech_obj.get("description") or "")[:500],
         "platforms": tech_obj.get("x_mitre_platforms", []),
         "mitre_url": mitre_url,
-        "importance": importance,
-        "importance_level": _importance_to_level(importance),
-        "rule_threshold": rule_threshold,
+        "rule_threshold": tc["rule_threshold"] if tc else DEFAULT_RULE_THRESHOLD,
+        # Bilgi amaçlı MITRE sinyalleri — önceliklendirmeye yardımcı olur,
+        # skoru veya rengi etkilemez.
+        "group_count": (tc["group_count"] if tc else 0) or 0,
+        "tool_count": (tc["tool_count"] if tc else 0) or 0,
         "linked_rules": linked_rules,
         "mitigations": mitigation_data,
     })
@@ -3537,50 +3536,48 @@ def admin_reset():
 @app.route("/api/technique-config", methods=["GET"])
 @login_required
 def get_technique_config():
-    """Tüm teknikler için importance + rule_threshold değerlerini döner.
+    """Teknik bazlı hedef tespit sayısını ve MITRE kullanım sayaçlarını döner.
     Viewer dahil tüm giriş yapmış kullanıcılar okuyabilir."""
     db = get_db()
     rows = db.execute(
-        "SELECT tech_id, importance, rule_threshold, source, group_count, tool_count "
+        "SELECT tech_id, rule_threshold, source, group_count, tool_count "
         "FROM technique_config"
     ).fetchall()
     return jsonify({r["tech_id"]: dict(r) for r in rows})
 
 
-_LEVEL_TO_FLOAT = {1: 0.30, 2: 0.48, 3: 0.65, 4: 0.82, 5: 1.00}
-
-
 @app.route("/api/technique-config/<tech_id>", methods=["PUT"])
 @role_required("admin")
 def update_technique_config(tech_id: str):
-    """Admin'in bir teknik için importance ve rule_threshold'u el ile ayarlamasına izin verir.
-    importance_level (1-5 INT) kabul eder ve float'a çevirir."""
+    """Bir teknik için hedef tespit sayısını admin'in elle ayarlamasına izin verir.
+
+    Önceki "önem seviyesi" (1-5 / 0.3-1.0) kavramı kaldırıldı — opak ve
+    yönetilemezdi. Geriye tek bir anlaşılır ayar kaldı: bu teknik için kaç
+    tespit yeterli sayılsın.
+    """
     payload = request.get_json(silent=True) or {}
-    if "importance_level" in payload:
-        level = max(1, min(5, int(payload["importance_level"])))
-        importance = _LEVEL_TO_FLOAT[level]
-    else:
-        importance = float(payload.get("importance", 0.5))
-    rule_threshold = int(payload.get("rule_threshold", 3))
-    importance = max(0.1, min(1.0, importance))
+    try:
+        rule_threshold = int(payload.get("rule_threshold", DEFAULT_RULE_THRESHOLD))
+    except (TypeError, ValueError):
+        return jsonify({"error": "rule_threshold sayı olmalıdır"}), 400
     rule_threshold = max(1, min(10, rule_threshold))
     db = get_db()
     db.execute(
-        "UPDATE technique_config SET importance=?, rule_threshold=?, source='admin' WHERE tech_id=?",
-        (importance, rule_threshold, tech_id.upper()),
+        "UPDATE technique_config SET rule_threshold=?, source='admin' WHERE tech_id=?",
+        (rule_threshold, tech_id.upper()),
     )
     # teknik henüz tabloda yoksa INSERT
     db.execute(
         "INSERT OR IGNORE INTO technique_config "
-        "(tech_id, importance, rule_threshold, source) VALUES (?,?,?,'admin')",
-        (tech_id.upper(), importance, rule_threshold),
+        "(tech_id, rule_threshold, source) VALUES (?,?,'admin')",
+        (tech_id.upper(), rule_threshold),
     )
     write_audit_log(
         db,
         action="update",
         target_type="technique_config",
         target_id=tech_id.upper(),
-        detail=f"importance={importance};rule_threshold={rule_threshold}",
+        detail=f"rule_threshold={rule_threshold}",
     )
     _invalidate_ttp_cache()
     db.commit()

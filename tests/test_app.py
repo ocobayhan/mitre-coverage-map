@@ -444,29 +444,55 @@ class AppTestCase(unittest.TestCase):
         self.assertLess(overview["average_score_pct"], 20)
 
     def test_coverage_buckets_are_disjoint_and_sum_to_total(self):
-        """Tespit / yalnız mitigation / kapsamsız birbirini dışlar ve
-        toplamları ana teknik sayısını verir — 'kapsanan' tek sayısının
-        iki ekranda farklı şey ölçmesi sorununun kalıcı güvencesi."""
+        """Tespit / kapsamsız birbirini dışlar ve toplamları ana teknik
+        sayısını verir. Mitigation ayrı bir kova DEĞİL — haritada kalkan
+        işareti olarak gösterilir, skora ve renge girmez (Faz 4 kararı)."""
         self.login()
         self.client.post("/api/rules", json={
             "name": "Sadece T1000", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
-        # T1001'e tespit yok; ona bagli M1000'i isaretleyerek "yalniz mitigation" yap
+        # M1000 -> T1000'i mitige eder; T1000'in zaten tespiti var.
         self.client.post("/api/mitigation-entries", json={
             "mitigation_id": "M1000", "team": "SOC", "comment": "uygulandi"})
 
         ov = self.client.get("/api/gap-analysis").get_json()["overview"]
         total = ov["total_techniques"]
-        buckets = (
-            ov["detected_techniques"]
-            + ov["mitigation_only_techniques"]
-            + ov["uncovered_techniques"]
+        self.assertEqual(
+            ov["detected_techniques"] + ov["uncovered_techniques"], total,
+            "iki kova toplamı ana teknik sayısını vermeli",
         )
-        self.assertEqual(buckets, total, "üç kova toplamı ana teknik sayısını vermeli")
         self.assertEqual(ov["detected_techniques"], 1)
-        # M1000 -> T1000'i mitige eder ama T1000'in zaten tespiti var,
-        # dolayisiyla 'yalniz mitigation' kovasina girmemeli (kovalar ayrik).
-        self.assertEqual(ov["mitigation_only_techniques"], 0)
         self.assertEqual(ov["uncovered_techniques"], 1)
+        # Mitigation bilgi olarak raporlanır ama kovaları etkilemez.
+        self.assertEqual(ov["mitigated_techniques"], 1)
+
+    def test_score_is_detection_only_and_uses_per_technique_threshold(self):
+        """Skor = min(etkin tespit / teknik hedefi, 1). Mitigation ve ürün
+        çeşitliliği skora girmez; hedef teknik bazında admin tarafından
+        ayarlanabilir."""
+        self.login()
+        # Varsayilan hedef 2 -> tek tespit %50 skor
+        self.client.post("/api/rules", json={
+            "name": "Tek tespit", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
+        gaps = {g["tech_id"]: g for g in self.client.get("/api/gap-analysis").get_json()["critical_gaps"]}
+        self.assertNotIn("T1000", gaps, "tespiti olan teknik tespitsiz listesine girmemeli")
+
+        ov = self.client.get("/api/gap-analysis").get_json()["overview"]
+        # 2 teknik var: T1000 skor 0.5, T1001 skor 0 -> ortalama %25
+        self.assertEqual(ov["average_score_pct"], 25.0)
+
+        # Mitigation eklemek skoru DEGISTIRMEMELI
+        self.client.post("/api/mitigation-entries", json={
+            "mitigation_id": "M1000", "team": "SOC", "comment": "uygulandi"})
+        self.assertEqual(
+            self.client.get("/api/gap-analysis").get_json()["overview"]["average_score_pct"], 25.0,
+            "mitigation skora girmemeli",
+        )
+
+        # Hedefi 1'e cekince tek tespit yeterli olur -> T1000 skoru %100
+        self.assertEqual(self.client.put(
+            "/api/technique-config/T1000", json={"rule_threshold": 1}).status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/gap-analysis").get_json()["overview"]["average_score_pct"], 50.0)
 
     def test_gap_analysis_is_scoped_to_environment_monitoring(self):
         """Kurumsal gerçek: her ürün her yerde yok.

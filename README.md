@@ -60,35 +60,43 @@ Audit kayıtları istek ID, kullanıcı, IP, user-agent, önce/sonra değerleri 
 
 ## Kapsama Puanlaması
 
-Her teknik için 0–1 arası bir operasyonel kapsama skoru hesaplanır ve kart rengini belirler:
+Her teknik için tek satırda açıklanabilen bir kapsama skoru hesaplanır ve kart rengini belirler:
 
 ```
-skor = 0.50 × (etkin kural sayısı / teknik eşiği)
-     + 0.30 × (işaretli mitigation / toplam mitigation)
-     + 0.20 × (farklı ürün sayısı / 2)
+skor = min(etkin tespit sayısı / teknik hedefi, 1)
 ```
 
-Etkin kural sayısı, tespitin kapsam seviyesiyle ağırlıklandırılır (`low` 0.25, `partial` 0.60, `full` 1.00). Teknik eşiği ve önem derecesi `technique_config` tablosunda tutulur; `data/mitre.json` içindeki grup/araç ilişkilerinden otomatik türetilir ve admin tarafından teknik bazında geçersiz kılınabilir.
+**Etkin tespit sayısı** iki ağırlığın çarpımıdır:
 
-Önem derecesi yüksek (≥ 0.7) ve skoru düşük (< 0.35) teknikler **kritik boşluk** olarak kırmızı kenarlıkla işaretlenir. Eşikler `CRITICAL_GAP_IMPORTANCE` / `CRITICAL_GAP_SCORE` (app.py) ve `isCriticalGap()` (app.js) içinde aynı değerlerdir.
+```
+etkin ağırlık = kapsam seviyesi (low 0.25 | partial 0.60 | full 1.00)
+              × ortam izleme ağırlığı (full 1.00 | partial %/100 | none, unknown 0)
+```
+
+**Teknik hedefi** (`technique_config.rule_threshold`) tüm teknikler için aynı değerle başlar (`DEFAULT_RULE_THRESHOLD = 2`); admin teknik detayı modalinden teknik bazında değiştirir. Bir tekniğin hedefini yükseltmek kartını anında kırmızıya çeker — "bu teknik için 2 tespit yetmez" demenin yolu budur.
+
+**Mitigation skora girmez.** Haritada ayrı bir kalkan işareti (⛨) olarak gösterilir; renk yalnızca tespite bakar çünkü haritanın cevapladığı soru *"bu tekniği görebiliyor muyuz"*. Ürün çeşitliliği de skora girmez — kartın üzerindeki ürün noktaları bunu zaten gösterir.
 
 > Bu puan bir olgunluk göstergesidir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.
 
 ### "Kapsanan" ne demek?
 
-Tek bir kapsama sayısı yerine **üç ayrık kova** kullanılır; toplamları ana teknik sayısını verir:
+**İki ayrık kova** kullanılır; toplamları ana teknik sayısını verir:
 
 | Metrik | Anlamı |
 |---|---|
 | **Tespit** | Tekniğe bağlı en az bir tespit (kural) var — *görebiliyoruz* |
-| **Yalnız Mitigation** | Tespiti yok ama işaretli mitigation'ı var — *önlemişiz ama göremiyoruz* |
-| **Kapsamsız** | İkisi de yok |
+| **Kapsamsız** | Hiç tespit yok — *asıl aksiyon listesi* |
 
-Mitigation kapsama **skoruna** %30 ağırlıkla dahildir (yukarıdaki formül); dolayısıyla yalnızca mitigation'ı olan bir teknik en fazla %30 skor alır ve kartı turuncu/kırmızı görünür. Ayrı metrik olarak gösterilmesinin sebebi, bu tekniklerin "tespit var" gibi görünmemesidir.
+`Mitigation` ayrıca sayılır ama bir kova değildir; kovalarla kesişir ve yalnızca bilgi amaçlıdır.
 
-**Payda ana tekniklerdir.** Alt teknikler paydaya girmez: kurallar neredeyse tamamen ana tekniğe eşlenir ve bir alt tekniğe yazılan kural zaten ana tekniğe sayılır. Alt teknikler ayrı bir metrikte bilgi olarak gösterilir — düşük değer "alt teknik eşlemesi yapılmamış" anlamına gelir.
+**Payda ana tekniklerdir.** Alt teknikler paydaya girmez: kurallar neredeyse tamamen ana tekniğe eşlenir ve bir alt tekniğe yazılan kural zaten ana tekniğe sayılır. Alt teknikler haritada görünür ve kendi renklerini alır, ayrıca bir metrikte bilgi olarak gösterilir — düşük değer "alt teknik eşlemesi yapılmamış" anlamına gelir.
 
-Aynı tanım hem matris şeridinde hem `GET /api/gap-analysis` çıktısında (`detected_techniques` / `mitigation_only_techniques` / `uncovered_techniques`) ve yönetici raporunda kullanılır.
+Aynı tanım hem matris şeridinde hem `GET /api/gap-analysis` çıktısında (`detected_techniques` / `uncovered_techniques` / `mitigated_techniques`) ve yönetici raporunda kullanılır.
+
+### Önceliklendirme
+
+"Önem seviyesi" kavramı kaldırıldı — `data/mitre.json`'dan türetilen 0.3–1.0 arası opak bir puandı ve yönetilemiyordu. Yerine tespitsiz teknikler, **kaç tehdit grubunun o tekniği kullandığına** göre sıralanır (`technique_config.group_count`). Bu bir ayar değil, MITRE'den gelen objektif veridir.
 
 ## Ortam Bazlı Kapsama
 

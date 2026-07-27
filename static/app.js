@@ -1,10 +1,9 @@
 const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
 const tacticOrder = Object.values(tacticMap);
 
-const SCORE_RULE_MAX = 10;
-const SCORE_MITIGATION_MAX = 5;
-const SCORE_RULE_WEIGHT = 0.6;
-const SCORE_MITIGATION_WEIGHT = 0.4;
+// Bir teknik için "yeterli kapsama" sayılacak tespit sayısı — tüm teknikler
+// bununla başlar, admin teknik bazında değiştirir. app.py ile aynı olmalı.
+const DEFAULT_RULE_THRESHOLD = 2;
 
 let mitreObjects = [];
 let techDetailsMap = {};
@@ -55,7 +54,7 @@ const PRODUCT_CATEGORY_LABELS = {
   zenginlestirme: 'Zenginleştirme',
 };
 // Teknik bazlı puanlama konfigürasyonu — /api/technique-config'den yüklenir.
-// { "T1059": { importance, rule_threshold, group_count, tool_count }, ... }
+// { "T1059": { rule_threshold, group_count, tool_count, source }, ... }
 let techniqueConfig = {};
 let teams = [];
 
@@ -1742,11 +1741,8 @@ function getMitigationTotal(techId) {
   return 0;
 }
 
-// Teknik bazlı ağırlıklı skor hesabı:
-//   kural skoru  (50%) = min(kuralSayısı / rule_threshold, 1)
-//   mitigation   (30%) = min(checkedMit / mitTotal, 1)
-//   çeşitlilik   (20%) = min(productCount / 2, 1)
-// techniqueConfig'ten rule_threshold ve importance alınır; yoksa sabit fallback kullanılır.
+// Kapsama skoru: min(etkin tespit sayısı / teknik hedefi, 1).
+// Hedef techniqueConfig.rule_threshold'dan gelir (varsayılan DEFAULT_RULE_THRESHOLD).
 function ruleCoverageWeight(rule) {
   return ({low: 0.25, partial: 0.60, full: 1.00})[rule?.coverage_level || 'full'] || 1.00;
 }
@@ -1819,25 +1815,18 @@ function effectiveRuleCount(rules, weightMap) {
   );
 }
 
-function computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
-  const cfg = techniqueConfig[techId] || {};
-  const threshold = cfg.rule_threshold || SCORE_RULE_MAX;
-  const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
-  // Çeşitliliğe yalnızca tespit kaynakları sayılır (firewall/AV/CTI hariç).
-  const detectionSources = detectionSourceNames();
-  const sourceSet = new Set((Array.isArray(sources) ? sources : []).filter(s => detectionSources.has(s)));
-  const ruleScore = Math.min(weightedRuleCount / threshold, 1.0);
-  const mitScore  = Math.min(mitigationCount / mitTotal, 1.0);
-  const divScore  = Math.min(sourceSet.size / 2, 1.0);
-  return Math.min(ruleScore * 0.50 + mitScore * 0.30 + divScore * 0.20, 1.0);
+/** Bir teknik için hedef tespit sayısı (admin teknik bazında değiştirebilir). */
+function techniqueThreshold(techId) {
+  return Math.max(1, techniqueConfig[techId]?.rule_threshold || DEFAULT_RULE_THRESHOLD);
 }
 
-/** Kritik boşluk: önemi yüksek ama kapsaması zayıf teknik.
- *  Daha önce 4 ayrı yerde kopyalanmıştı; ortam farkındalığı eklenince
- *  birinin unutulmaması için tek noktaya alındı. */
-function isCriticalGap(techId, score) {
-  const importance = techniqueConfig[techId]?.importance || 0.5;
-  return importance >= 0.7 && score < 0.35;
+/** Kapsama skoru — tek satırda açıklanabilir:
+ *      skor = min(etkin tespit sayısı / teknik hedefi, 1)
+ *  Mitigation skora girmez (haritada ayrı kalkan işareti), ürün çeşitliliği de
+ *  girmez (ürün noktaları olarak zaten görünür). Önceki 3 bileşenli ağırlıklı
+ *  harman ve MITRE'den türetilen "önem" kavramı kaldırıldı — Faz 4 kararı. */
+function computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
+  return Math.min(weightedRuleCount / techniqueThreshold(techId), 1.0);
 }
 
 /** Matris ortam seçicisini scopeRegistry'den doldurur. */
@@ -1962,26 +1951,23 @@ function applySourceDots(card, sources) {
   card.appendChild(dots);
 }
 
-function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
+// Kart görselleri: dolgu rengi YALNIZCA tespite bakar; mitigation ayrı bir
+// kalkan işareti olarak gösterilir (renge karışmaz) — Faz 4 kararı.
+function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount, envRatio = null) {
   const score = computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount);
   card.style.backgroundColor = scoreToColor(score);
-  card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
+  card.classList.toggle('covered', rulesCount > 0);
+  card.classList.toggle('mitigated', mitigationCount > 0);
 
-  // Önemli ama az kapsanmış teknikler kırmızı kenarlıkla işaretlenir
-  const importance = techniqueConfig[techId]?.importance || 0.5;
-  card.classList.toggle('critical-gap', isCriticalGap(techId, score));
-
-  // Hover tooltip için skor verisi
   const cfg = techniqueConfig[techId] || {};
-  const mitTotal = getMitigationTotal(techId) || SCORE_MITIGATION_MAX;
   card.dataset.scoreData = JSON.stringify({
     techId, rulesCount, weightedRuleCount: Math.round(weightedRuleCount * 100) / 100, mitigationCount,
     sources: [...new Set(Array.isArray(sources) ? sources : [])],
     score: Math.round(score * 100),
-    importance: Math.round(importance * 100),
-    threshold: cfg.rule_threshold || SCORE_RULE_MAX,
-    mitTotal,
-    groupCount: cfg.group_count || 0
+    threshold: techniqueThreshold(techId),
+    mitTotal: getMitigationTotal(techId),
+    groupCount: cfg.group_count || 0,
+    envRatio,
   });
 
   applySourceDots(card, sources);
@@ -1997,8 +1983,8 @@ function updateTechniqueCard(parentId) {
   const sources = linkedRules.map(r => r.source);
   const score = computeScore(parentId, rulesCount, mitigationCount, sources, effectiveRuleCount(linkedRules, weightMap));
   card.style.backgroundColor = scoreToColor(score);
-  card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
-  card.classList.toggle('critical-gap', isCriticalGap(parentId, score));
+  card.classList.toggle('covered', rulesCount > 0);
+  card.classList.toggle('mitigated', mitigationCount > 0);
 }
 
 function updateSubtechCard(techId) {
@@ -2011,8 +1997,8 @@ function updateSubtechCard(techId) {
   const sources = enriched.map(r => r.source);
   const score = computeScore(techId, rulesCount, mitigationCount, sources, effectiveRuleCount(enriched, weightMap));
   card.style.backgroundColor = scoreToSubColor(score);
-  card.classList.toggle('covered', (rulesCount > 0 || mitigationCount > 0));
-  card.classList.toggle('critical-gap', isCriticalGap(techId, score));
+  card.classList.toggle('covered', rulesCount > 0);
+  card.classList.toggle('mitigated', mitigationCount > 0);
 }
 
 function refreshTechniqueCardsForMitigation(mitId) {
@@ -2165,12 +2151,11 @@ async function openModal(parentId, parentName, rules) {
     .then(d => {
       const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const platforms = (d.platforms||[]).join(', ');
-      const lvl = d.importance_level || 1;
-      const lvlLabels = ['','Düşük','Orta-Düşük','Orta','Yüksek','Kritik'];
       let h = '';
       if (d.description) h += `<div class="modal-desc-text">${esc(d.description.slice(0,500))}${d.description.length>=500?'…':''}</div>`;
       if (platforms) h += `<div class="modal-desc-meta">Platform: ${esc(platforms)}</div>`;
-      h += `<div class="modal-desc-meta">Önem: <span class="importance-badge imp-level-${lvl}">${lvl} — ${lvlLabels[lvl]}</span>`;
+      // Objektif MITRE sinyali — önceliklendirmeye yardımcı, skoru etkilemez.
+      h += `<div class="modal-desc-meta">Bu tekniği <strong>${d.group_count || 0}</strong> tehdit grubu ve <strong>${d.tool_count || 0}</strong> araç kullanıyor`;
       if (d.mitre_url) h += ` &nbsp;<a class="modal-mitre-link" href="${esc(d.mitre_url)}" target="_blank" rel="noopener">MITRE ↗</a>`;
       h += '</div>';
       descDiv.innerHTML = h;
@@ -2403,38 +2388,28 @@ async function openModal(parentId, parentName, rules) {
     cfgDiv.innerHTML = `
       <div class="tech-config-title">Teknik Yap\u0131land\u0131rmas\u0131 <span class="cfg-source-tag">${srcLabel}</span></div>
       <div class="tech-config-row">
-        <label>\xd6nem (0.1\u20131.0)</label>
-        <input type="number" id="cfgImportance" min="0.1" max="1.0" step="0.05" value="${(cfg.importance || 0.5).toFixed(2)}" />
-        <small>Mevcut: ${cfg.group_count || 0} tehdit grubu, ${cfg.tool_count || 0} ara\xe7</small>
-      </div>
-      <div class="tech-config-row">
-        <label>Tespit E\u015fi\u011fi</label>
+        <label>Hedef tespit say\u0131s\u0131</label>
         <select id="cfgThreshold">${[1,2,3,4,5,6,7,8,9,10].map(n =>
-          `<option value="${n}"${(cfg.rule_threshold || 3) === n ? ' selected' : ''}>${n}</option>`
+          `<option value="${n}"${(cfg.rule_threshold || DEFAULT_RULE_THRESHOLD) === n ? ' selected' : ''}>${n}</option>`
         ).join('')}</select>
-        <small>\u201cYeterli kapsama\u201d i\xe7in gereken minimum tespit say\u0131s\u0131</small>
+        <small>Bu teknik i\xe7in ka\xe7 tespit \u201cyeterli kapsama\u201d say\u0131ls\u0131n. Kart rengi buna g\xf6re hesaplan\u0131r
+        (varsay\u0131lan ${DEFAULT_RULE_THRESHOLD}). Bu teknigi ${cfg.group_count || 0} tehdit grubu kullan\u0131yor.</small>
       </div>
       <button class="action-btn btn-add" id="btnSaveTechConfig">Kaydet</button>
     `;
     body.appendChild(cfgDiv);
 
     document.getElementById('btnSaveTechConfig').addEventListener('click', async () => {
-      const importance     = parseFloat(document.getElementById('cfgImportance').value);
       const rule_threshold = parseInt(document.getElementById('cfgThreshold').value, 10);
-      if (isNaN(importance) || isNaN(rule_threshold)) return;
+      if (isNaN(rule_threshold)) return;
       const res = await apiFetch(`/api/technique-config/${parentId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ importance, rule_threshold })
+        body: JSON.stringify({ rule_threshold })
       });
       if (res.ok) {
-        techniqueConfig[parentId] = {
-          ...techniqueConfig[parentId],
-          importance,
-          rule_threshold,
-          source: 'admin'
-        };
-        alert('Kaydedildi. Matris bir sonraki render\'da g\xfcncellenecek.');
+        techniqueConfig[parentId] = { ...techniqueConfig[parentId], rule_threshold, source: 'admin' };
+        renderMatrix();
       } else {
         alert('Kaydetme ba\u015far\u0131s\u0131z.');
       }
@@ -3221,7 +3196,7 @@ function renderMatrix() {
 }
 
 function updateMatrixStats() {
-  setMatrixStatLabels(['Teknik','Tespit','Yalnız Mitigation','Kapsamsız','Ort. Skor','Kritik Boşluk','Alt Teknik']);
+  setMatrixStatLabels(['Teknik','Tespit','Kapsamsız','Mitigation','Ort. Skor','Alt Teknik']);
 
   // Aynı teknik birden fazla taktikte görünebilir (örn. T1078 dört taktikte).
   // Metrikler benzersiz teknik üzerinden sayılır, ekrandaki kart sayısı üzerinden değil.
@@ -3229,13 +3204,12 @@ function updateMatrixStats() {
   const parents = uniqBy(visibleExportRows.filter(r => r.type === 'technique'));
   const subs    = uniqBy(visibleExportRows.filter(r => r.type === 'subtechnique'));
 
-  // Üç ayrık kova — toplamı totalP. "Yalnız mitigation" görünür kalır ki
-  // tespiti olmayan ama önleyici kontrolle karşılanan teknikler kaybolmasın,
-  // tespit varmış gibi de görünmesin.
+  // İki ayrık kova — toplamı totalP. Mitigation ayrı kova değil; haritada
+  // kalkan işareti olarak görünür, burada bilgi amaçlı ayrıca sayılır.
   const totalP    = parents.length;
   const detected  = parents.filter(r => r.rule_count > 0).length;
-  const mitOnly   = parents.filter(r => r.rule_count === 0 && r.mitigation_checked > 0).length;
-  const uncovered = totalP - detected - mitOnly;
+  const uncovered = totalP - detected;
+  const mitigated = parents.filter(r => r.mitigation_checked > 0).length;
   const covPct    = totalP ? Math.round(detected / totalP * 100) : 0;
 
   const totalS    = subs.length;
@@ -3244,8 +3218,6 @@ function updateMatrixStats() {
   const avgScore = totalP
     ? Math.round(parents.reduce((s, r) => s + r.score, 0) / totalP * 100)
     : 0;
-
-  const criticalGap = parents.filter(r => isCriticalGap(r.tech_id, r.score)).length;
 
   const setVal = (id, text, cls) => {
     const el = document.getElementById(id);
@@ -3257,12 +3229,10 @@ function updateMatrixStats() {
   setVal('ms-total',    totalP);
   setVal('ms-covered',  totalP ? `${detected} / ${totalP} (${covPct}%)` : '—',
     covPct >= 70 ? 'good' : covPct >= 40 ? 'mid' : 'bad');
-  setVal('ms-mitonly',  mitOnly, mitOnly > 0 ? 'mid' : 'muted');
   setVal('ms-uncovered', uncovered, uncovered === 0 ? 'good' : 'bad');
+  setVal('ms-mitigated', mitigated, mitigated > 0 ? 'mid' : 'muted');
   setVal('ms-score',   avgScore + '%',
     avgScore >= 60 ? 'good' : avgScore >= 35 ? 'mid' : 'bad');
-  setVal('ms-gap',      criticalGap,
-    criticalGap === 0 ? 'muted' : 'bad');
   setVal('ms-sub',      totalS ? `${detectedS} / ${totalS}` : '—',
     totalS && detectedS / totalS >= 0.5 ? 'good' : 'muted');
 }
@@ -3289,22 +3259,26 @@ function wireScoreTooltip() {
           </div>
           <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${ruleBar.toFixed(0)}%;background:#4f86c6"></div></div>
           <div class="score-tooltip-row">
-            <span class="score-tooltip-label">Mitigation</span>
-            <span class="score-tooltip-val">${d.mitigationCount}/${d.mitTotal}</span>
+            <span class="score-tooltip-label">\xdcr\xfcnler</span>
+            <span class="score-tooltip-val">${d.sources.length ? _esc(d.sources.join(', ')) : '\u2014'}</span>
           </div>
-          <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${mitBar.toFixed(0)}%;background:#35c48b"></div></div>
           <div class="score-tooltip-row">
-            <span class="score-tooltip-label">\xc7e\u015fitlilik</span>
-            <span class="score-tooltip-val">${d.sources.length} \xfcr\xfcn</span>
+            <span class="score-tooltip-label">Mitigation \u26e8</span>
+            <span class="score-tooltip-val">${d.mitigationCount}/${d.mitTotal} \xb7 skora girmez</span>
           </div>
+          <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${mitBar.toFixed(0)}%;background:#8a7fd1"></div></div>
+          ${d.envRatio ? `<div class="score-tooltip-row">
+            <span class="score-tooltip-label">Ortam</span>
+            <span class="score-tooltip-val">${d.envRatio.covered}/${d.envRatio.total} ortamda tespit</span>
+          </div>` : ''}
           <div class="score-tooltip-divider"></div>
           <div class="score-tooltip-row">
-            <span class="score-tooltip-label">\xd6nem</span>
-            <span class="score-tooltip-val">${d.importance}% \xb7 ${d.groupCount} grup</span>
+            <span class="score-tooltip-label">Tehdit grubu</span>
+            <span class="score-tooltip-val">${d.groupCount} grup kullanıyor</span>
           </div>
           <div class="score-tooltip-row">
-            <span class="score-tooltip-label">Toplam Skor</span>
-            <span class="score-tooltip-val" style="color:#35c48b">${d.score}%</span>
+            <span class="score-tooltip-label">Kapsama</span>
+            <span class="score-tooltip-val" style="color:#35c48b">${d.score}% \xb7 hedef ${d.threshold} tespit</span>
           </div>
         `;
         const rect = card.getBoundingClientRect();
@@ -3364,11 +3338,11 @@ function renderGapDashboard(data) {
   if (!el || !data) return;
 
   const ov = data.overview || {};
-  // Payda: ana teknikler. Üç ayrık kova (tespit / yalnız mitigation /
-  // kapsamsız) toplamı total eder — matris şeridiyle aynı tanım.
+  // Payda: ana teknikler. İki ayrık kova (tespit / kapsamsız) toplamı total
+  // eder — matris şeridiyle aynı tanım. Mitigation ayrı kova değil, bilgi.
   const total     = ov.total_techniques || 0;
   const detected  = ov.detected_techniques || 0;
-  const mitOnly   = ov.mitigation_only_techniques || 0;
+  const mitigated = ov.mitigated_techniques || 0;
   const uncovered = ov.uncovered_techniques || 0;
   const pct       = ov.coverage_pct || 0;
   const mature = ov.mature_techniques || 0;
@@ -3401,24 +3375,19 @@ function renderGapDashboard(data) {
       <div class="gap-stat-sub">Görebiliyoruz</div>
     </div>
     <div class="gap-stat-card">
-      <div class="gap-stat-val">${mitOnly}</div>
-      <div class="gap-stat-lbl">Yalnız Mitigation</div>
-      <div class="gap-stat-sub">Önlemişiz ama göremiyoruz</div>
-    </div>
-    <div class="gap-stat-card">
       <div class="gap-stat-val danger">${uncovered}</div>
       <div class="gap-stat-lbl">Kapsamsız</div>
-      <div class="gap-stat-sub">Ne tespit ne mitigation</div>
+      <div class="gap-stat-sub">Hiç tespit yok</div>
+    </div>
+    <div class="gap-stat-card">
+      <div class="gap-stat-val">${mitigated} ⛨</div>
+      <div class="gap-stat-lbl">Mitigation'ı Olan</div>
+      <div class="gap-stat-sub">Bilgi — skora ve renge girmez</div>
     </div>
     <div class="gap-stat-card">
       <div class="gap-stat-val">${averageScore}%</div>
       <div class="gap-stat-lbl">Ortalama Kapsama Skoru</div>
-      <div class="gap-stat-sub">%50 tespit · %30 mitigation · %20 ürün çeşitliliği</div>
-    </div>
-    <div class="gap-stat-card">
-      <div class="gap-stat-val danger">${critCount}</div>
-      <div class="gap-stat-lbl">Kritik Boşluk</div>
-      <div class="gap-stat-sub">Önem yüksek, skor &lt; %35</div>
+      <div class="gap-stat-sub">Etkin tespit / teknik hedefi</div>
     </div>
   </div>`;
 
@@ -3436,7 +3405,7 @@ function renderGapDashboard(data) {
   });
 
   // Critical gaps
-  html += '<div class="gap-section-title" style="margin-top:20px">Kritik Boşluklar (Önem ≥ 4, Skor &lt; %35)</div>';
+  html += `<div class="gap-section-title" style="margin-top:20px">Tespitsiz Teknikler <span style="font-weight:400;color:var(--d-text-3)">— en çok tehdit grubunun kullandığı ilk ${Math.min(critCount, 50)}</span></div>`;
   const gaps = data.critical_gaps || [];
   if (gaps.length === 0) {
     html += '<div style="color:var(--d-text-3);font-size:12px;padding:10px 0">Kritik boşluk yok.</div>';
@@ -3446,11 +3415,10 @@ function renderGapDashboard(data) {
       const tacticLabel = TACTIC_TR[g.tactic] || g.tactic || '—';
       const safeName = _esc(g.name).replace(/'/g, '&#39;');
       html += `<div class="gap-critical-item" onclick="openGapTechDetail('${_esc(g.tech_id)}','${safeName}')">
-        <div class="gap-imp-dot lv-${g.importance_level}"></div>
         <div class="gap-critical-id">${_esc(g.tech_id)}</div>
         <div class="gap-critical-name">${_esc(g.name)}</div>
         <div class="gap-critical-tactic">${_esc(tacticLabel)}</div>
-        <div class="gap-critical-score">${Math.round((g.coverage_score || 0) * 100)}%</div>
+        <div class="gap-critical-score" title="Bu tekniği kaç tehdit grubu kullanıyor">${g.group_count || 0} grup</div>
         ${hasRole('editor') ? `<button class="gap-critical-add" onclick="event.stopPropagation();openNewActionForTech('${_esc(g.tech_id)}','${safeName}')" title="Aksiyon ekle">+ Aksiyon</button>` : ''}
       </div>`;
     });

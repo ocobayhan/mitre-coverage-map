@@ -172,6 +172,24 @@ Toplamları ana teknik sayısını verir; bilgi kaybolmaz, hiçbir sayı şişme
 
 **Doğrulama:** altı metriğin altısı da iki tarafta birebir aynı — 216 teknik · 103 tespit (%48) · 55 yalnız mitigation · 58 kapsamsız · 21 kritik boşluk · 5/475 alt teknik.
 
+## Skor Sadeleştirme — Önem Seviyesi Kaldırıldı (2026-07-27, Faz 4b)
+
+Kullanıcı: *"importance level kısmını kaldıralım, 0.70 falan filan hiç gerek yok, süreci karmaşıklaştırıyoruz."*
+
+**Yeni skor:**
+```
+skor = min(etkin tespit sayısı / teknik hedefi, 1)
+```
+
+- **Mitigation skora girmez** — haritada ayrı kalkan işareti (⛨). "Yalnız mitigation ile kapsanan" kovası kaldırıldı; kullanıcı bu kavramdan vazgeçti. Renk yalnızca tespite bakar çünkü haritanın sorusu "görebiliyor muyuz".
+- **Ürün çeşitliliği skora girmez** — ürün noktaları zaten gösteriyor.
+- **Kaldırılanlar:** `technique_config.importance` (sütun `ALTER TABLE ... DROP COLUMN` ile düşürüldü), `_importance_to_level`, `_LEVEL_TO_FLOAT`, `CRITICAL_GAP_IMPORTANCE/SCORE`, `isCriticalGap()`, kritik boşluk kavramı.
+- **Teknik hedefi:** `rule_threshold` tüm teknikler için `DEFAULT_RULE_THRESHOLD = 2` ile başlar (önceden mitre.json'dan otomatik türetiliyordu). Admin teknik detayı modalinden değiştirir; migration eski `auto` değerleri 2'ye çeker, `admin` override'ları korur (9 satır korundu).
+- **"Kritik Boşluk" → "Tespitsiz Teknik"** (0 tespit). Sıralama: kaç tehdit grubu kullanıyor (`group_count`) — ayar değil, MITRE verisi.
+- **Metrikler 3 kova → 2:** Tespit / Kapsamsız. Mitigation bilgi olarak ayrıca sayılır.
+
+**Doğrulandı:** Yalnız mitigation'ı olan T1583 artık **%0** (eskiden %30 alıp "kapsanmış" görünüyordu). Teknik hedefini 2→6 yapınca T1133 %50 turuncudan %17 kırmızıya döndü. Matris ve backend birebir aynı: 216 / 103 tespit / 113 kapsamsız / 111 mitigation / %39 ort.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
