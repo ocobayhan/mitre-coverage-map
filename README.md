@@ -94,18 +94,18 @@ Aynı tanım hem matris şeridinde hem `GET /api/gap-analysis` çıktısında (`
 
 Kurumda her ürün her yerde bulunmaz: Defender client'larda ve kurumsal server'larda varken Lumos ortamındaki server'larda olmayabilir; QRadar tüm server'lardan log alırken client'lardan almayabilir. Bu durumda bir QRadar kuralı client ortamında **geçerli değildir**.
 
-Bu yüzden matrisin üstündeki **Ortam / Varlık Grubu** seçicisi haritayı yeniden hesaplar:
+Bu yüzden matrisin üstündeki **Ortam** seçicisi haritayı yeniden hesaplar:
 
-> Bir teknik bir varlık grubunda kapsanır ⟺ o tekniğe bağlı bir tespit vardır **ve** tespitin ürünü o varlık grubunu izlemektedir.
+> Bir teknik bir ortamda kapsanır ⟺ o tekniğe bağlı bir tespit vardır **ve** tespitin ürünü o ortamı izlemektedir.
 
 ```
 etkin ağırlık = kapsam seviyesi ağırlığı × izleme ağırlığı
     izleme:  full → 1.00 | partial → coverage_percent/100 | none, unknown → 0
 ```
 
-Varlık grubu seçildiğinde, o grubu izlemeyen ürünlerin tespitleri hesaptan düşer; matris altındaki şerit hangi tespit kaynaklarının sayıldığını ve hangilerinin izlemediğini açıkça listeler. İzleme durumları `Kapsam Envanteri` ekranından `Ortam > Varlık Grubu > Ürün İzleme` hiyerarşisiyle girilir.
+Ortam seçildiğinde, o ortamı izlemeyen ürünlerin tespitleri hesaptan düşer; matris altındaki şerit hangi tespit kaynaklarının sayıldığını ve hangilerinin izlemediğini açıkça listeler. İzleme durumları `Kapsam Envanteri` ekranından `Ortam > Ürün İzleme` yapısıyla girilir.
 
-Aynı kural sunucu tarafında da uygulanır: `GET /api/gap-analysis?asset_group_id=<id>` — böylece GAP Analizi ekranı ve yönetici raporu matrisle aynı kapsamı gösterir.
+Aynı kural sunucu tarafında da uygulanır: `GET /api/gap-analysis?environment_id=<id>` — böylece GAP Analizi ekranı ve yönetici raporu matrisle aynı kapsamı gösterir.
 
 ## Ürün Kategorileri
 
@@ -119,7 +119,7 @@ Aynı kural sunucu tarafında da uygulanır: `GET /api/gap-analysis?asset_group_
 
 Mevcut kurulumlarda migration tüm ürünleri `tespit_kaynagi` olarak işaretler (kimsenin kapsama sayısı sessizce değişmesin diye); doğru sınıflandırma `Ayarlar > Ürün Yönetimi`'nden yapılır.
 
-`rules.source` ile `products.name` arasında yabancı anahtar yoktur — köprü yalnızca isim eşitliğidir. Katalogda bulunmayan bir kaynak hiçbir varlık grubuna bağlanamayacağı için kural yazma anında reddedilir; mevcut uyumsuzluklar Veri Kalitesi ekranında **kritik** olarak listelenir.
+`rules.source` ile `products.name` arasında yabancı anahtar yoktur — köprü yalnızca isim eşitliğidir. Katalogda bulunmayan bir kaynak hiçbir ortama bağlanamayacağı için kural yazma anında reddedilir; mevcut uyumsuzluklar Veri Kalitesi ekranında **kritik** olarak listelenir.
 
 ## QRadar Connector
 
@@ -143,7 +143,7 @@ Windows Task Scheduler için önerilen başlangıç sıklığı 6 saattir. Aynı
 
 ## Kapsam Envanteri
 
-`Kapsam Envanteri`, ölçüm sınırını `Ortam > Varlık Grubu > Ürün İzleme` hiyerarşisiyle yönetir. Admin ortamları ve platform/varlık tipi bazlı grupları tanımlar; editor her ürün için `unknown`, `none`, `partial` veya `full` izleme durumunu, yöntemi, yüzdeyi, sahibi ve kapsam notunu kaydeder. Bir QRadar connector yalnızca aynı ürün etiketli izleme kaydına bağlanabilir.
+`Kapsam Envanteri`, ölçüm sınırını `Ortam > Ürün İzleme` yapısıyla yönetir. Admin ortamları ve platform/varlık tipi bazlı grupları tanımlar; editor her ürün için `unknown`, `none`, `partial` veya `full` izleme durumunu, yöntemi, yüzdeyi, sahibi ve kapsam notunu kaydeder. Bir QRadar connector yalnızca aynı ürün etiketli izleme kaydına bağlanabilir.
 
 Bu kayıt ürün bulunurluğu kanıtıdır, doğrudan MITRE detection coverage değildir. Connector'dan gelen native tespitlerin teknik eşlemesi ve validation kanıtı ayrı değerlendirilir. Tüm kapsam ve anket değişiklikleri önce/sonra değerleriyle Audit zincirine yazılır.
 

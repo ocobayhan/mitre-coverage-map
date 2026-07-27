@@ -2572,10 +2572,10 @@ button.action-btn {
 .scope-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
 .scope-header h1 { color: var(--d-text-1); font-size: 20px; font-weight: 600; }
 .scope-header p { color: var(--d-text-3); margin: 4px 0 0; }
-.scope-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 14px; border: 1px solid var(--d-border); background: var(--d-surface); }
+.scope-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 14px; border: 1px solid var(--d-border); background: var(--d-surface); }
 .scope-summary .ops-stat strong { color: var(--d-text-1); font-size: 22px; line-height: 1.1; }
 .scope-summary .ops-stat span { color: var(--d-text-3); font-size: 11px; margin-top: 6px; }
-.scope-selectors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.scope-selectors { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
 .scope-selector { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(180px, 1.2fr) 32px 32px; align-items: center; gap: 7px; border: 1px solid var(--d-border); background: var(--d-surface); padding: 10px; }
 .scope-selector:first-child { grid-template-columns: minmax(150px, .8fr) minmax(180px, 1.2fr) 32px; }
 .scope-selector > div { display: flex; align-items: center; gap: 9px; min-width: 0; }

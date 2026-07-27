@@ -38,7 +38,6 @@ let dataQuality = null;
 let connectors = [];
 let scopeRegistry = null;
 let selectedEnvironmentId = null;
-let selectedAssetGroupId = null;
 // Kurallar sayfası filtre state'i — renderRulesList() her re-render'da bu değerleri
 // kullanır; seçim re-render sonrasında da korunur (input value / select selected).
 let rulesFilterSearch = '';
@@ -1755,31 +1754,46 @@ function ruleCoverageWeight(rule) {
 // ─── Ortam boyutu ──────────────────────────────────────────────────────────
 // Kurumda her ürün her yerde yok: Defender client'ta var ama Lumos server'da
 // yok; QRadar server'lardan log alıyor ama client'lardan almıyor. Dolayısıyla
-// bir tespit yalnızca ürünü o varlık grubunu izliyorsa orada kapsama sağlar.
+// bir tespit yalnızca ürünü o ortamı izliyorsa orada kapsama sağlar.
 //
 //   etkin ağırlık = coverage_level ağırlığı × deployment ağırlığı
 //     deployment: full → 1.00, partial → coverage_percent/100, none|unknown → 0
 
-// Seçili varlık grubu (null = "Tüm ortamlar", ortam filtresi uygulanmaz)
-let matrixScopeGroupId = null;
+// Seçili ortam. null = "Tüm ortamlar (birleşik)" — teknik kaç ortamda
+// kapsanıyor onu gösterir, tek tek ortam gezmek zorunda kalınmasın.
+let matrixScopeEnvId = null;
 
-/** Seçili varlık grubunda ürün adı → izleme ağırlığı haritası. */
-function scopeWeightMap() {
-  if (!matrixScopeGroupId || !scopeRegistry) return null;
-  for (const env of scopeRegistry.environments || []) {
-    for (const group of env.groups || []) {
-      if (group.id !== matrixScopeGroupId) continue;
-      const map = {};
-      for (const dep of group.deployments || []) {
-        const status = dep.monitoring_status;
-        if (status === 'full') map[dep.product_name] = 1.0;
-        else if (status === 'partial') map[dep.product_name] = Math.max(0, Math.min(100, dep.coverage_percent || 0)) / 100;
-        // none / unknown → hiç eklenmez (ağırlık 0)
-      }
-      return map;
-    }
+function envDeploymentWeights(env) {
+  const map = {};
+  for (const dep of env.deployments || []) {
+    const status = dep.monitoring_status;
+    if (status === 'full') map[dep.product_name] = 1.0;
+    else if (status === 'partial') map[dep.product_name] = Math.max(0, Math.min(100, dep.coverage_percent || 0)) / 100;
+    // none / unknown → hiç eklenmez (ağırlık 0)
   }
-  return null;
+  return map;
+}
+
+/** Seçili ortamda ürün adı → izleme ağırlığı haritası (null = filtre yok). */
+function scopeWeightMap() {
+  if (!matrixScopeEnvId || !scopeRegistry) return null;
+  const env = (scopeRegistry.environments || []).find(e => e.id === matrixScopeEnvId);
+  return env ? envDeploymentWeights(env) : null;
+}
+
+/** Birleşik mod: her aktif ortam için ağırlık haritası. */
+function allEnvWeightMaps() {
+  return (scopeRegistry?.environments || [])
+    .filter(e => e.active)
+    .map(e => ({ id: e.id, name: e.name, weights: envDeploymentWeights(e) }));
+}
+
+/** Birleşik modda bir teknik kaç ortamda tespit ediliyor. */
+function envCoverageRatio(rules) {
+  const envs = allEnvWeightMaps();
+  if (!envs.length) return null;
+  const covered = envs.filter(e => (rules || []).some(r => (e.weights[r.source] ?? 0) > 0)).length;
+  return { covered, total: envs.length };
 }
 
 /** Haritayı boyayan ürünler — önleyici kontrol ve CTI sayılmaz. */
@@ -1831,45 +1845,52 @@ function renderMatrixScopeSelect() {
   const select = document.getElementById('matrixScopeSelect');
   if (!select) return;
   const envs = (scopeRegistry?.environments || []).filter(e => e.active);
-  const groups = envs.flatMap(env =>
-    (env.groups || []).filter(g => g.active).map(g => ({ env, group: g }))
-  );
 
-  if (!groups.length) {
-    select.innerHTML = '<option value="">Tüm ortamlar (varlık grubu tanımlı değil)</option>';
+  if (!envs.length) {
+    select.innerHTML = '<option value="">Ortam tanımlı değil</option>';
     select.disabled = true;
-    matrixScopeGroupId = null;
+    matrixScopeEnvId = null;
   } else {
     select.disabled = false;
-    select.innerHTML = '<option value="">Tüm ortamlar (filtresiz)</option>' +
-      envs.map(env => {
-        const opts = (env.groups || []).filter(g => g.active).map(g =>
-          `<option value="${g.id}" ${g.id === matrixScopeGroupId ? 'selected' : ''}>${_esc(g.name)}</option>`
-        ).join('');
-        return opts ? `<optgroup label="${_esc(env.name)}">${opts}</optgroup>` : '';
-      }).join('');
+    select.innerHTML = `<option value="">Tüm ortamlar (birleşik)</option>` +
+      envs.map(env =>
+        `<option value="${env.id}" ${env.id === matrixScopeEnvId ? 'selected' : ''}>${_esc(env.name)}</option>`
+      ).join('');
   }
   updateMatrixScopeNote();
 }
 
-/** Ortam seçiliyken hangi ürünlerin sayıldığını açıkça yazar —
- *  analist "neden bu kart kırmızı" sorusunu tooltip açmadan cevaplayabilsin. */
+/** Hangi ürünlerin sayıldığını açıkça yazar — analist "neden bu kart kırmızı"
+ *  sorusunu tooltip açmadan cevaplayabilsin. */
 function updateMatrixScopeNote() {
   const note = document.getElementById('matrixScopeNote');
   if (!note) return;
-  const weights = scopeWeightMap();
-  if (!weights) { note.classList.add('hidden'); return; }
   const detectionSources = detectionSourceNames();
+  const weights = scopeWeightMap();
+
+  if (!weights) {
+    // Birleşik mod: her ortamın hangi kaynakları izlediğini özetle.
+    const envs = allEnvWeightMaps();
+    if (!envs.length) { note.classList.add('hidden'); return; }
+    note.classList.remove('hidden');
+    note.innerHTML = `<strong>Birleşik görünüm — ${envs.length} ortam.</strong> Hücrelerdeki rozet kaç ortamda tespit olduğunu gösterir. ` +
+      envs.map(e => {
+        const on = Object.keys(e.weights).filter(n => detectionSources.has(n));
+        return `<span class="scope-chip ${on.length ? 'on' : 'off'}">${_esc(e.name)}: ${on.length ? _esc(on.join(', ')) : 'izleyen yok'}</span>`;
+      }).join('');
+    return;
+  }
+
   const active = Object.entries(weights)
     .filter(([name]) => detectionSources.has(name))
     .sort((a, b) => b[1] - a[1]);
   const inactive = [...detectionSources].filter(n => !(n in weights)).sort();
   note.classList.remove('hidden');
   note.innerHTML = active.length
-    ? `<strong>Bu varlık grubunda sayılan tespit kaynakları:</strong> ` +
+    ? `<strong>Bu ortamda sayılan tespit kaynakları:</strong> ` +
       active.map(([n, w]) => `<span class="scope-chip on">${_esc(n)}${w < 1 ? ` %${Math.round(w * 100)}` : ''}</span>`).join('') +
       (inactive.length ? ` <strong>İzlemiyor:</strong> ` + inactive.map(n => `<span class="scope-chip off">${_esc(n)}</span>`).join('') : '')
-    : `<strong>Bu varlık grubunu izleyen tespit kaynağı yok</strong> — tüm teknikler kapsamsız görünecek. Kapsam Envanteri'nden izleme durumu girin.`;
+    : `<strong>Bu ortamı izleyen tespit kaynağı yok</strong> — tüm teknikler kapsamsız görünecek. Kapsam Envanteri'nden izleme durumu girin.`;
 }
 
 // Ortak lerp & renk sabitleri
@@ -3022,7 +3043,7 @@ function wireActions() {
   const scopeSelect = document.getElementById('matrixScopeSelect');
   if (scopeSelect) {
     scopeSelect.addEventListener('change', (e) => {
-      matrixScopeGroupId = e.target.value ? Number(e.target.value) : null;
+      matrixScopeEnvId = e.target.value ? Number(e.target.value) : null;
       updateMatrixScopeNote();
       renderMatrix();
       // GAP ekranı açıksa bayat kalmasın; kapalıysa zaten açılışta yeniden çekiliyor.
@@ -3328,7 +3349,7 @@ async function loadGapDashboard() {
   el.innerHTML = '<div style="color:var(--d-text-3);padding:20px">Yükleniyor…</div>';
   try {
     // Matristeki ortam seçimiyle aynı kapsamı kullan — iki ekran çelişmesin.
-    const scopeQuery = matrixScopeGroupId ? `?asset_group_id=${matrixScopeGroupId}` : '';
+    const scopeQuery = matrixScopeEnvId ? `?environment_id=${matrixScopeEnvId}` : '';
     const res = await apiFetch(`/api/gap-analysis${scopeQuery}`);
     if (!res.ok) { el.innerHTML = '<div style="color:var(--d-red);padding:20px">GAP verisi yüklenemedi.</div>'; return; }
     _gapData = await res.json();
@@ -3746,13 +3767,9 @@ function selectedScopeEnvironment() {
   return scopeRegistry?.environments.find(item => item.id === selectedEnvironmentId) || null;
 }
 
-function selectedScopeGroup() {
-  return selectedScopeEnvironment()?.groups.find(item => item.id === selectedAssetGroupId) || null;
-}
-
 async function loadScopeRegistry() {
   const survey = document.getElementById('scopeSurvey');
-  if (survey && !scopeRegistry) survey.innerHTML = '<div class="scope-empty"><strong>Kapsam yükleniyor</strong><span>Ortam ve varlık grupları hazırlanıyor.</span></div>';
+  if (survey && !scopeRegistry) survey.innerHTML = '<div class="scope-empty"><strong>Kapsam yükleniyor</strong><span>Ortamlar hazırlanıyor.</span></div>';
   const res = await apiFetch('/api/scope-registry');
   if (!res.ok) {
     if (survey) survey.innerHTML = '<div class="scope-empty scope-error"><strong>Kapsam yüklenemedi</strong><span>Sayfayı yenileyip tekrar deneyin.</span></div>';
@@ -3760,9 +3777,9 @@ async function loadScopeRegistry() {
   }
   scopeRegistry = await res.json();
   const environments = scopeRegistry.environments || [];
-  if (!environments.some(item => item.id === selectedEnvironmentId)) selectedEnvironmentId = (environments.find(item => item.active) || environments[0])?.id || null;
-  const groups = selectedScopeEnvironment()?.groups || [];
-  if (!groups.some(item => item.id === selectedAssetGroupId)) selectedAssetGroupId = (groups.find(item => item.active) || groups[0])?.id || null;
+  if (!environments.some(item => item.id === selectedEnvironmentId)) {
+    selectedEnvironmentId = (environments.find(item => item.active) || environments[0])?.id || null;
+  }
   renderScopeRegistry();
   // Kapsam değişince harita ortam seçicisi ve kart renkleri bayat kalmasın.
   renderMatrixScopeSelect();
@@ -3773,104 +3790,87 @@ function renderScopeRegistry() {
   if (!scopeRegistry) return;
   const summary = scopeRegistry.summary || {};
   document.getElementById('scopeSummary').innerHTML = [
-    ['Aktif ortam', summary.environment_count || 0], ['Varlık grubu', summary.group_count || 0],
-    ['Kayıtlı varlık', Number(summary.asset_count || 0).toLocaleString('tr-TR')], ['Değerlendirilen ürün', summary.reviewed_deployments || 0]
+    ['Aktif ortam', summary.environment_count || 0],
+    ['Kayıtlı varlık', Number(summary.asset_count || 0).toLocaleString('tr-TR')],
+    ['Değerlendirilen ürün', summary.reviewed_deployments || 0],
   ].map(([label, value]) => `<div class="ops-stat"><strong>${value}</strong><span>${label}</span></div>`).join('');
   const envSelect = document.getElementById('scopeEnvironmentSelect');
   envSelect.innerHTML = scopeRegistry.environments.length
     ? scopeRegistry.environments.map(env => `<option value="${env.id}" ${env.id === selectedEnvironmentId ? 'selected' : ''}>${_esc(env.name)}${env.active ? '' : ' (pasif)'}</option>`).join('')
     : '<option value="">Henüz ortam yok</option>';
-  const groups = selectedScopeEnvironment()?.groups || [];
-  const groupSelect = document.getElementById('scopeGroupSelect');
-  groupSelect.disabled = !groups.length;
-  groupSelect.innerHTML = groups.length
-    ? groups.map(group => `<option value="${group.id}" ${group.id === selectedAssetGroupId ? 'selected' : ''}>${_esc(group.name)}${group.active ? '' : ' (pasif)'}</option>`).join('')
-    : '<option value="">Varlık grubu yok</option>';
   document.getElementById('scopeAddEnvironment').classList.toggle('hidden', !hasRole('admin'));
   document.getElementById('scopeEditEnvironment').classList.toggle('hidden', !hasRole('admin') || !selectedScopeEnvironment());
-  document.getElementById('scopeAddGroup').classList.toggle('hidden', !hasRole('admin') || !selectedScopeEnvironment());
-  document.getElementById('scopeEditGroup').classList.toggle('hidden', !hasRole('admin') || !selectedScopeGroup());
+  document.getElementById('scopeDeleteEnvironment').classList.toggle('hidden', !hasRole('admin') || !selectedScopeEnvironment());
   renderMonitoringSurvey();
 }
 
 function openScopeEnvironmentEditor(environment = null) {
-  document.getElementById('scopeGroupEditor').classList.add('hidden');
   document.getElementById('scopeEnvironmentId').value = environment?.id || '';
   document.getElementById('scopeEnvironmentName').value = environment?.name || '';
   document.getElementById('scopeEnvironmentCode').value = environment?.code || '';
   document.getElementById('scopeEnvironmentOwner').value = environment?.owner || '';
   document.getElementById('scopeEnvironmentCriticality').value = environment?.criticality || 3;
+  document.getElementById('scopeEnvironmentCount').value = environment?.asset_count || 0;
   document.getElementById('scopeEnvironmentDescription').value = environment?.description || '';
   document.getElementById('scopeEnvironmentActive').checked = environment ? Boolean(environment.active) : true;
   document.getElementById('scopeEnvironmentEditor').classList.remove('hidden');
   document.getElementById('scopeEnvironmentName').focus();
 }
 
-function openScopeGroupEditor(group = null) {
-  if (!selectedScopeEnvironment()) return;
-  document.getElementById('scopeEnvironmentEditor').classList.add('hidden');
-  document.getElementById('scopeGroupId').value = group?.id || '';
-  document.getElementById('scopeGroupName').value = group?.name || '';
-  document.getElementById('scopeGroupPlatform').value = group?.platform || 'Linux';
-  document.getElementById('scopeGroupType').value = group?.asset_type || 'Server';
-  document.getElementById('scopeGroupCount').value = group?.asset_count || 0;
-  document.getElementById('scopeGroupOwner').value = group?.owner || '';
-  document.getElementById('scopeGroupCriticality').value = group?.criticality || 3;
-  document.getElementById('scopeGroupActive').checked = group ? Boolean(group.active) : true;
-  document.getElementById('scopeGroupEditor').classList.remove('hidden');
-  document.getElementById('scopeGroupName').focus();
-}
-
 async function saveScopeEnvironment() {
   const id = document.getElementById('scopeEnvironmentId').value;
   const payload = {
-    name: document.getElementById('scopeEnvironmentName').value.trim(), code: document.getElementById('scopeEnvironmentCode').value.trim(),
-    owner: document.getElementById('scopeEnvironmentOwner').value.trim(), criticality: Number(document.getElementById('scopeEnvironmentCriticality').value),
-    description: document.getElementById('scopeEnvironmentDescription').value.trim(), active: document.getElementById('scopeEnvironmentActive').checked
+    name: document.getElementById('scopeEnvironmentName').value.trim(),
+    code: document.getElementById('scopeEnvironmentCode').value.trim(),
+    owner: document.getElementById('scopeEnvironmentOwner').value.trim(),
+    criticality: Number(document.getElementById('scopeEnvironmentCriticality').value),
+    asset_count: Number(document.getElementById('scopeEnvironmentCount').value),
+    description: document.getElementById('scopeEnvironmentDescription').value.trim(),
+    active: document.getElementById('scopeEnvironmentActive').checked,
   };
-  const res = await apiFetch(id ? `/api/environments/${id}` : '/api/environments', { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+  const res = await apiFetch(id ? `/api/environments/${id}` : '/api/environments',
+    { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return alert(data.error || 'Ortam kaydedilemedi');
   if (!id && data.id) selectedEnvironmentId = data.id;
-  selectedAssetGroupId = null;
   document.getElementById('scopeEnvironmentEditor').classList.add('hidden');
   await loadScopeRegistry();
 }
 
-async function saveScopeGroup() {
+async function deleteScopeEnvironment() {
   const environment = selectedScopeEnvironment();
   if (!environment) return;
-  const id = document.getElementById('scopeGroupId').value;
-  const payload = {
-    name: document.getElementById('scopeGroupName').value.trim(), platform: document.getElementById('scopeGroupPlatform').value,
-    asset_type: document.getElementById('scopeGroupType').value, asset_count: Number(document.getElementById('scopeGroupCount').value),
-    owner: document.getElementById('scopeGroupOwner').value.trim(), criticality: Number(document.getElementById('scopeGroupCriticality').value),
-    active: document.getElementById('scopeGroupActive').checked
-  };
-  const res = await apiFetch(id ? `/api/asset-groups/${id}` : `/api/environments/${environment.id}/asset-groups`, { method: id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return alert(data.error || 'Varlık grubu kaydedilemedi');
-  if (!id && data.id) selectedAssetGroupId = data.id;
-  document.getElementById('scopeGroupEditor').classList.add('hidden');
+  if (!confirm(`"${environment.name}" ortamı ve tüm izleme kayıtları silinecek. Emin misiniz?`)) return;
+  const res = await apiFetch(`/api/environments/${environment.id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    return alert(data.error || 'Ortam silinemedi');
+  }
+  selectedEnvironmentId = null;
   await loadScopeRegistry();
 }
 
 function renderMonitoringSurvey() {
   const target = document.getElementById('scopeSurvey');
   const environment = selectedScopeEnvironment();
-  const group = selectedScopeGroup();
-  if (!environment || !group) {
-    target.innerHTML = `<div class="scope-empty"><strong>${environment ? 'Varlık grubu gerekli' : 'İlk ortamı oluşturun'}</strong><span>${environment ? 'Bu ortam için bir varlık grubu ekleyin.' : 'KPI kapsamını tanımlamak için ortam ve varlık grubu kaydı gerekir.'}</span></div>`;
+  if (!environment) {
+    target.innerHTML = '<div class="scope-empty"><strong>İlk ortamı oluşturun</strong><span>Kapsamı tanımlamak için en az bir ortam kaydı gerekir.</span></div>';
     return;
   }
-  const deployments = new Map((group.deployments || []).map(item => [item.product_id, item]));
+  const deployments = new Map((environment.deployments || []).map(item => [item.product_id, item]));
   const canEdit = hasRole('editor');
-  const rows = (scopeRegistry.products || []).map(product => {
+  // Yalnızca tespit kaynakları izleme anketine girer; önleyici kontrol ve CTI
+  // ürünleri haritayı boyamadığı için burada sorulmaz.
+  const products = (scopeRegistry.products || []).filter(
+    p => (p.category || 'tespit_kaynagi') === 'tespit_kaynagi'
+  );
+  const rows = products.map(product => {
     const item = deployments.get(product.id) || {};
     const status = item.monitoring_status || 'unknown';
     const mode = item.monitoring_mode || 'other';
-    const compatible = (scopeRegistry.connectors || []).filter(connector => connector.product_name === product.name && connector.enabled);
-    const connectorOptions = ['<option value="">Connector seçilmedi</option>', ...compatible.map(connector => `<option value="${connector.id}" ${connector.id === item.connector_id ? 'selected' : ''}>${_esc(connector.name)}${connector.last_status === 'success' ? '' : ' · doğrulanmadı'}</option>`)].join('');
+    const compatible = (scopeRegistry.connectors || []).filter(c => c.product_name === product.name && c.enabled);
+    const connectorOptions = ['<option value="">Connector seçilmedi</option>', ...compatible.map(c =>
+      `<option value="${c.id}" ${c.id === item.connector_id ? 'selected' : ''}>${_esc(c.name)}${c.last_status === 'success' ? '' : ' · doğrulanmadı'}</option>`)].join('');
     const disabled = canEdit ? '' : 'disabled';
     return `<div class="scope-monitor-row" data-product-id="${product.id}">
       <div class="scope-product"><i style="background:${_esc(product.color || '#64748b')}"></i><div><strong>${_esc(product.name)}</strong><small>${item.reviewed_at ? `${_esc(item.reviewed_by || '')} · ${_esc(item.reviewed_at)}` : 'Henüz değerlendirilmedi'}</small></div></div>
@@ -3883,8 +3883,9 @@ function renderMonitoringSurvey() {
       <div class="scope-evidence"><strong>${Number(item.connector_detection_count || 0).toLocaleString('tr-TR')}</strong><span>bağlı dış tespit</span></div>
     </div>`;
   }).join('');
-  target.innerHTML = `<div class="scope-survey-head"><div><span class="scope-path">${_esc(environment.name)} / ${_esc(group.name)}</span><h2>Ürün İzleme Anketi</h2><p>${_esc(group.platform)} · ${_esc(group.asset_type)} · ${Number(group.asset_count).toLocaleString('tr-TR')} varlık · Kritiklik ${group.criticality}/5</p></div><div class="scope-trust-note"><strong>KPI kanıt kuralı</strong><span>Ürünün bulunması tek başına MITRE coverage değildir. Connector tespitleri ayrıca eşlenip doğrulanır.</span></div></div>
-    <div class="scope-monitor-list">${rows || '<div class="scope-empty"><strong>Ürün bulunamadı</strong><span>Önce Ayarlar bölümünden ürün ekleyin.</span></div>'}</div>
+  const emptyMsg = '<div class="scope-empty"><strong>Tespit kaynağı ürün yok</strong><span>Ayarlar → Ürün Yönetimi bölümünden en az bir "tespit kaynağı" ürün ekleyin.</span></div>';
+  target.innerHTML = `<div class="scope-survey-head"><div><span class="scope-path">${_esc(environment.name)}</span><h2>Ürün İzleme Anketi</h2><p>${Number(environment.asset_count || 0).toLocaleString('tr-TR')} varlık · Kritiklik ${environment.criticality}/5</p></div><div class="scope-trust-note"><strong>Bu anket haritayı doğrudan besler</strong><span>Bir ürün burada izlemiyorsa, o ürünün tespitleri bu ortamda kapsamaya sayılmaz.</span></div></div>
+    <div class="scope-monitor-list">${rows || emptyMsg}</div>
     ${canEdit && rows ? '<div class="scope-survey-actions"><span>Her kaydetme işlemi kullanıcı ve zaman bilgisiyle audit loga yazılır.</span><button class="action-btn btn-add" id="scopeSaveMonitoring">Anketi Kaydet</button></div>' : ''}`;
   target.querySelectorAll('.scope-monitor-status').forEach(select => {
     const sync = () => {
@@ -3905,8 +3906,8 @@ function renderMonitoringSurvey() {
 }
 
 async function saveScopeMonitoring() {
-  const group = selectedScopeGroup();
-  if (!group) return;
+  const environment = selectedScopeEnvironment();
+  if (!environment) return;
   const deployments = [...document.querySelectorAll('.scope-monitor-row')].map(row => ({
     product_id: Number(row.dataset.productId), monitoring_status: row.querySelector('.scope-monitor-status').value,
     monitoring_mode: row.querySelector('.scope-monitor-mode').value, coverage_percent: Number(row.querySelector('.scope-monitor-percent').value),
@@ -3915,7 +3916,7 @@ async function saveScopeMonitoring() {
   }));
   const button = document.getElementById('scopeSaveMonitoring');
   button.disabled = true;
-  const res = await apiFetch(`/api/asset-groups/${group.id}/monitoring`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({deployments}) });
+  const res = await apiFetch(`/api/environments/${environment.id}/monitoring`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({deployments}) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) { button.disabled = false; return alert(data.error || 'İzleme anketi kaydedilemedi'); }
   await loadScopeRegistry();
@@ -3924,17 +3925,13 @@ async function saveScopeMonitoring() {
 function wireScopeRegistry() {
   document.getElementById('scopeAddEnvironment')?.addEventListener('click', () => openScopeEnvironmentEditor());
   document.getElementById('scopeEditEnvironment')?.addEventListener('click', () => openScopeEnvironmentEditor(selectedScopeEnvironment()));
-  document.getElementById('scopeAddGroup')?.addEventListener('click', () => openScopeGroupEditor());
-  document.getElementById('scopeEditGroup')?.addEventListener('click', () => openScopeGroupEditor(selectedScopeGroup()));
+  document.getElementById('scopeDeleteEnvironment')?.addEventListener('click', deleteScopeEnvironment);
   document.getElementById('scopeSaveEnvironment')?.addEventListener('click', saveScopeEnvironment);
-  document.getElementById('scopeSaveGroup')?.addEventListener('click', saveScopeGroup);
   document.querySelectorAll('[data-scope-cancel]').forEach(button => button.addEventListener('click', () => button.closest('.scope-editor').classList.add('hidden')));
   document.getElementById('scopeEnvironmentSelect')?.addEventListener('change', event => {
     selectedEnvironmentId = Number(event.target.value) || null;
-    selectedAssetGroupId = (selectedScopeEnvironment()?.groups.find(item => item.active) || selectedScopeEnvironment()?.groups[0])?.id || null;
     renderScopeRegistry();
   });
-  document.getElementById('scopeGroupSelect')?.addEventListener('change', event => { selectedAssetGroupId = Number(event.target.value) || null; renderScopeRegistry(); });
 }
 
 function wireNewPanels() {

@@ -496,6 +496,11 @@ def ensure_connector_schema(db: sqlite3.Connection) -> None:
 
 
 def ensure_scope_registry_schema(db: sqlite3.Connection) -> None:
+    """Kapsam envanteri: tek seviye Ortam -> Urun izleme.
+
+    Onceden Ortam > Varlik Grubu > Urun seklinde uc seviyeydi; surec asiri
+    dallandigi icin varlik grubu seviyesi kaldirildi (bkz. flatten_asset_groups).
+    """
     db.executescript(
         """
         CREATE TABLE IF NOT EXISTS environments (
@@ -505,30 +510,15 @@ def ensure_scope_registry_schema(db: sqlite3.Connection) -> None:
             description TEXT NOT NULL DEFAULT '',
             criticality INTEGER NOT NULL DEFAULT 3 CHECK(criticality BETWEEN 1 AND 5),
             owner TEXT NOT NULL DEFAULT '',
+            asset_count INTEGER NOT NULL DEFAULT 0 CHECK(asset_count >= 0),
             active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS asset_groups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            environment_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            platform TEXT NOT NULL DEFAULT 'Other',
-            asset_type TEXT NOT NULL DEFAULT 'Other',
-            asset_count INTEGER NOT NULL DEFAULT 0 CHECK(asset_count >= 0),
-            criticality INTEGER NOT NULL DEFAULT 3 CHECK(criticality BETWEEN 1 AND 5),
-            owner TEXT NOT NULL DEFAULT '',
-            active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(environment_id, name),
-            FOREIGN KEY (environment_id) REFERENCES environments(id)
-        );
-
         CREATE TABLE IF NOT EXISTS product_deployments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            asset_group_id INTEGER NOT NULL,
+            environment_id INTEGER NOT NULL,
             product_id INTEGER NOT NULL,
             connector_id INTEGER,
             monitoring_status TEXT NOT NULL DEFAULT 'unknown'
@@ -542,16 +532,115 @@ def ensure_scope_registry_schema(db: sqlite3.Connection) -> None:
             reviewed_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(asset_group_id, product_id),
-            FOREIGN KEY (asset_group_id) REFERENCES asset_groups(id) ON DELETE CASCADE,
+            UNIQUE(environment_id, product_id),
+            FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE CASCADE,
             FOREIGN KEY (product_id) REFERENCES products(id),
             FOREIGN KEY (connector_id) REFERENCES connectors(id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_asset_groups_environment ON asset_groups(environment_id, active);
-        CREATE INDEX IF NOT EXISTS idx_product_deployments_group ON product_deployments(asset_group_id);
+        CREATE INDEX IF NOT EXISTS idx_product_deployments_environment ON product_deployments(environment_id);
         CREATE INDEX IF NOT EXISTS idx_product_deployments_connector ON product_deployments(connector_id);
         CREATE INDEX IF NOT EXISTS idx_product_deployments_product ON product_deployments(product_id);
+        """
+    )
+    db.commit()
+
+
+def flatten_asset_groups(db: sqlite3.Connection) -> None:
+    """Varlik grubu seviyesini kaldirir (idempotent).
+
+    Eski model: Ortam > Varlik Grubu > Urun izleme.
+    Yeni model: Ortam > Urun izleme.
+
+    Bir ortamin altindaki gruplar CAKISAN izleme durumlari tasiyabilir —
+    orn. QRadar 'Kurumsal Serverlar'da full ama 'Client Makineler'de none.
+    Birini secip digerini atmak bu bilgiyi sessizce yok ederdi; bunun yerine
+    VARLIK SAYISI AGIRLIKLI ortalama alinir:
+
+        agirlik = SUM(grup_varlik_sayisi * izleme_agirligi) / ortam_toplam_varlik
+
+    Boylece yukaridaki ornek 'partial %20' olur (QRadar 1500 varligin yalnizca
+    300'unu goruyor) — client korlugu kaybolmaz, sayiya doner.
+    """
+    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "asset_groups" not in tables:
+        return
+    cols = {r[1] for r in db.execute("PRAGMA table_info(product_deployments)").fetchall()}
+    if "environment_id" in cols:
+        return
+
+    db.row_factory = sqlite3.Row
+    groups = db.execute("SELECT id, environment_id, asset_count FROM asset_groups").fetchall()
+    group_env = {g["id"]: g["environment_id"] for g in groups}
+    group_assets = {g["id"]: max(g["asset_count"], 0) for g in groups}
+
+    env_total: dict[int, int] = {}
+    for g in groups:
+        env_total[g["environment_id"]] = env_total.get(g["environment_id"], 0) + max(g["asset_count"], 0)
+
+    # (environment_id, product_id) -> agirlikli toplam + tasinacak yardimci alanlar
+    merged: dict[tuple[int, int], dict[str, Any]] = {}
+    for row in db.execute("SELECT * FROM product_deployments").fetchall():
+        env_id = group_env.get(row["asset_group_id"])
+        if env_id is None:
+            continue
+        status = row["monitoring_status"]
+        weight = 1.0 if status == "full" else (row["coverage_percent"] / 100 if status == "partial" else 0.0)
+        assets = group_assets.get(row["asset_group_id"], 0)
+        key = (env_id, row["product_id"])
+        acc = merged.setdefault(key, {
+            "weighted": 0.0, "connector_id": None, "monitoring_mode": "other",
+            "owner": "", "notes": "", "reviewed_by": "", "reviewed_at": None,
+        })
+        # Varlik sayisi girilmemisse (0) esit agirlikli say, yoksa her sey 0 cikar.
+        acc["weighted"] += weight * (assets if env_total.get(env_id, 0) else 1)
+        if row["connector_id"] and not acc["connector_id"]:
+            acc["connector_id"] = row["connector_id"]
+        if row["monitoring_mode"] != "other":
+            acc["monitoring_mode"] = row["monitoring_mode"]
+        for field in ("owner", "notes", "reviewed_by"):
+            if row[field] and not acc[field]:
+                acc[field] = row[field]
+        if row["reviewed_at"] and not acc["reviewed_at"]:
+            acc["reviewed_at"] = row["reviewed_at"]
+
+    db.executescript(
+        """
+        ALTER TABLE product_deployments RENAME TO product_deployments_old;
+        DROP INDEX IF EXISTS idx_asset_groups_environment;
+        DROP INDEX IF EXISTS idx_product_deployments_group;
+        DROP INDEX IF EXISTS idx_product_deployments_connector;
+        DROP INDEX IF EXISTS idx_product_deployments_product;
+        """
+    )
+    if "asset_count" not in {r[1] for r in db.execute("PRAGMA table_info(environments)").fetchall()}:
+        db.execute("ALTER TABLE environments ADD COLUMN asset_count INTEGER NOT NULL DEFAULT 0")
+    ensure_scope_registry_schema(db)
+
+    for (env_id, product_id), acc in merged.items():
+        total = env_total.get(env_id, 0)
+        pct = round(acc["weighted"] / total * 100) if total else round(acc["weighted"] * 100)
+        pct = max(0, min(100, pct))
+        status = "full" if pct >= 100 else ("none" if pct == 0 else "partial")
+        db.execute(
+            """
+            INSERT INTO product_deployments
+                (environment_id, product_id, connector_id, monitoring_status,
+                 coverage_percent, monitoring_mode, owner, notes, reviewed_by, reviewed_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (env_id, product_id, acc["connector_id"], status,
+             0 if status == "none" else (100 if status == "full" else pct),
+             acc["monitoring_mode"], acc["owner"], acc["notes"],
+             acc["reviewed_by"], acc["reviewed_at"]),
+        )
+    for env_id, total in env_total.items():
+        db.execute("UPDATE environments SET asset_count=? WHERE id=?", (total, env_id))
+
+    db.executescript(
+        """
+        DROP TABLE IF EXISTS product_deployments_old;
+        DROP TABLE IF EXISTS asset_groups;
         """
     )
     db.commit()
@@ -818,6 +907,9 @@ def init_db() -> None:
         ensure_users(db)
         ensure_audit_integrity(db)
         ensure_connector_schema(db)
+        # Once duzlestirme (eski 3 seviyeli semayi tasir), sonra sema garantisi —
+        # ters sirada calisirsa yeni index henuz var olmayan sutuna kurulmaya calisir.
+        flatten_asset_groups(db)
         ensure_scope_registry_schema(db)
         migrate_rule_techniques(db)
         migrate_consolidate_rules(db)
@@ -1031,23 +1123,23 @@ def role_required_methods(role_map: dict[str, str]):
     return decorator
 
 
-def _asset_group_weight_map(
-    db: sqlite3.Connection, asset_group_id: int | None
+def _environment_weight_map(
+    db: sqlite3.Connection, environment_id: int | None
 ) -> dict[str, float] | None:
     """Bir varlik grubunda urun adi -> izleme agirligi haritasi.
 
     None doner => ortam filtresi yok, tum tespitler tam agirlikla sayilir.
     full 1.0 / partial coverage_percent/100 / none|unknown haritada yok (0).
     """
-    if not asset_group_id:
+    if not environment_id:
         return None
     rows = db.execute(
         """
         SELECT p.name AS product_name, pd.monitoring_status, pd.coverage_percent
         FROM product_deployments pd JOIN products p ON p.id = pd.product_id
-        WHERE pd.asset_group_id = ?
+        WHERE pd.environment_id = ?
         """,
-        (asset_group_id,),
+        (environment_id,),
     ).fetchall()
     weights: dict[str, float] = {}
     for row in rows:
@@ -1059,7 +1151,7 @@ def _asset_group_weight_map(
 
 
 def _compute_gap_analysis(
-    mitre_data: dict, db: sqlite3.Connection, asset_group_id: int | None = None
+    mitre_data: dict, db: sqlite3.Connection, environment_id: int | None = None
 ) -> dict:
     """Shared logic for /api/gap-analysis and /report.
     Returns dict with overview, by_tactic, critical_gaps."""
@@ -1116,7 +1208,7 @@ def _compute_gap_analysis(
     # tespitleri hesaba katilmaz; kismi izleme coverage_percent ile agirliklanir.
     # Ayrica cesitlilige yalnizca tespit kaynagi kategorisindeki urunler sayilir.
     # Ayni kural istemci tarafinda da uygulanir (static/app.js scopeWeightMap).
-    scope_weights = _asset_group_weight_map(db, asset_group_id)
+    scope_weights = _environment_weight_map(db, environment_id)
     detection_sources = _detection_source_names(db)
 
     rule_stats_by_tech: dict[str, dict[str, Any]] = {}
@@ -2700,8 +2792,6 @@ def connector_sync_api(connector_id: int):
 
 
 ENV_CODE_RE = re.compile(r"[A-Z0-9][A-Z0-9_-]{1,31}")
-SCOPE_PLATFORMS = {"Windows", "Linux", "macOS", "Network", "Cloud", "Identity", "SaaS", "Container", "Other"}
-SCOPE_ASSET_TYPES = {"Client", "Server", "Network Device", "Identity", "Cloud Workload", "Container", "Application", "Other"}
 MONITORING_STATUSES = {"unknown", "none", "partial", "full"}
 MONITORING_MODES = {"agent", "log_forwarding", "api", "network", "hybrid", "other"}
 
@@ -2714,30 +2804,15 @@ def _environment_payload(payload: dict[str, Any], current: sqlite3.Row | None = 
         "description": str(payload.get("description", old.get("description", ""))).strip(),
         "criticality": int(payload.get("criticality", old.get("criticality", 3))),
         "owner": str(payload.get("owner", old.get("owner", ""))).strip(),
+        "asset_count": int(payload.get("asset_count", old.get("asset_count", 0))),
         "active": int(bool(payload.get("active", old.get("active", 1)))),
     }
     if not data["name"] or not ENV_CODE_RE.fullmatch(data["code"]):
         raise ValueError("Ortam adı ve 2-32 karakterlik kod gereklidir")
     if not 1 <= data["criticality"] <= 5:
         raise ValueError("Kritiklik 1-5 arasında olmalıdır")
-    return data
-
-
-def _asset_group_payload(payload: dict[str, Any], current: sqlite3.Row | None = None) -> dict[str, Any]:
-    old = dict(current) if current else {}
-    data = {
-        "name": str(payload.get("name", old.get("name", ""))).strip(),
-        "platform": str(payload.get("platform", old.get("platform", "Other"))).strip(),
-        "asset_type": str(payload.get("asset_type", old.get("asset_type", "Other"))).strip(),
-        "asset_count": int(payload.get("asset_count", old.get("asset_count", 0))),
-        "criticality": int(payload.get("criticality", old.get("criticality", 3))),
-        "owner": str(payload.get("owner", old.get("owner", ""))).strip(),
-        "active": int(bool(payload.get("active", old.get("active", 1)))),
-    }
-    if not data["name"] or data["platform"] not in SCOPE_PLATFORMS or data["asset_type"] not in SCOPE_ASSET_TYPES:
-        raise ValueError("Geçerli grup adı, platform ve varlık tipi gereklidir")
-    if data["asset_count"] < 0 or not 1 <= data["criticality"] <= 5:
-        raise ValueError("Varlık sayısı negatif olamaz; kritiklik 1-5 arasında olmalıdır")
+    if data["asset_count"] < 0:
+        raise ValueError("Varlık sayısı negatif olamaz")
     return data
 
 
@@ -2748,33 +2823,34 @@ def scope_registry_api():
     environments = []
     for environment in db.execute("SELECT * FROM environments ORDER BY active DESC,name").fetchall():
         env = dict(environment)
-        env["groups"] = []
-        for group in db.execute(
-            "SELECT * FROM asset_groups WHERE environment_id=? ORDER BY active DESC,name", (environment["id"],)
-        ).fetchall():
-            item = dict(group)
-            item["deployments"] = [dict(row) for row in db.execute(
-                """
-                SELECT pd.*,p.name AS product_name,p.color AS product_color,c.name AS connector_name,
-                       (SELECT COUNT(*) FROM rule_external_refs rer WHERE rer.connector_id=pd.connector_id) AS connector_detection_count
-                FROM product_deployments pd JOIN products p ON p.id=pd.product_id
-                LEFT JOIN connectors c ON c.id=pd.connector_id
-                WHERE pd.asset_group_id=? ORDER BY p.name
-                """,
-                (group["id"],),
-            ).fetchall()]
-            env["groups"].append(item)
+        env["deployments"] = [dict(row) for row in db.execute(
+            """
+            SELECT pd.*,p.name AS product_name,p.color AS product_color,p.category AS product_category,
+                   c.name AS connector_name,
+                   (SELECT COUNT(*) FROM rule_external_refs rer WHERE rer.connector_id=pd.connector_id) AS connector_detection_count
+            FROM product_deployments pd JOIN products p ON p.id=pd.product_id
+            LEFT JOIN connectors c ON c.id=pd.connector_id
+            WHERE pd.environment_id=? ORDER BY p.name
+            """,
+            (environment["id"],),
+        ).fetchall()]
         environments.append(env)
     connectors = [dict(row) for row in db.execute(
         "SELECT id,name,product_name,last_status,last_sync_at,enabled FROM connectors ORDER BY name"
     ).fetchall()]
     summary = {
         "environment_count": sum(1 for env in environments if env["active"]),
-        "group_count": sum(1 for env in environments for group in env["groups"] if group["active"]),
-        "asset_count": sum(group["asset_count"] for env in environments for group in env["groups"] if group["active"]),
+        "asset_count": sum(env["asset_count"] for env in environments if env["active"]),
         "reviewed_deployments": db.execute("SELECT COUNT(*) FROM product_deployments WHERE monitoring_status!='unknown'").fetchone()[0],
     }
-    return jsonify({"environments": environments, "products": [dict(row) for row in db.execute("SELECT id,name,color FROM products ORDER BY name").fetchall()], "connectors": connectors, "summary": summary})
+    return jsonify({
+        "environments": environments,
+        "products": [dict(row) for row in db.execute(
+            "SELECT id,name,color,category FROM products ORDER BY name"
+        ).fetchall()],
+        "connectors": connectors,
+        "summary": summary,
+    })
 
 
 @app.route("/api/environments", methods=["POST"])
@@ -2807,7 +2883,7 @@ def environment_api(environment_id: int):
     try:
         data = _environment_payload(request.get_json(silent=True) or {}, current)
         db.execute(
-            "UPDATE environments SET name=?,code=?,description=?,criticality=?,owner=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            "UPDATE environments SET name=?,code=?,description=?,criticality=?,owner=?,asset_count=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (*data.values(), environment_id),
         )
     except (ValueError, TypeError) as exc:
@@ -2819,61 +2895,37 @@ def environment_api(environment_id: int):
     return jsonify({"ok": True})
 
 
-@app.route("/api/environments/<int:environment_id>/asset-groups", methods=["POST"])
+@app.route("/api/environments/<int:environment_id>", methods=["DELETE"])
 @role_required("admin")
-def asset_groups_api(environment_id: int):
+def delete_environment_api(environment_id: int):
     db = get_db()
-    if not db.execute("SELECT 1 FROM environments WHERE id=?", (environment_id,)).fetchone():
-        return jsonify({"error": "Ortam bulunamadı"}), 404
-    try:
-        data = _asset_group_payload(request.get_json(silent=True) or {})
-        columns = ["environment_id", *data]
-        cursor = db.execute(
-            f"INSERT INTO asset_groups ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
-            [environment_id, *data.values()],
-        )
-    except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
-    except sqlite3.IntegrityError:
-        return jsonify({"error": "Bu ortamda aynı adlı varlık grubu zaten var"}), 409
-    write_audit_log(db, "create", "asset_group", str(cursor.lastrowid), f"environment={environment_id}", after={"environment_id": environment_id, **data})
-    db.commit()
-    return jsonify({"id": cursor.lastrowid}), 201
-
-
-@app.route("/api/asset-groups/<int:group_id>", methods=["PUT"])
-@role_required("admin")
-def asset_group_api(group_id: int):
-    db = get_db()
-    current = db.execute("SELECT * FROM asset_groups WHERE id=?", (group_id,)).fetchone()
+    current = db.execute("SELECT * FROM environments WHERE id=?", (environment_id,)).fetchone()
     if not current:
-        return jsonify({"error": "Varlık grubu bulunamadı"}), 404
-    try:
-        data = _asset_group_payload(request.get_json(silent=True) or {}, current)
-        db.execute(
-            "UPDATE asset_groups SET name=?,platform=?,asset_type=?,asset_count=?,criticality=?,owner=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (*data.values(), group_id),
-        )
-    except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
-    except sqlite3.IntegrityError:
-        return jsonify({"error": "Bu ortamda aynı adlı varlık grubu zaten var"}), 409
-    write_audit_log(db, "update", "asset_group", str(group_id), before=dict(current), after=data)
+        return jsonify({"error": "Ortam bulunamadı"}), 404
+    # product_deployments FK'si ON DELETE CASCADE — izleme kayitlari birlikte gider.
+    db.execute("DELETE FROM environments WHERE id=?", (environment_id,))
+    write_audit_log(db, "delete", "environment", str(environment_id), before=dict(current))
     db.commit()
     return jsonify({"ok": True})
 
 
-@app.route("/api/asset-groups/<int:group_id>/monitoring", methods=["PUT"])
+@app.route("/api/environments/<int:environment_id>/monitoring", methods=["PUT"])
 @role_required("editor")
-def asset_group_monitoring_api(group_id: int):
+def environment_monitoring_api(environment_id: int):
+    """Bir ortamda hangi urunun ne kadar izledigini kaydeder.
+
+    Onceden varlik grubu seviyesindeydi; Faz 4'te ortam seviyesine tasindi.
+    """
     db = get_db()
-    if not db.execute("SELECT 1 FROM asset_groups WHERE id=?", (group_id,)).fetchone():
-        return jsonify({"error": "Varlık grubu bulunamadı"}), 404
+    if not db.execute("SELECT 1 FROM environments WHERE id=?", (environment_id,)).fetchone():
+        return jsonify({"error": "Ortam bulunamadı"}), 404
     payload = request.get_json(silent=True) or {}
     rows = payload.get("deployments", [])
     if not isinstance(rows, list) or not rows:
         return jsonify({"error": "En az bir ürün değerlendirmesi gereklidir"}), 400
-    before = [dict(row) for row in db.execute("SELECT * FROM product_deployments WHERE asset_group_id=? ORDER BY product_id", (group_id,)).fetchall()]
+    before = [dict(row) for row in db.execute(
+        "SELECT * FROM product_deployments WHERE environment_id=? ORDER BY product_id", (environment_id,)
+    ).fetchall()]
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     try:
         for row in rows:
@@ -2902,17 +2954,17 @@ def asset_group_monitoring_api(group_id: int):
             db.execute(
                 """
                 INSERT INTO product_deployments (
-                    asset_group_id,product_id,connector_id,monitoring_status,coverage_percent,
+                    environment_id,product_id,connector_id,monitoring_status,coverage_percent,
                     monitoring_mode,owner,notes,reviewed_by,reviewed_at
                 ) VALUES (?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(asset_group_id,product_id) DO UPDATE SET
+                ON CONFLICT(environment_id,product_id) DO UPDATE SET
                     connector_id=excluded.connector_id,monitoring_status=excluded.monitoring_status,
                     coverage_percent=excluded.coverage_percent,monitoring_mode=excluded.monitoring_mode,
                     owner=excluded.owner,notes=excluded.notes,reviewed_by=excluded.reviewed_by,
                     reviewed_at=excluded.reviewed_at,updated_at=CURRENT_TIMESTAMP
                 """,
                 (
-                    group_id, product_id, connector_id, status, percent, mode,
+                    environment_id, product_id, connector_id, status, percent, mode,
                     str(row.get("owner", "")).strip(), str(row.get("notes", "")).strip(),
                     g.current_user["username"], now,
                 ),
@@ -2920,10 +2972,14 @@ def asset_group_monitoring_api(group_id: int):
     except (ValueError, TypeError) as exc:
         db.rollback()
         return jsonify({"error": str(exc)}), 400
-    after = [dict(row) for row in db.execute("SELECT * FROM product_deployments WHERE asset_group_id=? ORDER BY product_id", (group_id,)).fetchall()]
-    write_audit_log(db, "assess", "asset_group_monitoring", str(group_id), f"products={len(rows)}", before=before, after=after)
+    after = [dict(row) for row in db.execute(
+        "SELECT * FROM product_deployments WHERE environment_id=? ORDER BY product_id", (environment_id,)
+    ).fetchall()]
+    write_audit_log(db, "assess", "environment_monitoring", str(environment_id),
+                    f"products={len(rows)}", before=before, after=after)
     db.commit()
     return jsonify({"ok": True, "reviewed_at": now})
+
 
 
 def _mitre_catalog() -> dict[str, Any]:
@@ -3542,14 +3598,14 @@ def gap_analysis_api():
         return jsonify({"error": str(exc)}), 500
     db = get_db()
     try:
-        asset_group_id = request.args.get("asset_group_id", type=int)
+        environment_id = request.args.get("environment_id", type=int)
     except (TypeError, ValueError):
-        asset_group_id = None
+        environment_id = None
     try:
-        result = _compute_gap_analysis(mitre, db, asset_group_id)
+        result = _compute_gap_analysis(mitre, db, environment_id)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
-    result["asset_group_id"] = asset_group_id
+    result["environment_id"] = environment_id
     return jsonify(result)
 
 

@@ -266,33 +266,21 @@ class AppTestCase(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-    def test_scope_registry_records_environment_group_and_monitoring_survey(self):
+    def test_scope_registry_records_environment_and_monitoring_survey(self):
         self.assertEqual(self.login().status_code, 200)
         environment = self.client.post(
             "/api/environments",
             json={
-                "name": "DIAS Lumos",
-                "code": "DIAS-LUMOS",
-                "description": "DIAS Lumos ortamı",
+                "name": "Lumos Serverlar",
+                "code": "LUMOS-SRV",
+                "description": "Lumos ortamındaki Linux sunucular",
                 "criticality": 5,
                 "owner": "Platform Ekibi",
+                "asset_count": 42,
             },
         )
         self.assertEqual(environment.status_code, 201)
         environment_id = environment.get_json()["id"]
-        group = self.client.post(
-            f"/api/environments/{environment_id}/asset-groups",
-            json={
-                "name": "Linux Serverler",
-                "platform": "Linux",
-                "asset_type": "Server",
-                "asset_count": 42,
-                "criticality": 5,
-                "owner": "Linux Ekibi",
-            },
-        )
-        self.assertEqual(group.status_code, 201)
-        group_id = group.get_json()["id"]
         connector = self.client.post(
             "/api/connectors",
             json={
@@ -307,7 +295,7 @@ class AppTestCase(unittest.TestCase):
         registry = self.client.get("/api/scope-registry").get_json()
         product_ids = {item["name"]: item["id"] for item in registry["products"]}
         survey = self.client.put(
-            f"/api/asset-groups/{group_id}/monitoring",
+            f"/api/environments/{environment_id}/monitoring",
             json={
                 "deployments": [
                     {
@@ -332,13 +320,76 @@ class AppTestCase(unittest.TestCase):
         registry = self.client.get("/api/scope-registry").get_json()
         self.assertEqual(registry["summary"]["environment_count"], 1)
         self.assertEqual(registry["summary"]["asset_count"], 42)
-        saved_group = registry["environments"][0]["groups"][0]
-        self.assertEqual(saved_group["name"], "Linux Serverler")
-        deployments = {item["product_name"]: item for item in saved_group["deployments"]}
+        saved = registry["environments"][0]
+        self.assertEqual(saved["name"], "Lumos Serverlar")
+        deployments = {item["product_name"]: item for item in saved["deployments"]}
         self.assertEqual(deployments["QRadar"]["monitoring_status"], "full")
         self.assertEqual(deployments["QRadar"]["connector_id"], connector_id)
         self.assertEqual(deployments["DFE"]["monitoring_status"], "none")
         self.assertTrue(self.client.get("/api/audit-logs").get_json()["integrity"]["valid"])
+
+    def test_flatten_asset_groups_merges_conflicting_groups_by_asset_count(self):
+        """Eski 3 seviyeli semadan gecis: bir ortamin altindaki gruplar
+        CAKISAN izleme durumlari tasiyorsa, varlik sayisi agirlikli ortalama
+        alinir — 'QRadar client'lardan log almiyor' bilgisi kaybolmaz."""
+        self.login()
+        db = sqlite3.connect(application.DB_PATH)
+        db.row_factory = sqlite3.Row
+        products = {r["name"]: r["id"] for r in db.execute("SELECT id,name FROM products")}
+        # Yeni semayi eski haline dondur (migration'i tetiklemek icin)
+        db.executescript(
+            """
+            DROP TABLE IF EXISTS product_deployments;
+            CREATE TABLE asset_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, environment_id INTEGER NOT NULL,
+                name TEXT NOT NULL, platform TEXT DEFAULT 'Other', asset_type TEXT DEFAULT 'Other',
+                asset_count INTEGER DEFAULT 0, criticality INTEGER DEFAULT 3,
+                owner TEXT DEFAULT '', active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE product_deployments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, asset_group_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL, connector_id INTEGER,
+                monitoring_status TEXT DEFAULT 'unknown', coverage_percent INTEGER DEFAULT 0,
+                monitoring_mode TEXT DEFAULT 'other', owner TEXT DEFAULT '', notes TEXT DEFAULT '',
+                reviewed_by TEXT DEFAULT '', reviewed_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(asset_group_id, product_id));
+            INSERT INTO environments (name, code) VALUES ('Kurumsal', 'KURUMSAL');
+            """
+        )
+        env_id = db.execute("SELECT id FROM environments WHERE code='KURUMSAL'").fetchone()["id"]
+        # Serverlar: 300 varlik, QRadar full | Client: 1200 varlik, QRadar none
+        db.execute("INSERT INTO asset_groups (environment_id,name,asset_count) VALUES (?,?,?)", (env_id, "Serverlar", 300))
+        db.execute("INSERT INTO asset_groups (environment_id,name,asset_count) VALUES (?,?,?)", (env_id, "Client", 1200))
+        srv = db.execute("SELECT id FROM asset_groups WHERE name='Serverlar'").fetchone()["id"]
+        cli = db.execute("SELECT id FROM asset_groups WHERE name='Client'").fetchone()["id"]
+        db.execute("INSERT INTO product_deployments (asset_group_id,product_id,monitoring_status,coverage_percent) VALUES (?,?,?,?)",
+                   (srv, products["QRadar"], "full", 100))
+        db.execute("INSERT INTO product_deployments (asset_group_id,product_id,monitoring_status,coverage_percent) VALUES (?,?,?,?)",
+                   (cli, products["QRadar"], "none", 0))
+        db.execute("INSERT INTO product_deployments (asset_group_id,product_id,monitoring_status,coverage_percent) VALUES (?,?,?,?)",
+                   (cli, products["DFE"], "full", 100))
+        db.commit()
+        db.close()
+
+        application.init_db()  # flatten_asset_groups burada calisir
+
+        db = sqlite3.connect(application.DB_PATH)
+        db.row_factory = sqlite3.Row
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertNotIn("asset_groups", tables, "varlik grubu tablosu dusmus olmali")
+        rows = {r["name"]: r for r in db.execute(
+            """SELECT p.name, pd.monitoring_status, pd.coverage_percent
+               FROM product_deployments pd JOIN products p ON p.id=pd.product_id
+               WHERE pd.environment_id=?""", (env_id,))}
+        # QRadar 1500 varligin yalnizca 300'unu goruyor -> partial %20
+        self.assertEqual(rows["QRadar"]["monitoring_status"], "partial")
+        self.assertEqual(rows["QRadar"]["coverage_percent"], 20)
+        # DFE 1200/1500 -> partial %80
+        self.assertEqual(rows["DFE"]["monitoring_status"], "partial")
+        self.assertEqual(rows["DFE"]["coverage_percent"], 80)
+        self.assertEqual(db.execute("SELECT asset_count FROM environments WHERE id=?", (env_id,)).fetchone()[0], 1500)
+        db.close()
 
     def test_data_quality_detects_invalid_mapping(self):
         self.login()
@@ -417,7 +468,7 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(ov["mitigation_only_techniques"], 0)
         self.assertEqual(ov["uncovered_techniques"], 1)
 
-    def test_gap_analysis_is_scoped_to_asset_group_monitoring(self):
+    def test_gap_analysis_is_scoped_to_environment_monitoring(self):
         """Kurumsal gerçek: her ürün her yerde yok.
 
         QRadar tüm server'lardan log alıyor ama client'lardan almıyor; Defender
@@ -431,21 +482,19 @@ class AppTestCase(unittest.TestCase):
         self.client.post("/api/rules", json={
             "name": "Defender EDR", "tactic": "persistence", "tech": "T1001", "source": "DFE"})
 
-        env_id = self.client.post("/api/environments", json={
-            "name": "Kurumsal", "code": "KURUMSAL"}).get_json()["id"]
-        clients = self.client.post(f"/api/environments/{env_id}/asset-groups", json={
-            "name": "Client Makineler", "platform": "Windows", "asset_type": "Client"}).get_json()["id"]
-        servers = self.client.post(f"/api/environments/{env_id}/asset-groups", json={
-            "name": "Serverlar", "platform": "Windows", "asset_type": "Server"}).get_json()["id"]
+        clients = self.client.post("/api/environments", json={
+            "name": "Client Makineler", "code": "CLIENT"}).get_json()["id"]
+        servers = self.client.post("/api/environments", json={
+            "name": "Kurumsal Serverlar", "code": "KURUMSAL-SRV"}).get_json()["id"]
 
         products = {p["name"]: p["id"] for p in self.client.get("/api/products").get_json()}
         # Client: Defender var, QRadar log almiyor
-        self.assertEqual(self.client.put(f"/api/asset-groups/{clients}/monitoring", json={"deployments": [
+        self.assertEqual(self.client.put(f"/api/environments/{clients}/monitoring", json={"deployments": [
             {"product_id": products["DFE"], "monitoring_status": "full"},
             {"product_id": products["QRadar"], "monitoring_status": "none"},
         ]}).status_code, 200)
         # Server: ikisi de var
-        self.assertEqual(self.client.put(f"/api/asset-groups/{servers}/monitoring", json={"deployments": [
+        self.assertEqual(self.client.put(f"/api/environments/{servers}/monitoring", json={"deployments": [
             {"product_id": products["DFE"], "monitoring_status": "full"},
             {"product_id": products["QRadar"], "monitoring_status": "full"},
         ]}).status_code, 200)
@@ -456,12 +505,12 @@ class AppTestCase(unittest.TestCase):
 
         # Client grubunda QRadar yok -> yalnizca Defender'in teknigi kapsanir
         client_overview = self.client.get(
-            f"/api/gap-analysis?asset_group_id={clients}").get_json()["overview"]
+            f"/api/gap-analysis?environment_id={clients}").get_json()["overview"]
         self.assertEqual(client_overview["detected_techniques"], 1)
 
         # Server grubunda ikisi de izleniyor -> iki teknik de kapsanir
         server_overview = self.client.get(
-            f"/api/gap-analysis?asset_group_id={servers}").get_json()["overview"]
+            f"/api/gap-analysis?environment_id={servers}").get_json()["overview"]
         self.assertEqual(server_overview["detected_techniques"], 2)
 
     def test_partial_monitoring_weights_coverage_score(self):
@@ -469,18 +518,16 @@ class AppTestCase(unittest.TestCase):
         self.login()
         self.client.post("/api/rules", json={
             "name": "QRadar CRE", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
-        env_id = self.client.post("/api/environments", json={
-            "name": "Kurumsal", "code": "KURUMSAL"}).get_json()["id"]
-        group = self.client.post(f"/api/environments/{env_id}/asset-groups", json={
-            "name": "Serverlar", "platform": "Windows", "asset_type": "Server"}).get_json()["id"]
+        group = self.client.post("/api/environments", json={
+            "name": "Kurumsal Serverlar", "code": "KURUMSAL-SRV"}).get_json()["id"]
         products = {p["name"]: p["id"] for p in self.client.get("/api/products").get_json()}
 
         def score_for(status, percent=0):
-            self.client.put(f"/api/asset-groups/{group}/monitoring", json={"deployments": [
+            self.client.put(f"/api/environments/{group}/monitoring", json={"deployments": [
                 {"product_id": products["QRadar"], "monitoring_status": status,
                  "coverage_percent": percent},
             ]})
-            data = self.client.get(f"/api/gap-analysis?asset_group_id={group}").get_json()
+            data = self.client.get(f"/api/gap-analysis?environment_id={group}").get_json()
             return data["overview"]["average_score_pct"]
 
         full = score_for("full")

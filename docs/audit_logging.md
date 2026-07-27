@@ -12,7 +12,7 @@ Bu güvenceler yalnızca **her yazma işleminin gerçekten `write_audit_log()` �
 write_audit_log(
     db,
     action: str,        # "create" | "update" | "delete" | "approve" | "assess" | "sync" | "override" | ...
-    target_type: str,    # "rule" | "user" | "connector" | "environment" | "asset_group" | ...
+    target_type: str,    # "rule" | "user" | "connector" | "environment" | "product" | ...
     target_id: str = "",
     detail: str = "",     # kısa, insan-okunur özet (username=..;role=.. gibi key=value parçaları)
     user=None,             # verilmezse g.current_user kullanılır
@@ -35,7 +35,7 @@ write_audit_log(
 
 Kod tabanında gözlemlenen konvansiyon:
 - `action`: fiil, geniş zaman değil emir/isim kökü — `create`, `update`, `delete`, `assess`, `sync`, `sync_failed`, `test`, `test_failed`, `bulk_create`, `change_password`, `export`.
-- `target_type`: tekil, snake_case kaynak adı — `rule`, `rule_technique`, `user`, `session`, `product`, `team`, `connector`, `environment`, `asset_group`, `asset_group_monitoring`, `mitigation_entry`, `action_item`, `technique_config`.
+- `target_type`: tekil, snake_case kaynak adı — `rule`, `rule_technique`, `user`, `session`, `product`, `team`, `connector`, `environment`, `environment_monitoring`, `mitigation_entry`, `action_item`, `technique_config`.
 - `target_id`: genelde `str(row_id)`; birleşik anahtarlarda `:` ile birleştirilir.
 
 Yeni bir kaynak eklerken bu ikiliyi mevcut adlandırmayla tutarlı seç — Audit ekranındaki filtreleme `target_type` üzerinden çalışıyor.

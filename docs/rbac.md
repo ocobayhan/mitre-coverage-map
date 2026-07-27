@@ -47,16 +47,16 @@ Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `RO
 | `audit-logs`, `audit-logs/export`, `audit-logs/evidence` | admin | admin |
 | `connectors` (tüm alt route'lar) | admin | admin |
 | `scope-registry` | viewer | — |
-| `environments`, `asset-groups` (CRUD) | — | admin |
-| `asset-groups/<id>/monitoring` | — | editor |
+| `environments` (CRUD) | — | admin |
+| `environments/<id>/monitoring` | — | editor |
 | `data-quality` | viewer | admin (repair) |
 | `ttp-list`, `technique-detail` | viewer | — |
 | `admin/reset` | — | admin |
 | `technique-config` | viewer | admin |
-| `gap-analysis` (`?asset_group_id=` ile ortam bazlı), `threat-actors` | viewer | — |
+| `gap-analysis` (`?environment_id=` ile ortam bazlı), `threat-actors` | viewer | — |
 | `action-items` | viewer | editor |
 
-Genel kural: **viewer** her şeyi okuyabilir (audit, connector, kullanıcı yönetimi hariç), **editor** operasyonel veriyi (tespit, mitigation, aksiyon, kapsam anketi) yazabilir, **admin** yapısal/yönetsel şeyleri (kullanıcı, ürün, ekip, connector, ortam/varlık grubu, teknik config) değiştirir.
+Genel kural: **viewer** her şeyi okuyabilir (audit, connector, kullanıcı yönetimi hariç), **editor** operasyonel veriyi (tespit, mitigation, aksiyon, kapsam anketi) yazabilir, **admin** yapısal/yönetsel şeyleri (kullanıcı, ürün, ekip, connector, ortam, teknik config) değiştirir.
 
 ## Frontend Uygulaması (`static/app.js`)
 

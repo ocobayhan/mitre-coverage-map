@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=106" />
+  <link rel="stylesheet" href="/static/styles.css?v=108" />
 </head>
 <body>
   <div class="ms-shell">
@@ -79,7 +79,7 @@
           <span class="nav-label">Ayarlar</span>
         </button>
         <div class="nav-spacer"></div>
-        <a class="nav-item" href="/docs" target="_blank" rel="noopener" title="Bilgilendirme (yeni sekmede açılır)">
+        <a class="nav-item" href="/docs" title="Bilgilendirme">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.5"/>
             <rect x="9.25" y="9" width="1.5" height="5" rx="0.75" fill="currentColor"/>
@@ -128,9 +128,9 @@
               <input type="text" id="techSearch" placeholder="Teknik adı veya ID (T1059)" />
             </div>
             <div class="filter-group filter-scope">
-              <label for="matrixScopeSelect">Ortam / Varlık Grubu</label>
-              <select id="matrixScopeSelect" title="Seçilen varlık grubunu izlemeyen ürünlerin tespitleri kapsamaya sayılmaz">
-                <option value="">Tüm ortamlar (filtresiz)</option>
+              <label for="matrixScopeSelect">Ortam</label>
+              <select id="matrixScopeSelect" title="Seçilen ortamı izlemeyen ürünlerin tespitleri kapsamaya sayılmaz">
+                <option value="">Tüm ortamlar (birleşik)</option>
               </select>
             </div>
             <div class="filter-group">
@@ -184,32 +184,28 @@
         <div id="scopePanel" class="panel">
           <div class="scope-page">
             <div class="scope-header">
-              <div><h1>Kapsam Envanteri</h1><p>Ortamları, varlık gruplarını ve hangi ürünlerin bu kapsamları izlediğini yönetin.</p></div>
+              <div><h1>Kapsam Envanteri</h1><p>Ortamları ve hangi ürünlerin bu ortamları izlediğini yönetin. Buradaki izleme durumu haritayı doğrudan besler.</p></div>
               <div class="scope-header-actions"><button class="action-btn btn-add" id="scopeAddEnvironment">+ Ortam</button></div>
             </div>
             <div class="ops-summary scope-summary" id="scopeSummary"></div>
 
             <div class="scope-selectors">
               <section class="scope-selector">
-                <div><span>1</span><div><label for="scopeEnvironmentSelect">Ortam</label><small>Örn. DIAS Lumos</small></div></div>
+                <div><div><label for="scopeEnvironmentSelect">Ortam</label><small>Örn. Client Makineler, Kurumsal Serverlar</small></div></div>
                 <select id="scopeEnvironmentSelect"><option value="">Ortam seçin</option></select>
                 <button class="icon-btn" id="scopeEditEnvironment" title="Seçili ortamı düzenle" aria-label="Ortamı düzenle">&#9998;</button>
-              </section>
-              <section class="scope-selector">
-                <div><span>2</span><div><label for="scopeGroupSelect">Varlık Grubu</label><small>Örn. Linux Serverler</small></div></div>
-                <select id="scopeGroupSelect" disabled><option value="">Varlık grubu seçin</option></select>
-                <button class="icon-btn" id="scopeAddGroup" title="Varlık grubu ekle" aria-label="Varlık grubu ekle">+</button>
-                <button class="icon-btn" id="scopeEditGroup" title="Seçili grubu düzenle" aria-label="Varlık grubunu düzenle">&#9998;</button>
+                <button class="icon-btn" id="scopeDeleteEnvironment" title="Seçili ortamı sil" aria-label="Ortamı sil">&#128465;</button>
               </section>
             </div>
 
             <section class="scope-editor hidden" id="scopeEnvironmentEditor">
-              <div class="scope-section-head"><div><h2>Ortam Bilgileri</h2><span>KPI kapsamının üst seviye sınırı</span></div></div>
+              <div class="scope-section-head"><div><h2>Ortam Bilgileri</h2><span>Kapsamın sınırı — hangi sistemler bu ortamda</span></div></div>
               <input type="hidden" id="scopeEnvironmentId" />
               <div class="scope-form-grid">
-                <div class="input-wrapper"><label for="scopeEnvironmentName">Ortam Adı</label><input id="scopeEnvironmentName" placeholder="DIAS Lumos" /></div>
-                <div class="input-wrapper"><label for="scopeEnvironmentCode">Kod</label><input id="scopeEnvironmentCode" placeholder="DIAS-LUMOS" /></div>
+                <div class="input-wrapper"><label for="scopeEnvironmentName">Ortam Adı</label><input id="scopeEnvironmentName" placeholder="Kurumsal Serverlar" /></div>
+                <div class="input-wrapper"><label for="scopeEnvironmentCode">Kod</label><input id="scopeEnvironmentCode" placeholder="KURUMSAL-SRV" /></div>
                 <div class="input-wrapper"><label for="scopeEnvironmentOwner">Sahip Ekip</label><input id="scopeEnvironmentOwner" placeholder="Platform Ekibi" /></div>
+                <div class="input-wrapper"><label for="scopeEnvironmentCount">Yaklaşık Varlık Sayısı</label><input id="scopeEnvironmentCount" type="number" min="0" value="0" /></div>
                 <div class="input-wrapper"><label for="scopeEnvironmentCriticality">Kritiklik</label><select id="scopeEnvironmentCriticality"><option value="1">1 - Düşük</option><option value="2">2</option><option value="3" selected>3 - Orta</option><option value="4">4</option><option value="5">5 - Kritik</option></select></div>
                 <div class="input-wrapper scope-form-wide"><label for="scopeEnvironmentDescription">Açıklama</label><textarea id="scopeEnvironmentDescription" placeholder="Ortamın iş kapsamı ve sınırları"></textarea></div>
                 <label class="connector-check"><input id="scopeEnvironmentActive" type="checkbox" checked /> Ortam aktif</label>
@@ -217,23 +213,8 @@
               <div class="scope-editor-actions"><button class="action-btn btn-add" id="scopeSaveEnvironment">Kaydet</button><button class="action-btn btn-neutral" data-scope-cancel>İptal</button></div>
             </section>
 
-            <section class="scope-editor hidden" id="scopeGroupEditor">
-              <div class="scope-section-head"><div><h2>Varlık Grubu</h2><span>Benzer platform ve izleme yapısına sahip sistemler</span></div></div>
-              <input type="hidden" id="scopeGroupId" />
-              <div class="scope-form-grid">
-                <div class="input-wrapper"><label for="scopeGroupName">Grup Adı</label><input id="scopeGroupName" placeholder="Linux Serverler" /></div>
-                <div class="input-wrapper"><label for="scopeGroupPlatform">Platform</label><select id="scopeGroupPlatform"><option>Windows</option><option>Linux</option><option>macOS</option><option>Network</option><option>Cloud</option><option>Identity</option><option>SaaS</option><option>Container</option><option>Other</option></select></div>
-                <div class="input-wrapper"><label for="scopeGroupType">Varlık Tipi</label><select id="scopeGroupType"><option>Client</option><option>Server</option><option>Network Device</option><option>Identity</option><option>Cloud Workload</option><option>Container</option><option>Application</option><option>Other</option></select></div>
-                <div class="input-wrapper"><label for="scopeGroupCount">Yaklaşık Varlık Sayısı</label><input id="scopeGroupCount" type="number" min="0" value="0" /></div>
-                <div class="input-wrapper"><label for="scopeGroupOwner">Sahip Ekip</label><input id="scopeGroupOwner" placeholder="Linux Ekibi" /></div>
-                <div class="input-wrapper"><label for="scopeGroupCriticality">Kritiklik</label><select id="scopeGroupCriticality"><option value="1">1 - Düşük</option><option value="2">2</option><option value="3" selected>3 - Orta</option><option value="4">4</option><option value="5">5 - Kritik</option></select></div>
-                <label class="connector-check"><input id="scopeGroupActive" type="checkbox" checked /> Grup aktif</label>
-              </div>
-              <div class="scope-editor-actions"><button class="action-btn btn-add" id="scopeSaveGroup">Kaydet</button><button class="action-btn btn-neutral" data-scope-cancel>İptal</button></div>
-            </section>
-
             <section class="scope-survey" id="scopeSurvey">
-              <div class="scope-empty"><strong>İzleme anketi</strong><span>Önce ortam ve varlık grubu seçin.</span></div>
+              <div class="scope-empty"><strong>İzleme anketi</strong><span>Önce bir ortam seçin.</span></div>
             </section>
           </div>
         </div>
@@ -719,7 +700,7 @@ td small{color:#555}
     });
   </script>
 
-  <script src="/static/app.js?v=106"></script>
+  <script src="/static/app.js?v=108"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];
