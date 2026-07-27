@@ -16,7 +16,6 @@ let mitigationsByTechnique = {};
 let currentRulesByParent = {};
 
 let userRules = [];
-let mitigationNotes = {};
 let techTactics = {};
 let pendingMitigationEdits = {};
 let mitigationEntries = {};
@@ -129,11 +128,10 @@ async function init() {
       await loadAuditLogs();
     }
 
-    const [mitreRes, productsRes, rulesRes, notesRes, entriesRes, configRes, teamsRes, scopeRes] = await Promise.all([
+    const [mitreRes, productsRes, rulesRes, entriesRes, configRes, teamsRes, scopeRes] = await Promise.all([
       apiFetch('/api/mitre-min'),
       apiFetch('/api/products'),
       apiFetch('/api/rules'),
-      apiFetch('/api/mitigation-notes'),
       apiFetch('/api/mitigation-entries'),
       apiFetch('/api/technique-config'),
       apiFetch('/api/teams'),
@@ -146,8 +144,6 @@ async function init() {
     mitreObjects = (await mitreRes.json()).objects || [];
     products = productsRes.ok ? await productsRes.json() : [];
     userRules = rulesRes.ok ? await rulesRes.json() : [];
-    const notes = notesRes.ok ? await notesRes.json() : [];
-    mitigationNotes = normalizeNotes(notes);
     const entries = entriesRes.ok ? await entriesRes.json() : [];
     mitigationEntries = normalizeEntries(entries);
     techniqueConfig = configRes.ok ? await configRes.json() : {};
@@ -166,17 +162,14 @@ async function init() {
   }
 }
 async function reloadData() {
-  const [productsRes, rulesRes, notesRes, entriesRes, teamsRes] = await Promise.all([
+  const [productsRes, rulesRes, entriesRes, teamsRes] = await Promise.all([
     apiFetch('/api/products'),
     apiFetch('/api/rules'),
-    apiFetch('/api/mitigation-notes'),
     apiFetch('/api/mitigation-entries'),
     apiFetch('/api/teams')
   ]);
   products = productsRes.ok ? await productsRes.json() : [];
   userRules = rulesRes.ok ? await rulesRes.json() : [];
-  const notes = notesRes.ok ? await notesRes.json() : [];
-  mitigationNotes = normalizeNotes(notes);
   const entries = entriesRes.ok ? await entriesRes.json() : [];
   mitigationEntries = normalizeEntries(entries);
   teams = teamsRes.ok ? await teamsRes.json() : [];
@@ -192,18 +185,6 @@ async function reloadData() {
   }
 }
 
-function normalizeNotes(list) {
-  const out = {};
-  list.forEach(n => {
-    out[n.mitigation_id] = {
-      checked: !!n.checked,
-      comment: n.comment || '',
-      team: n.team || ''
-    };
-  });
-  return out;
-}
-
 function normalizeEntries(list) {
   const out = {};
   list.forEach(e => {
@@ -214,13 +195,42 @@ function normalizeEntries(list) {
 }
 
 function buildTeamSelectEl(mitId) {
-  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const sel = document.createElement('select');
   sel.className = 'mitigation-entry-team';
   sel.dataset.mit = mitId;
-  sel.innerHTML = `<option value="">— Ekip Seçin —</option>` +
-    teams.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  sel.innerHTML = `<option value="">— Ekip —</option>` +
+    teams.map(t => `<option value="${_esc(t.name)}">${_esc(t.name)}</option>`).join('');
   return sel;
+}
+
+// Mitigation'i hangi urunle sagliyoruz. Bos birakilabilir: surec, egitim veya
+// politika ile saglanan mitigation'lar var; zorunlu tutmak uydurma urun
+// secilmesine yol acardi.
+function buildProductSelectEl(mitId) {
+  const sel = document.createElement('select');
+  sel.className = 'mitigation-entry-product';
+  sel.dataset.mit = mitId;
+  sel.innerHTML = `<option value="">— Ürün yok / süreç —</option>` +
+    products.map(p => `<option value="${p.id}">${_esc(p.name)}</option>`).join('');
+  return sel;
+}
+
+/** Tek bir mitigation kaydinin satiri — panel ve modal ayni gosterimi kullanir. */
+function mitigationEntryHtml(e, extraDataAttr = '') {
+  const product = e.product_name
+    ? `<span class="entry-product" style="border-color:${_esc(productColorMap()[e.product_name] || 'var(--d-border)')}">${_esc(e.product_name)}</span>`
+    : '';
+  return `
+    <div class="mitigation-entry">
+      <div class="entry-head">
+        <span class="entry-team">${_esc(e.team)}</span>
+        ${product}
+      </div>
+      <div class="entry-comment">${_esc(e.comment)}</div>
+      ${hasRole('editor')
+        ? `<button class="entry-delete" data-entry-id="${e.id}"${extraDataAttr} title="Kaydı sil">×</button>`
+        : ''}
+    </div>`;
 }
 
 async function reloadMitigationEntries() {
@@ -481,25 +491,28 @@ function renderMitigationList() {
     });
     const preview = techLabels.slice(0, 4);
     const extra = techLabels.length - preview.length;
-    const chips = techLabels.map(t => `<button class="tech-chip" type="button" data-tech-label="${t.label}">${techDetailsMap[t.id]?.name || t.id}</button>`).join('');
+    const chips = techLabels.map(t => `<button class="tech-chip" type="button" data-tech-label="${_esc(t.label)}">${_esc(techDetailsMap[t.id]?.name || t.id)}</button>`).join('');
     const moreBtn = extra > 0 ? `<button class="tech-more" data-mit="${m.id}">Tümünü Göster</button>` : '';
     const entries = mitigationEntries[m.id] || [];
     const desc = m.description || '';
     const entryHtml = entries.length
-      ? entries.map(e => `
-          <div class="mitigation-entry">
-            <div class="entry-team">${e.team}</div>
-            <div class="entry-comment">${e.comment}</div>
-            <button class="entry-delete" data-entry-id="${e.id}" data-mit="${m.id}">Sil</button>
-          </div>
-        `).join('')
-      : '<div class="mitigation-empty">Kayıt yok.</div>';
+      ? entries.map(e => mitigationEntryHtml(e, ` data-mit="${m.id}"`)).join('')
+      : '<div class="mitigation-empty">Henüz kayıt yok — bu mitigation uygulanmıyor sayılır.</div>';
+    // Ekleme formu yalnizca editor+ icin basilir. Onceden viewer da goruyordu;
+    // buton backend'de reddedilse bile kullaniciya yanlis vaat veriyordu.
+    const formHtml = hasRole('editor') ? `
+          <div class="mitigation-entry-form" data-mit="${m.id}">
+            <span class="mitigation-entry-team-placeholder" data-mit="${m.id}"></span>
+            <span class="mitigation-entry-product-placeholder" data-mit="${m.id}"></span>
+            <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Nasıl sağlanıyor?"></textarea>
+            <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
+          </div>` : '';
     return `
-      <div class="mitigation-list-row">
-        <div class="mitigation-list-id mit-popup-btn" data-mit="${m.id}">${m.id}</div>
+      <div class="mitigation-list-row ${entries.length ? 'has-entries' : ''}">
+        <div class="mitigation-list-id mit-popup-btn" data-mit="${m.id}">${_esc(m.id)}</div>
           <div class="mitigation-list-name">
-          <button class="mit-name-popup-btn" data-mit="${m.id}">${m.name}</button>
-          <div class="mitigation-list-desc">${summarizeText(desc, 90)}</div>
+          <button class="mit-name-popup-btn" data-mit="${m.id}">${_esc(m.name)}</button>
+          <div class="mitigation-list-desc">${_esc(summarizeText(desc, 90))}</div>
         </div>
         <div class="mitigation-list-tech">
           <div class="tech-chip-row" data-mit="${m.id}">${chips}</div>
@@ -507,11 +520,7 @@ function renderMitigationList() {
         </div>
         <div class="mitigation-list-entries" data-mit="${m.id}">
           ${entryHtml}
-          <div class="mitigation-entry-form" data-mit="${m.id}">
-            <span class="mitigation-entry-team-placeholder" data-mit="${m.id}"></span>
-            <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Yorum"></textarea>
-            <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
-          </div>
+          ${formHtml}
         </div>
       </div>
     `;
@@ -521,15 +530,16 @@ function renderMitigationList() {
       <div>ID</div>
       <div>Mitigation</div>
       <div>Teknikler</div>
-      <div>Ekip / Yorum</div>
+      <div>Kim / hangi ürünle sağlıyor</div>
     </div>
     ${rows}
   `;
 
-  // Replace team input placeholders with selects
   container.querySelectorAll('.mitigation-entry-team-placeholder').forEach(ph => {
-    const mitId = ph.dataset.mit;
-    ph.replaceWith(buildTeamSelectEl(mitId));
+    ph.replaceWith(buildTeamSelectEl(ph.dataset.mit));
+  });
+  container.querySelectorAll('.mitigation-entry-product-placeholder').forEach(ph => {
+    ph.replaceWith(buildProductSelectEl(ph.dataset.mit));
   });
 
   container.querySelectorAll('.tech-more').forEach(btn => {
@@ -556,18 +566,18 @@ function renderMitigationList() {
       const row = e.currentTarget.closest('.mitigation-list-entries');
       if (!mitId || !row) return;
       const teamInput = row.querySelector('.mitigation-entry-team');
+      const productInput = row.querySelector('.mitigation-entry-product');
       const commentInput = row.querySelector('.mitigation-entry-comment');
       const team = (teamInput?.value || '').trim();
       const comment = (commentInput?.value || '').trim();
+      const productId = productInput?.value ? Number(productInput.value) : null;
       if (!team || !comment) {
-        alert('Ekip ve yorum gerekli.');
+        alert('Ekip ve açıklama gerekli.');
         return;
       }
-      const created = await addMitigationEntry(mitId, team, comment);
+      const created = await addMitigationEntry(mitId, team, comment, productId);
       if (!created) return;
       await reloadMitigationEntries();
-      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
-      mitigationNotes[mitId].checked = true;
       refreshTechniqueCardsForMitigation(mitId);
       renderMitigationList();
     });
@@ -581,8 +591,6 @@ function renderMitigationList() {
       const ok = await deleteMitigationEntry(id);
       if (!ok) return;
       await reloadMitigationEntries();
-      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
-      mitigationNotes[mitId].checked = (mitigationEntries[mitId]?.length > 0);
       if (mitId) refreshTechniqueCardsForMitigation(mitId);
       renderMitigationList();
     });
@@ -1713,21 +1721,14 @@ function enrichRules() {
   return out;
 }
 
-function getMitigationNote(mitigationId) {
-  if (!mitigationNotes[mitigationId]) {
-    mitigationNotes[mitigationId] = { checked: false, comment: '', team: '' };
-  }
-  return mitigationNotes[mitigationId];
+// Bir mitigation "isaretli" ise kaydi vardir — ayri bir checked bayragi yok.
+function isMitigationChecked(mitigationId) {
+  return (mitigationEntries[mitigationId] || []).length > 0;
 }
 
 function getCheckedMitigationCountForTech(techId) {
   const mitigations = mitigationsByTechnique[techId] || [];
-  let count = 0;
-  mitigations.forEach(m => {
-    const note = getMitigationNote(m.id);
-    if (note.checked || (mitigationEntries[m.id]?.length > 0)) count += 1;
-  });
-  return count;
+  return mitigations.filter(m => isMitigationChecked(m.id)).length;
 }
 
 
@@ -2258,22 +2259,22 @@ async function openModal(parentId, parentName, rules) {
     mitigationSection.appendChild(emptyMit);
   } else {
     mitigations.forEach(m => {
-      const note = getMitigationNote(m.id);
       const row = document.createElement('div');
       row.className = 'mitigation-row';
-      if (note.checked) row.classList.add('checked');
-      const isChecked = note.checked || (mitigationEntries[m.id]?.length > 0);
+      const isChecked = isMitigationChecked(m.id);
+      if (isChecked) row.classList.add('checked');
       row.innerHTML = `
         <label class="mitigation-name">
           <span class="mit-status-indicator ${isChecked ? 'checked' : ''}" data-mit="${m.id}">${isChecked ? '✓' : '○'}</span>
-          ${m.id} - ${m.name}
+          ${_esc(m.id)} - ${_esc(m.name)}
           <span class="mitigation-info" data-tech="${parentId}" data-mit="${m.id}">i</span>
         </label>
         <div class="mitigation-fields">
           <div class="mitigation-entries" data-mit="${m.id}"></div>
           <div class="mitigation-entry-form ${hasRole('editor') ? '' : 'hidden'}">
             <span class="mitigation-entry-team-placeholder" data-mit="${m.id}"></span>
-            <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Yorum"></textarea>
+            <span class="mitigation-entry-product-placeholder" data-mit="${m.id}"></span>
+            <textarea class="mitigation-entry-comment" data-mit="${m.id}" placeholder="Nasıl sağlanıyor?"></textarea>
             <button class="action-btn btn-add mitigation-entry-add" data-mit="${m.id}">Ekle</button>
           </div>
           <div class="mitigation-pop" data-tech="${parentId}" data-mit="${m.id}">
@@ -2285,9 +2286,10 @@ async function openModal(parentId, parentName, rules) {
         </div>
       `;
       renderMitigationEntries(row, m.id);
-      // Replace team placeholder with select
       const teamPh = row.querySelector('.mitigation-entry-team-placeholder');
       if (teamPh) teamPh.replaceWith(buildTeamSelectEl(m.id));
+      const prodPh = row.querySelector('.mitigation-entry-product-placeholder');
+      if (prodPh) prodPh.replaceWith(buildProductSelectEl(m.id));
       mitigationSection.appendChild(row);
     });
   }
@@ -2334,20 +2336,21 @@ async function openModal(parentId, parentName, rules) {
       const row = e.currentTarget.closest('.mitigation-row');
       if (!mitId || !row) return;
       const teamInput = row.querySelector('.mitigation-entry-team');
+      const productInput = row.querySelector('.mitigation-entry-product');
       const commentInput = row.querySelector('.mitigation-entry-comment');
       const team = (teamInput?.value || '').trim();
       const comment = (commentInput?.value || '').trim();
+      const productId = productInput?.value ? Number(productInput.value) : null;
       if (!team || !comment) {
-        alert('Ekip ve yorum gerekli.');
+        alert('Ekip ve açıklama gerekli.');
         return;
       }
-      const created = await addMitigationEntry(mitId, team, comment);
+      const created = await addMitigationEntry(mitId, team, comment, productId);
       if (!created) return;
       await reloadMitigationEntries();
       if (teamInput) teamInput.value = '';
+      if (productInput) productInput.value = '';
       if (commentInput) commentInput.value = '';
-      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
-      mitigationNotes[mitId].checked = true;
       refreshTechniqueCardsForMitigation(mitId);
       // Update status indicator
       const indicator = mitigationsTab.querySelector(`.mit-status-indicator[data-mit="${mitId}"]`);
@@ -2445,26 +2448,12 @@ async function openModal(parentId, parentName, rules) {
 }
 
 
-async function saveMitigationNote(mitId, note) {
-  if (!hasRole('editor')) return;
-  await apiFetch('/api/mitigation-notes', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      mitigation_id: mitId,
-      checked: !!note.checked,
-      comment: note.comment || '',
-      team: note.team || ''
-    })
-  });
-}
-
-async function addMitigationEntry(mitId, team, comment) {
+async function addMitigationEntry(mitId, team, comment, productId = null) {
   if (!hasRole('editor')) return null;
   const res = await apiFetch('/api/mitigation-entries', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mitigation_id: mitId, team, comment })
+    body: JSON.stringify({ mitigation_id: mitId, team, comment, product_id: productId })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -2489,13 +2478,7 @@ function renderMitigationEntries(row, mitId) {
     list.innerHTML = '<div class="mitigation-empty">Kayıt yok.</div>';
     return;
   }
-  list.innerHTML = entries.map(e => `
-    <div class="mitigation-entry">
-      <div class="entry-team">${e.team}</div>
-      <div class="entry-comment">${e.comment}</div>
-      ${hasRole('editor') ? `<button class="entry-delete" data-entry-id="${e.id}">Sil</button>` : ''}
-    </div>
-  `).join('');
+  list.innerHTML = entries.map(e => mitigationEntryHtml(e)).join('');
 
   list.querySelectorAll('.entry-delete').forEach(btn => {
     btn.addEventListener('click', async (evt) => {
@@ -2504,8 +2487,6 @@ function renderMitigationEntries(row, mitId) {
       const ok = await deleteMitigationEntry(id);
       if (!ok) return;
       await reloadMitigationEntries();
-      if (!mitigationNotes[mitId]) mitigationNotes[mitId] = { checked: false, comment: '', team: '' };
-      mitigationNotes[mitId].checked = (mitigationEntries[mitId]?.length > 0);
       refreshTechniqueCardsForMitigation(mitId);
       renderMitigationEntries(row, mitId);
     });

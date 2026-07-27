@@ -465,6 +465,61 @@ class AppTestCase(unittest.TestCase):
         # Mitigation bilgi olarak raporlanır ama kovaları etkilemez.
         self.assertEqual(ov["mitigated_techniques"], 1)
 
+    def test_mitigation_entry_records_optional_product(self):
+        """Mitigation'ı hangi ürünle sağladığımız kaydedilir.
+
+        Ürün isteğe bağlıdır (süreç/eğitim/politika ile sağlananlar var) ama
+        verildiğinde katalogda bulunmak zorundadır — serbest metin kabul
+        edilmez, yoksa `rules.source`'taki isim eşleşmesi sorunu tekrarlanır.
+        """
+        self.login()
+        product_id = self.client.post(
+            "/api/products", json={"name": "Wazuh", "color": "#123456"}
+        ).get_json()["id"]
+
+        with_product = self.client.post("/api/mitigation-entries", json={
+            "mitigation_id": "M1000", "team": "SOC",
+            "comment": "EDR politikasi", "product_id": product_id})
+        self.assertEqual(with_product.status_code, 201)
+        self.assertEqual(with_product.get_json()["product_name"], "Wazuh")
+
+        # Urunsuz kayit da gecerli
+        without = self.client.post("/api/mitigation-entries", json={
+            "mitigation_id": "M1000", "team": "BT", "comment": "Elle surec"})
+        self.assertEqual(without.status_code, 201)
+        self.assertIsNone(without.get_json()["product_id"])
+
+        # Katalogda olmayan urun reddedilir
+        bogus = self.client.post("/api/mitigation-entries", json={
+            "mitigation_id": "M1000", "team": "SOC",
+            "comment": "x", "product_id": 99999})
+        self.assertEqual(bogus.status_code, 400)
+
+        listed = self.client.get("/api/mitigation-entries").get_json()
+        self.assertEqual(len(listed), 2)
+        self.assertEqual(
+            {e["product_name"] for e in listed}, {"Wazuh", None},
+            "urun adi listede birlikte donmeli",
+        )
+
+    def test_legacy_mitigation_tables_are_dropped(self):
+        """mitigation_notes / mitigation_global ölü ağırlıktı ve düşürüldü.
+
+        Bir mitigation'ın "işaretli" olması artık yalnızca mitigation_entries
+        kaydının varlığından türer — iki paralel gerçek kaynağı yok.
+        """
+        with application.app.app_context():
+            db = application.get_db()
+            tables = {
+                r["name"] for r in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        self.assertNotIn("mitigation_notes", tables)
+        self.assertNotIn("mitigation_global", tables)
+        self.login()
+        self.assertEqual(self.client.get("/api/mitigation-notes").status_code, 404)
+
     def test_score_is_detection_only_and_uses_per_technique_threshold(self):
         """Skor = min(etkin tespit / teknik hedefi, 1). Mitigation ve ürün
         çeşitliliği skora girmez; hedef teknik bazında admin tarafından
@@ -613,7 +668,6 @@ class AppTestCase(unittest.TestCase):
             ("/api/rules", "GET"),
             ("/api/products", "GET"),
             ("/api/teams", "GET"),
-            ("/api/mitigation-notes", "GET"),
             ("/api/mitigation-entries", "GET"),
             ("/api/action-items", "GET"),
         ]
@@ -625,7 +679,6 @@ class AppTestCase(unittest.TestCase):
             ("/api/rules", "POST", {"name": "x", "source": "QRadar"}, "editor"),
             ("/api/products", "POST", {"name": "x", "color": "#000"}, "admin"),
             ("/api/teams", "POST", {"name": "x"}, "admin"),
-            ("/api/mitigation-notes", "POST", {"mitigation_id": "M1000"}, "editor"),
             ("/api/mitigation-entries", "POST", {"mitigation_id": "M1000", "team": "x", "comment": "x"}, "editor"),
             ("/api/action-items", "POST", {"title": "x"}, "editor"),
         ]

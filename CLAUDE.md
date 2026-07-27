@@ -53,9 +53,10 @@ Key tables:
 - `rules` — detection rules with `(name, source)` UNIQUE constraint
 - `rule_techniques` — many-to-many: one rule → many MITRE technique IDs
 - `products` — security products (name, color)
-- `mitigation_global` — per-mitigation checkbox/comment state (global, not per-user)
-- `mitigation_notes` — legacy per-technique mitigation notes (kept for migration)
-- `technique_config` — per-technique importance score and rule threshold (auto-computed from mitre.json)
+- `mitigation_entries` — who mitigates what, with which product (`product_id` → `products.id`, nullable).
+  A mitigation counts as "applied" iff it has at least one row here — there is no separate
+  `checked` flag. The old `mitigation_global` / `mitigation_notes` tables were dropped in Faz 4d.
+- `technique_config` — per-technique detection target (`rule_threshold`, default 2) + MITRE signals
 - `users` — local auth with roles: `viewer`, `editor`, `admin`
 - `audit_logs` — append-only log of all write actions
 

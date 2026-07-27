@@ -91,7 +91,7 @@ MITRE Navigator'a yakın, yoğun bir ızgara kullanılır — taktik başına bi
 ```
 
 - **Dolgu rengi** yalnızca skoru gösterir: 0 tespit koyu gri → hedefin altı amber → hedef ve üstü yeşil
-- **`M` rozeti** o teknikte işaretli mitigation olduğunu söyler; renge ve skora karışmaz
+- **`M` rozeti** o teknikte kayıtlı mitigation olduğunu söyler; renge ve skora karışmaz
 - **Ortam rozeti** (`2/2`) yalnızca *Tüm ortamlar (birleşik)* modunda ve yalnızca en az bir ortamda tespit varsa çıkar. Tek ortam seçiliyken anlamsız olduğu için gizlenir
 - **Hücre gövdesine tıklamak** teknik detay modalini açar; **oka tıklamak** alt teknik ağacını açar/kapatır. Alt teknikler kendi renklerini alır ama kapsama oranının paydasına girmez
 - Hover'da tespit/hedef, ürünler, mitigation, ortam ve tekniği kullanan tehdit grubu sayısını içeren bir özet çıkar
@@ -114,6 +114,20 @@ Aynı tanım hem matris şeridinde hem `GET /api/gap-analysis` çıktısında (`
 ### Önceliklendirme
 
 "Önem seviyesi" kavramı kaldırıldı — `data/mitre.json`'dan türetilen 0.3–1.0 arası opak bir puandı ve yönetilemiyordu. Yerine tespitsiz teknikler, **kaç tehdit grubunun o tekniği kullandığına** göre sıralanır (`technique_config.group_count`). Bu bir ayar değil, MITRE'den gelen objektif veridir.
+
+## Mitigation Kayıtları
+
+`Envanter > Mitigation` her MITRE mitigation'ı için **kim, hangi ürünle, nasıl sağlıyor** sorusunu kaydeder:
+
+| Alan | Zorunlu | Not |
+|---|---|---|
+| Ekip | evet | `teams` kataloğundan seçilir |
+| Ürün | hayır | `products` kataloğundan; boş bırakılırsa "süreç/eğitim/politika ile sağlanıyor" demektir |
+| Açıklama | evet | Nasıl sağlandığı — serbest metin |
+
+Bir mitigation'ın "uygulanıyor" sayılması **tek bir şeye** bağlıdır: en az bir kaydının olması. Ayrı bir onay kutusu yoktur — eskiden `mitigation_global` tablosunda paralel bir `checked` bayrağı tutuluyordu, hiç doldurulmadığı ve iki gerçek kaynağı olduğu için kaldırıldı.
+
+Mitigation kapsama skoruna girmez; haritada `M` rozeti olarak görünür.
 
 ## Ortam Bazlı Kapsama
 

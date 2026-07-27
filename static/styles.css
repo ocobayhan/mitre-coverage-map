@@ -1149,28 +1149,101 @@ button.action-btn {
 .mitigation-row.checked .mitigation-name { color: #c5e8a0; }
 .mitigation-name { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .mitigation-fields { display: flex; flex-direction: column; gap: 6px; }
+/* ── Mitigation kayitlari ────────────────────────────────
+   Kayit = kart (ekip + urun rozeti ustte, aciklama altta, sil kosede).
+   Form  = tek satirlik giris seridi. Izgara TEK yerde tanimli; daha once
+   uc ayri blokta cakisiyordu ve satirlar kayik duruyordu.            */
 .mitigation-entries { display: flex; flex-direction: column; gap: 6px; }
-.mitigation-entry { display: grid; grid-template-columns: 120px 1fr auto; gap: 8px; align-items: start; background: var(--d-bg); border: 1px solid var(--d-border); border-radius: 3px; padding: 6px 8px; }
-.mitigation-entry-form { display: grid; grid-template-columns: 160px 1fr auto; gap: 8px; align-items: start; background: var(--d-bg); border: 1px dashed var(--d-border); border-radius: 3px; padding: 6px; }
-.entry-team { font-weight: 600; color: var(--d-text-1); }
-.entry-comment { color: var(--d-text-2); font-size: 12px; }
-.entry-delete { background: transparent; border: 1px solid var(--d-border); color: var(--d-text-2); border-radius: 3px; padding: 2px 8px; cursor: pointer; font-family: inherit; }
-.entry-delete:hover { border-color: var(--d-red); color: #ff8a8a; }
-.mitigation-entry-form input, .mitigation-entry-form textarea { width: 100%; }
-.mitigation-empty { font-size: 12px; color: var(--d-text-3); }
-.mitigation-summary-section { margin-top: 16px; background: var(--d-bg); border: 1px solid var(--d-border); border-radius: 4px; padding: 10px; }
-.mitigation-summary-title { font-weight: 600; color: var(--d-text-2); margin-bottom: 8px; font-size: 12px; }
-.mitigation-summary-row { padding: 6px 0; border-bottom: 1px solid var(--d-border); }
-.mitigation-summary-row:last-child { border-bottom: none; }
-.mitigation-summary-name { font-weight: 600; color: var(--d-text-1); margin-bottom: 4px; font-size: 12px; }
-.mitigation-entry-line { font-size: 11px; color: var(--d-text-2); margin-left: 6px; }
-.mitigation-entry-line span { font-weight: 600; color: var(--d-text-1); margin-right: 6px; }
+
+.mitigation-entry {
+  position: relative;
+  background: var(--d-bg);
+  border: 1px solid var(--d-border);
+  border-left: 2px solid var(--d-blue-tint);
+  border-radius: 4px;
+  padding: 7px 30px 7px 9px;
+}
+.entry-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
+.entry-team { font-weight: 600; color: var(--d-text-1); font-size: 12px; }
+.entry-product {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--d-border);
+  background: var(--d-surface-alt);
+  color: var(--d-text-2);
+}
+.entry-comment { color: var(--d-text-2); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.entry-delete {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--d-text-3);
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+.entry-delete:hover { border-color: var(--d-red); color: #ff8a8a; background: rgba(209,52,56,.1); }
+
+/* Iki satir + sagda dikey Ekle: ustte ekip/urun, altta aciklama. Dort esit
+   sutuna bolununce select metinleri kirpiliyordu; satira bolmek cozdu. */
+.mitigation-entry-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: start;
+  background: var(--d-bg);
+  border: 1px dashed var(--d-border);
+  border-radius: 4px;
+  padding: 7px;
+}
+.mitigation-entry-form .mitigation-entry-comment { grid-column: 1 / 3; }
+.mitigation-entry-form .mitigation-entry-add {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  align-self: stretch;
+  height: auto;
+}
+.mitigation-entry-form select,
+.mitigation-entry-form textarea {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  background: var(--d-surface-alt);
+  border: 1px solid var(--d-border);
+  color: var(--d-text-1);
+  border-radius: 3px;
+  padding: 5px 7px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.mitigation-entry-form textarea { resize: vertical; }
+.mitigation-entry-form .mitigation-entry-add { height: 32px; white-space: nowrap; }
+.mitigation-empty { font-size: 12px; color: var(--d-text-3); font-style: italic; }
 
 /* ── Mitigation List Panel ──────────────────────────────── */
 .mitigation-list-entries { display: flex; flex-direction: column; gap: 10px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; padding: 8px; }
 .mitigation-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.mitigation-list-header { display: grid; grid-template-columns: 110px 0.9fr 0.9fr 3fr; gap: 14px; font-size: 11px; color: var(--d-text-3); text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 6px; border-bottom: 1px solid var(--d-border); }
-.mitigation-list-row { display: grid; grid-template-columns: 110px 0.9fr 0.9fr 3fr; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--d-border); }
+/* Izgara TEK yerde tanimli — panel/medya override'lari yalnizca bunu daraltir */
+.mitigation-list-header,
+.mitigation-list-row {
+  display: grid;
+  grid-template-columns: 74px minmax(170px, 1fr) minmax(200px, 1.2fr) minmax(320px, 1.8fr);
+  gap: 14px;
+}
+.mitigation-list-header { font-size: 11px; color: var(--d-text-3); text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 6px; border-bottom: 1px solid var(--d-border); }
+.mitigation-list-row { padding: 12px 0; border-bottom: 1px solid var(--d-border); }
+.mitigation-list-row.has-entries .mitigation-list-id { color: #7ee2a8; }
 .mitigation-list-row:last-child { border-bottom: none; }
 .mitigation-list-id { font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace; color: var(--d-text-1); font-size: 11px; }
 .mitigation-list-name { color: var(--d-text-1); font-weight: 600; font-size: 12px; }
@@ -1203,17 +1276,9 @@ button.action-btn {
 /* ── Mitigation Panel overrides ─────────────────────────── */
 #mitigationPanel .info-card { width: 100%; max-width: none; padding: 16px; }
 #mitigationPanel .mitigation-list { width: 100%; }
-#mitigationPanel .mitigation-list-header,
-#mitigationPanel .mitigation-list-row {
-  display: grid;
-  grid-template-columns: 110px minmax(200px, 0.8fr) minmax(380px, 1.6fr) minmax(350px, 2fr);
-  gap: 14px;
-}
-#mitigationPanel .mitigation-list-entries { gap: 12px; padding: 10px; min-width: 0; }
-#mitigationPanel .mitigation-list-entries .mitigation-entry { grid-template-columns: 170px 1fr auto; }
-#mitigationPanel .mitigation-entry-form { grid-template-columns: 190px minmax(380px, 1fr) 100px; }
-#mitigationPanel .mitigation-entry-form input { height: 34px; font-size: 13px; }
-#mitigationPanel .mitigation-entry-form textarea { min-height: 92px; font-size: 13px; }
+/* Izgara .mitigation-list-header/.mitigation-list-row'da tanimli — burada
+   yalnizca panele ozgu bosluklar. */
+#mitigationPanel .mitigation-list-entries { gap: 8px; padding: 9px; min-width: 0; }
 
 /* ── Rules Panel ────────────────────────────────────────── */
 #rulesPanel .info-card { width: 100%; max-width: none; padding: 16px; }
@@ -2833,16 +2898,8 @@ button.action-btn, .action-btn {
 .product-delete { min-height: 28px; }
 
 #mitigationPanel.panel.active, #rulesPanel.panel.active { padding: 20px 22px; }
-#mitigationPanel .mitigation-list-header,
-#mitigationPanel .mitigation-list-row {
-  grid-template-columns: 80px minmax(170px, 1fr) minmax(230px, 1.35fr) minmax(260px, 1.5fr);
-  gap: 12px;
-}
 #mitigationPanel .mitigation-list-header { position: sticky; top: 0; z-index: 5; background: var(--d-bg); padding: 8px 0; }
 #mitigationPanel .mitigation-list-row { padding: 13px 0; align-items: start; }
-#mitigationPanel .mitigation-entry-form { grid-template-columns: minmax(130px, 180px) minmax(150px, 1fr) auto; }
-#mitigationPanel .mitigation-entry-form textarea { min-height: 48px; height: 48px; }
-#mitigationPanel .mitigation-list-entries { padding: 8px; }
 .tech-chip, .tech-more, .rule-tech-chip .tech-chip { border-radius: 3px; background: #292d2a; }
 
 .rule-add-form, .rules-filter-bar { padding: 12px; border-radius: 5px; }

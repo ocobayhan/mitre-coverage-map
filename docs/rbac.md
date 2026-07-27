@@ -41,7 +41,7 @@ Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `RO
 | `rules/bulk`, `rules/<id>/coverage`, `rules/<id>` (DELETE), `rules/<id>/techniques` | — | editor |
 | `products` | viewer | admin |
 | `teams` | viewer | admin |
-| `mitigation-notes`, `mitigation-entries` | viewer | editor |
+| `mitigation-entries` | viewer | editor |
 | `users` | admin | admin |
 | `me/password` (kendi parolanı değiştir) | — | herhangi bir oturum açmış kullanıcı (`login_required`, rol şartı yok) |
 | `audit-logs`, `audit-logs/export`, `audit-logs/evidence` | admin | admin |

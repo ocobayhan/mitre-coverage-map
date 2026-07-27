@@ -208,6 +208,26 @@ Kullanıcı: *"Harita kısmında görselliği değiştirmek istiyorum, kutu boyu
 
 **Doğrulandı:** 25/25 test, browser smoke sıfır konsol hatası, 14 taktik sütunu, 123 aç/kapa oku, ağaç açılıp kapanıyor (6 konteyner / 23 alt kart), ortam değişimi rozetleri gizliyor ve sayıları 103→80 düşürüyor. `styles.css`/`app.js` → `?v=110`.
 
+## Mitigation UI + Ürün Alanı (2026-07-27, Faz 4d)
+
+Kullanıcı: *"ürünleri düzenleyeceğim… ama onun arayüzünüde yeniler misin, bir kutucuk var çok çirkin duruyor."*
+
+**"Çirkin"in teknik sebebi bulundu:** `.mitigation-list-row` ızgarası CSS'te **üç ayrı yerde** tanımlıydı (`110px 0.9fr 0.9fr 3fr` → `110px minmax(200px,.8fr)…` → `80px minmax(170px,1fr)…`), sonuncusu kazanıyordu ve başlık ile satırlar farklı hizalanıyordu. Üçü tek yetkili bloğa indirildi; medya sorguları artık yalnızca onu daraltıyor.
+
+**Şema — iki ölü tablo düştü:** `mitigation_notes` ve `mitigation_global` canlı veride **0 satır**dı. Bir mitigation'ın "işaretli" olması zaten `mitigation_entries` kaydının varlığından türüyordu; iki paralel gerçek kaynağı vardı. `drop_legacy_mitigation_tables()` ikisini de düşürdü, `/api/mitigation-notes` endpoint'i ve frontend'deki `mitigationNotes` katmanı (`normalizeNotes`, `getMitigationNote`, `saveMitigationNote`) tamamen kalktı. Tek kaynak: `isMitigationChecked(id) = entries.length > 0`.
+
+**Yeni alan:** `mitigation_entries.product_id` (nullable FK → `products.id`). Ürün **isteğe bağlı** — süreç/eğitim/politika ile sağlanan mitigation'lar var, zorunlu tutmak uydurma ürün seçtirirdi. Ama verildiğinde katalogda bulunmak zorunda (400 döner), yoksa `rules.source`'taki isim eşleşmesi sorunu tekrarlanırdı.
+
+**UI:** kayıt artık kart — ekip + ürün rozeti üstte, açıklama altta, sil `×` köşede. Form iki satır (ekip/ürün, açıklama) + sağda Ekle. Panel ve modal aynı `mitigationEntryHtml()` / `buildProductSelectEl()` fonksiyonlarını kullanıyor. Kaydı olan satırın ID'si yeşil.
+
+**İki bug düzeltildi:**
+1. `e.team` / `e.comment` `_esc`siz interpolate ediliyordu (XSS) — mitigation adı, ID'si ve teknik çipleri de kaçırılmamıştı, hepsi düzeltildi.
+2. Mitigation panelindeki ekleme formu rol korumasızdı; viewer formu görüyor ama backend reddediyordu. Form artık `hasRole('editor')` olmadan basılmıyor (doğrulandı: viewer 44 satır görüyor, 0 form / 0 sil butonu).
+
+**Doğrulandı:** 27/27 test (2 yeni: ürün alanı + ölü tabloların düşmesi), browser smoke sıfır konsol hatası, migration sonrası 11 mevcut kayıt korundu, DFE ürünlü kayıt ekleme/silme uçtan uca çalışıyor. `?v=112`.
+
+> **Veri notu:** Lumos ortamı `active=0` durumundaydı (27 Temmuz 14:10'daki bir PUT), bu yüzden harita ortam seçicisinde görünmüyordu. Aktif hale getirildi. Ayrıca 11 mitigation kaydının 3'ü artık var olmayan ekiplere bağlı (`DENBEME`, `DENEM`, `DENEME`) — `team` FK değil serbest metin, kullanıcı temizleyecek.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).
