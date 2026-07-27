@@ -54,6 +54,21 @@ Canlı veri (`soc.db`) Docker'ın yönettiği bir named volume'de (`soc_data`), 
 
 MITRE veri seti değiştirildiğinde uygulamayı yeniden başlatın. Veri Kalitesi ekranı teknik ID, ürün, taktik ve eşleme tutarlılığını denetler.
 
+### MITRE veri setini güncelleme
+
+`data/mitre.json` MITRE'nin resmi STIX deposundan indirilir (Git'e commit'lidir — 50MB+, `soc.db` gibi hariç tutulmaz):
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json" -OutFile "data\mitre.json"
+```
+
+Yeniden başlatınca `build_technique_config()` otomatik olarak eksik teknikleri `technique_config`'e ekler (mevcut admin override'ları asla ezmez — `tech_id` PRIMARY KEY, `INSERT OR IGNORE`). **Ama MITRE bazen taktik isimlerini de değiştirir** (örn. 2026-07'de "Defense Evasion" (TA0005) ikiye ayrılıp "Stealth" + "Defense Impairment" (TA0112) oldu) — bu durumda `app.py`'deki `_TACTIC_LABEL_MAP`/`_TACTIC_ORDER` ve `static/app.js`'teki `tacticMap` + iki adet taktik-etiket sözlüğü (`grep -rn "defense-evasion"` ile bulunur, MITRE'nin yeni taktik adıyla değiştirilir) elle güncellenmelidir. Güncelleme sonrası kontrol listesi:
+
+1. Taktik sayısı ve isimleri gerçek MITRE sırasıyla eşleşiyor mu? (`attack.mitre.org/tactics/enterprise/`)
+2. `technique_config` satır sayısı arttı mı, admin override'lar (`source='admin'`) korundu mu?
+3. Harita sıfır konsol hatasıyla render oluyor mu, yeni/değişen taktik sütun(lar)ı doğru sırada mı?
+4. Testler (`python -m unittest discover -s tests`) ve `scripts/browser_smoke.py` geçiyor mu?
+
 ## Audit
 
 Audit kayıtları istek ID, kullanıcı, IP, user-agent, önce/sonra değerleri ve SHA-256 zincir hash'i içerir. Veritabanı trigger'ları audit satırlarının güncellenmesini veya silinmesini engeller. Admin kullanıcılar Audit ekranından filtreleme, detay inceleme, bütünlük doğrulama ve CSV export yapabilir. `Kanıt Paketi`, seçili filtrelerle kayıtları; üretim manifesti, tam zincir durumu, önceki/kayıt hash'leri ve bağımsız doğrulanabilir paket hash'i içeren JSON dosyası olarak dışa aktarır.

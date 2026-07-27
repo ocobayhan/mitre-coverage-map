@@ -743,6 +743,68 @@ class AppTestCase(unittest.TestCase):
         self.login()
         self.assertEqual(self.client.get("/api/mitigation-notes").status_code, 404)
 
+    def test_technique_config_picks_up_new_techniques_after_mitre_update(self):
+        """MITRE veri seti güncellendiğinde (yeni teknik eklendiğinde)
+        technique_config bunu görmeli — eskiden 'source=auto satırı varsa hiç
+        çalışma' koruması vardı ve bu, MITRE bir sürüm atlayınca (v19'daki
+        Defense Impairment/Stealth ayrımı, T1685/T1686) yeni tekniklerin
+        sessizce tanınmamasına yol açan gerçek bir prod bug'ıydı.
+
+        Ayrıca admin override'ların (rule_threshold) MITRE güncellemesi
+        sırasında ASLA ezilmediğini doğrular (tech_id PRIMARY KEY + INSERT OR
+        IGNORE).
+        """
+        self.login()
+        # Admin bir tekniğin hedefini degistirir
+        self.assertEqual(self.client.put(
+            "/api/technique-config/T1000", json={"rule_threshold": 5}
+        ).status_code, 200)
+
+        with application.app.app_context():
+            db = application.get_db()
+            before_ids = {r["tech_id"] for r in db.execute(
+                "SELECT tech_id FROM technique_config"
+            ).fetchall()}
+        self.assertNotIn("T1002", before_ids, "henuz eklenmemis olmali")
+
+        # MITRE veri setine yeni bir teknik eklenmis gibi davran (gercek
+        # senaryo: v18.1 -> v19.1, T1685/T1686 gibi)
+        fixture = mitre_fixture()
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--three",
+            "name": "Test Technique Three",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1002"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": False,
+        })
+        application.MITRE_PATH.write_text(json.dumps(fixture), encoding="utf-8")
+        application.MITRE_CACHE.update({"mtime": None, "data": None})
+
+        with application.app.app_context():
+            db = application.get_db()
+            application.build_technique_config(db)
+            db.commit()
+            after = {r["tech_id"]: r["rule_threshold"] for r in db.execute(
+                "SELECT tech_id, rule_threshold FROM technique_config"
+            ).fetchall()}
+
+        self.assertIn("T1002", after, "yeni teknik eklenmis olmali")
+        self.assertEqual(after["T1000"], 5, "admin override ezilmemis olmali")
+
+        # Ice aktarim da artik T1002'yi taniyor olmali (canli katalogdan okur)
+        preview = self.client.post("/api/import/coverage/preview", json={
+            "schema": application.IMPORT_SCHEMA_NAME,
+            "version": application.IMPORT_SCHEMA_VERSION,
+            "rules": [{"name": "Yeni teknik testi", "product": "QRadar",
+                       "techniques": ["T1002"]}],
+        }).get_json()
+        self.assertTrue(preview["ok"], preview["errors"])
+        self.assertEqual(preview["warnings"], [])
+
     def test_score_is_detection_only_and_uses_per_technique_threshold(self):
         """Skor = min(etkin tespit / teknik hedefi, 1). Mitigation ve ürün
         çeşitliliği skora girmez; hedef teknik bazında admin tarafından

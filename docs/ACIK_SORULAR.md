@@ -76,3 +76,24 @@ aynı sınıf sorun (bkz. madde 4).
 
 **Seçenek:** `team_id` FK migration'ı, veya Veri Kalitesi ekranına "kataloğda
 olmayan ekip" uyarısı. Şimdilik kullanıcının elle temizlemesi bekleniyor.
+
+---
+
+## 6. `technique_config`'te 17 artık-revoked satır kaldı 🧹 VERİ TEMİZLİĞİ
+
+2026-07-28'de `data/mitre.json` v18.1 → v19.1'e güncellenirken (Defense
+Evasion → Stealth + Defense Impairment ayrımı) eski `T1562` ailesi (Impair
+Defenses ve tüm alt teknikleri) + `T1070.001`/`.002` MITRE tarafından
+revoked/deprecated işaretlendi. `build_technique_config()` bunları yeni satır
+olarak eklemekten kaçınıyor (revoked filtreli), ama **eski `auto` satırları
+tablodan silmiyor** — 17 satır artık hiçbir canlı tekniğe karşılık gelmeden
+tabloda duruyor.
+
+Zararsız: `_known_technique_ids()` canlı `_mitre_catalog()`'u okuyor (revoked
+otomatik dışlanıyor), yani içe aktarım bu ID'leri kabul etmiyor; harita da
+bunları göstermiyor. Sadece `technique_config` tablosunda ölü satır.
+
+**Seçenek:** `prune_stale_technique_config()` — canlı katalogda olmayan
+`source='auto'` satırları silen bir migration. `source='admin'` satırlar asla
+silinmemeli (kullanıcının bilinçli kararı, revoked olsa bile Veri Kalitesi
+üzerinden görünür kalsın).

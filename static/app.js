@@ -1,4 +1,7 @@
-const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "defense-evasion": "Defense Evasion", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
+// ATT&CK v19: eski "Defense Evasion" (TA0005) ikiye ayrildi — TA0005 artik
+// "Stealth", yeni TA0112 "Defense Impairment" oldu. Sira MITRE'nin resmi
+// matrisiyle ayni (Stealth once, Defense Impairment sonra).
+const tacticMap = { "reconnaissance": "Reconnaissance", "resource-development": "Resource Development", "initial-access": "Initial Access", "execution": "Execution", "persistence": "Persistence", "privilege-escalation": "Privilege Escalation", "stealth": "Stealth", "defense-impairment": "Defense Impairment", "credential-access": "Credential Access", "discovery": "Discovery", "lateral-movement": "Lateral Movement", "collection": "Collection", "command-and-control": "Command and Control", "exfiltration": "Exfiltration", "impact": "Impact" };
 const tacticOrder = Object.values(tacticMap);
 
 // Bir teknik için "yeterli kapsama" sayılacak tespit sayısı — tüm teknikler
@@ -3549,7 +3552,7 @@ function renderGapDashboard(data) {
     'reconnaissance':'Reconnaissance','resource-development':'Resource Development',
     'initial-access':'Initial Access','execution':'Execution',
     'persistence':'Persistence','privilege-escalation':'Privilege Escalation',
-    'defense-evasion':'Defense Evasion','credential-access':'Credential Access',
+    'stealth':'Stealth','defense-impairment':'Defense Impairment','credential-access':'Credential Access',
     'discovery':'Discovery','lateral-movement':'Lateral Movement',
     'collection':'Collection','command-and-control':'Command & Control',
     'exfiltration':'Exfiltration','impact':'Impact'
@@ -4153,7 +4156,7 @@ const _TTP_TACTIC_LABELS = {
   'reconnaissance':'Reconnaissance','resource-development':'Resource Development',
   'initial-access':'Initial Access','execution':'Execution',
   'persistence':'Persistence','privilege-escalation':'Privilege Escalation',
-  'defense-evasion':'Defense Evasion','credential-access':'Credential Access',
+  'stealth':'Stealth','defense-impairment':'Defense Impairment','credential-access':'Credential Access',
   'discovery':'Discovery','lateral-movement':'Lateral Movement',
   'collection':'Collection','command-and-control':'Command and Control',
   'exfiltration':'Exfiltration','impact':'Impact'

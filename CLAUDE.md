@@ -36,7 +36,8 @@ static/
   app.js            — All frontend logic; bump ?v= query param on each change
   styles.css        — All styling; bump ?v= query param on each change
 data/
-  mitre.json        — MITRE ATT&CK Enterprise JSON (STIX 2.x format, not committed)
+  mitre.json        — MITRE ATT&CK Enterprise JSON (STIX 2.x format; IS committed
+                      despite its size — 50MB+, see README "MITRE veri setini güncelleme")
   rules_seed.json   — Seed data for rules (optional)
 soc.db              — SQLite database (auto-created on first run, not committed)
 ```
@@ -87,7 +88,7 @@ Key patterns:
 
 ## MITRE Data Setup
 
-Place the MITRE ATT&CK Enterprise JSON (downloadable from MITRE) at `data/mitre.json`. The server minifies and caches it at runtime. The `technique_config` table is auto-populated from this file on first run (idempotent).
+Place the MITRE ATT&CK Enterprise JSON (downloadable from `mitre-attack/attack-stix-data` on GitHub) at `data/mitre.json`. The server minifies and caches it at runtime (invalidated by file mtime). `build_technique_config()` populates `technique_config` and keeps doing so on every `init_db()` — it's an additive, always-on sync (`INSERT OR IGNORE` on `tech_id` PRIMARY KEY), not a one-time seed, precisely so that updating this file later (new ATT&CK release) doesn't silently leave new techniques unrecognized. When MITRE renames/splits a *tactic* (not just adds techniques — happened 2026-07 with Defense Evasion → Stealth + Defense Impairment), you must also update `_TACTIC_LABEL_MAP`/`_TACTIC_ORDER` in `app.py` and the matching dicts in `static/app.js` (`grep -rn "defense-evasion"` finds the pattern to follow for any future tactic rename).
 
 ## Cache Busting
 

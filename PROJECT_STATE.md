@@ -322,6 +322,26 @@ Kullanıcı yeni sistemle baştan girmek için mevcut tespitlerin silinmesini is
 
 438 kural + 462 teknik eşlemesi API üzerinden tek tek silindi (audit zincirinde iz var). Kaynak dağılımı: QRadar 374, DFE 57, Other 4, DefIdentity 2, Fortigate Firewall 1. Ürünler, ortamlar, ekipler, mitigation kayıtları ve teknik hedefleri korundu.
 
+## MITRE veri seti v18.1 → v19.1 güncellendi (2026-07-28)
+
+Kullanıcı gerçek QRadar kural setini yükleyip 38 satırda "tanınmayan teknik ID" uyarısı görünce (`T1685`, `T1686`) ilk teşhisim yanlıştı — "LLM hallüsinasyonu" dedim. Kullanıcı MITRE'nin kendi sitesinden T1685'in gerçek olduğunu gösterdi; haklıydı, düzeltildi. `attack.mitre.org`'dan doğrulandı: **T1685 (Disable or Modify Tools) ve T1686 (Disable or Modify System Firewall) gerçek, güncel teknikler** — yeni bir taktik altında: **Defense Impairment (TA0112)**.
+
+**Gerçek kapsam ilk göründüğünden büyüktü.** Bu sadece "2 teknik eksik" değil: MITRE ATT&CK v19'da eski **"Defense Evasion" (TA0005) tamamen ikiye ayrıldı** — aynı TA0005 ID'si **"Stealth"** oldu, yeni **TA0112 "Defense Impairment"** eklendi. Ölçüm: 262 eski Defense Evasion tekniği → 56 Defense Impairment + 212 Stealth olarak yeniden dağıtıldı; 17 eski ID (`T1562` ailesinin tamamı — Impair Defenses — + `T1070.001`/`.002`) revoked/deprecated işaretlendi. Kullanıcının sorunlu 38 kuralının hepsi tam bu alanda (firewall/log/defans aracı devre dışı bırakma) — rastlantı değil, MITRE'nin yeniden sınıflandırdığı alanın tam ortasındaydı.
+
+**Neden veri setimiz eskiydi:** `data/mitre.json` Enterprise ATT&CK **v18.1** (2025-10-24), MITRE'nin resmi STIX deposundan (`mitre-attack/attack-stix-data`) indirilen güncel paket ise **v19.1**. Kurallar tablosu tam o an boş olduğu için (yeni sistemle baştan girmek üzere temizlenmişti) hiçbir mevcut eşleme riske girmeden güncellenebildi — bu işlem için en uygun andı.
+
+**Bulunan ikinci, daha derin kök neden:** `build_technique_config()` yalnızca **bir kez** çalışacak şekilde yazılmıştı (`source='auto' satırı varsa dön`). Yani `data/mitre.json` dosyasını değiştirmek tek başına yetmiyordu — `technique_config` tablosu (import doğrulamasının kaynağı) hiçbir zaman yeni teknikleri görmeyecekti. Bu koruma kaldırıldı; artık her `init_db()` çalıştığında eksik `tech_id` satırlarını ekliyor (`INSERT OR IGNORE`, `tech_id PRIMARY KEY` olduğu için var olan admin override'ları asla ezmiyor). Ayrıca `_known_technique_ids()` artık DB tablosunu değil, canlı `_mitre_catalog()`'u (dosya mtime'ıyla invalidate olan cache, revoked/deprecated'ı otomatik dışlıyor) okuyor — böylece bir sonraki MITRE güncellemesinde aynı sorun bir daha yaşanmaz.
+
+**Kod değişiklikleri:**
+- `app.py`: `_TACTIC_LABEL_MAP` ve `_TACTIC_ORDER` içinde `defense-evasion` → `stealth` + `defense-impairment` (MITRE'nin resmi sırasıyla: Privilege Escalation → Stealth → Defense Impairment → Credential Access).
+- `static/app.js`: `tacticMap`, iki adet `_TTP_TACTIC_LABELS`/`TACTIC_TR` sözlüğü aynı şekilde güncellendi (4 yer, hepsi grep ile bulundu).
+- `build_technique_config()`: tek seferlik koruma kaldırıldı, kalıcı olarak idempotent "eksikleri ekle" mantığına geçti.
+- `_known_technique_ids()`: DB tablosu yerine canlı `_mitre_catalog()`.
+
+**Doğrulandı:** `technique_config` 691 → 714 satır (23 yeni teknik), 10 admin override (`T1129`, `T1014`, `T1133`, `T1204.002`, `T1053`, `T1106`, `T1195`, `T1589`, `T1595`, `T1189`) bozulmadan korundu. Harita artık **15 taktik sütunu** MITRE'nin resmi sırasıyla gösteriyor, T1685/T1686 "Defense Impairment" sütununda ve `covered` (yeşil) durumda. Aynı 3 satırlık test dosyası (daha önce 3 uyarı üretmişti) şimdi **0 uyarı, 0 hata** ile uygulanıyor. 36/36 test, browser smoke sıfır konsol hatası, 15 taktik sütunu.
+
+> **Bilinçli olarak yapılmayan:** eski `T1562` ailesi + `T1070.001`/`.002` için `technique_config`'te kalan 17 "artık revoked" `auto` satırı silinmedi (zararsız — canlı katalog zaten bunları dışlıyor, import bunları kabul etmez). Temizlik `docs/ACIK_SORULAR.md`'ye eklendi.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).

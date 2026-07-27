@@ -81,6 +81,9 @@ AUDIT_COLUMNS = {
     "entry_hash": "TEXT NOT NULL DEFAULT ''",
 }
 
+# ATT&CK v19 (Nisan 2026): eski "Defense Evasion" (TA0005) ikiye ayrildi —
+# ayni TA0005 ID'si "Stealth" oldu, yeni TA0112 "Defense Impairment" eklendi.
+# Sira MITRE'nin resmi matrisiyle ayni: Stealth, sonra Defense Impairment.
 _TACTIC_LABEL_MAP: dict[str, str] = {
     "reconnaissance": "Reconnaissance",
     "resource-development": "Resource Development",
@@ -88,7 +91,8 @@ _TACTIC_LABEL_MAP: dict[str, str] = {
     "execution": "Execution",
     "persistence": "Persistence",
     "privilege-escalation": "Privilege Escalation",
-    "defense-evasion": "Defense Evasion",
+    "stealth": "Stealth",
+    "defense-impairment": "Defense Impairment",
     "credential-access": "Credential Access",
     "discovery": "Discovery",
     "lateral-movement": "Lateral Movement",
@@ -310,10 +314,15 @@ def build_technique_config(db: sqlite3.Connection) -> None:
     onceliklendirirken "kac tehdit grubu bu teknigi kullaniyor" objektif bir
     sinyal saglar. Bu bir ayar degildir, siralama icin veridir.
 
-    Idempotent: 'auto' kaynakli satir varsa atlar.
+    Idempotent ama "sadece bir kez calis" DEGIL: MITRE veri seti guncellenip
+    (mitre.json degisip) init_db() tekrar calistiginda eksik tech_id'leri
+    ekler — INSERT OR IGNORE, tech_id PRIMARY KEY oldugu icin var olan
+    satirlar (admin override'lari dahil) asla ezilmez. Eskiden "source='auto'
+    satiri varsa hic calisma" seklinde tek seferlik bir korumasi vardi; bu,
+    MITRE bir surum atlayip yeni teknik ekledigi zaman (orn. v19'daki
+    Defense Impairment/Stealth ayrimi, T1685/T1686) yeni tekniklerin sessizce
+    taninmamasina yol aciyordu — kok neden buydu, korumayi kaldirdik.
     """
-    if db.execute("SELECT 1 FROM technique_config WHERE source='auto' LIMIT 1").fetchone():
-        return  # already built
     if not MITRE_PATH.exists():
         return  # no mitre data available yet
 
@@ -1777,9 +1786,15 @@ _TECH_ID_RE = re.compile(r"^T\d{4}(\.\d{3})?$")
 
 
 def _known_technique_ids(db: sqlite3.Connection) -> set[str]:
-    return {
-        r["tech_id"] for r in db.execute("SELECT tech_id FROM technique_config").fetchall()
-    }
+    """Ice aktarimda 'gecerli teknik ID' saymanin tek dogru kaynagi.
+
+    Bilerek technique_config TABLOSUNU degil, canli _mitre_catalog()'u okur
+    (mitre.json'dan mtime ile invalidate olan cache). technique_config bir
+    anlik goruntudur ve MITRE surum atladiginda (v19'daki Defense Impairment
+    gibi) geride kalabilir; canli katalog ise dosya degisir degismez
+    guncelliyor, ayrica revoked/deprecated ID'leri otomatik disliyor.
+    """
+    return _mitre_catalog()["technique_ids"]
 
 
 def _normalize_import_payload(raw: Any) -> tuple[dict, list[str]]:
@@ -3590,9 +3605,9 @@ def data_quality_repair_api():
 
 _TACTIC_ORDER = [
     "reconnaissance", "resource-development", "initial-access", "execution",
-    "persistence", "privilege-escalation", "defense-evasion", "credential-access",
-    "discovery", "lateral-movement", "collection", "command-and-control",
-    "exfiltration", "impact",
+    "persistence", "privilege-escalation", "stealth", "defense-impairment",
+    "credential-access", "discovery", "lateral-movement", "collection",
+    "command-and-control", "exfiltration", "impact",
 ]
 
 
