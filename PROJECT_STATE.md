@@ -367,6 +367,40 @@ Bu, bir önceki oturumda "tanınmayan teknik ID" için yaptığımız hata/uyar�
 
 **Doğrulandı:** 39/39 test (1 yeni: `test_import_merges_duplicate_name_product_pairs_instead_of_blocking`), gerçek senaryoyla (aynı "Defender for Endpoint EDR – Collection" adı iki farklı teknikle) uçtan uca — önizleme artık `ok:true`, 1 uyarı, teknikler birleşti. `docs/mitre_mapping_prompt.md`'deki hata/uyarı tablosu güncellendi.
 
+## Tespit yönetimi genişletildi + PDF Export → zengin `/report` (2026-07-28)
+
+Kullanıcı üç ayrı istek getirdi: (1) toplu seçme/kapsam değiştirme/silme "çalışmıyor", (2) tespitlerin adını ve ürününü sonradan değiştirebilme, (3) PDF Export'un çok daha ayrıntılı, MITRE Navigator tarzı, çok sayfalı olması.
+
+### 1. Toplu işlem "hatası" — kod değil, tarayıcı önbelleği
+
+Gerçek tıklamalarla (checkbox, "Görünenleri seç", "Kapsamı değiştir") uçtan uca test edildi — hepsi doğru çalıştı. Toplu silme, `window.confirm()`'ün Claude Browser test ortamında bilinçli olarak devre dışı bırakılması yüzünden test edilemedi (konsolda açıkça yazıyor: *"native JavaScript dialogs are disabled in this browser"*) ama aynı kod yolu bu oturumda daha önce `confirm() → true` mock'lanarak zaten doğrulanmıştı. Asıl bulgu: **aynı test sekmesi, `app.js`'e yapılan bir sonraki değişiklikten sonra tam sayfa yenilemesi (F5) yapılmadan test edilince yeni özellik (`Düzenle` butonu) DOM'da hiç görünmüyordu** — tarayıcı sekmesi önceki `?v=` yüklemesinde donmuş kalıyor. Bu, kullanıcının "çalışmıyor" demesinin en olası açıklaması: `?v=` art arda birkaç kez bump edildi (116→120), sekme muhtemelen bir ara sürümde donmuş kaldı. **Çözüm kullanıcıya iletildi: sert yenileme (Ctrl+Shift+R) sonrası tekrar denemesi istendi.**
+
+### 2. Tespit adı/ürünü sonradan değiştirme
+
+Yeni `PUT /api/rules/<id>` — `name` ve/veya `source` günceller. Kullanıcı: *"yönetim alanında her şeyi ekle, elimiz kolumuz bağlanmasın."*
+
+- Ürün değişince kural otomatik yeni ürünün altına taşınır (gruplama zaten `r.source`'a göre) — ayrı bir "taşıma" mantığı gerekmedi.
+- Katalogda olmayan ürüne taşınamaz (400), aynı (isim, ürün) çakışırsa 409 (`idx_rules_name_source` UNIQUE).
+- UI: `Tespitler` listesinde her satıra **Düzenle** butonu — satırı isim input'u + ürün seçiciye çevirir (`rulesEditingId` state), Kaydet/İptal.
+- Doğrulandı: 40/40 test (1 yeni), gerçek tıklamalarla uçtan uca (isim değişti, ürün taşındı, düzenleme modu kapandı).
+
+### 3. PDF Export → zengin, çok sayfalı `/report`
+
+Eski "PDF Export" DOM kazıyordu (`exportMatrixPdf()`, `templates/index.html`) — yalnızca ekrandaki filtrelenmiş görünümü tek sayfalık, alt tekniksiz, skorsuz bir tabloya çeviriyordu. **`static/app.js`'teki `exportPdf()` fonksiyonu ise hiç çağrılmayan ölü koddu** (grep ile doğrulandı) — silinirken `wireExport()` içindeki `btnPdf.addEventListener('click', exportPdf)` satırının artık var olmayan bir fonksiyona referans verip sayfa yüklenirken `ReferenceError` atacağı fark edildi, o satır da kaldırıldı.
+
+Zaten var olan `/report` sayfası (`templates/report.html`) çok daha zengindi ama kullanılmıyordu ve dili eskiydi ("Kritik Boşluklar (Önem ≥ 4)" — Faz 4b'de kaldırılan önem kavramına atıf). **PDF Export artık `/report`'u yeni sekmede açıyor**, matriste seçili ortamı `?environment_id=` ile taşıyarak.
+
+`/report` şu şekilde genişletildi:
+- `_compute_gap_analysis()` artık tam teknik listesini (`techniques` anahtarı, parent+alt) ve her teknik için ürün **isimlerini** (yalnızca sayısını değil) döndürüyor — `/api/gap-analysis` için geriye dönük uyumlu, sadece ek alan.
+- **Kapsama Haritası** — MITRE Navigator tarzı, taktik başına sütun, alt teknikler ana tekniğin altında girintili ve renkli (her zaman görünür, print'te interaktiflik zaten yok). 15 taktik, sayfa başına 5 taktik olacak şekilde otomatik bölünüyor (**"birkaç sayfalık pdf" isteği** — 216 teknikle 3 sayfa çıktı). Renkler koyu temanın aynı 5 duraklı gradyanından (`_scoreRgb`) türetildi ama print/kağıt için açık, siyah metinle okunabilir tonlara çevrildi (`_score_to_report_color()`).
+- **Tam Teknik Listesi (Ek)** — taktik başına bölüm, ID/Ad/Tespit/Skor/Mitigation/Ürünler sütunlu tam tablo (216 satır, fan-out yok — çoklu taktikli teknik tek satırda).
+- **Ortam seçici** — `?environment_id=` query param, `<select onchange=submit>`; geçersiz id 500 yerine sessizce birleşik moda dönüyor.
+- Yönetici özeti kartları güncellendi (Ortalama Skor kartı eklendi, eski "Kritik Boşluk" dili kaldırıldı), "Tespitsiz Teknikler" bölümü artık `group_count` sıralamasını ve 50 sınırını açıkça anlatıyor.
+- `rule_threshold = 0` ("gerekli değil") hem matriste hem tam listede `0/0` yerine düz metinle gösteriliyor — canlı haritadaki aynı okunabilirlik düzeltmesi.
+- Tüm sayfa `@page { size: A4 landscape }` — kullanıcının "export geniş olabilir" isteğiyle.
+
+**Doğrulandı:** 43/43 test (3 yeni: matris+ek render, ortam scoping, `techniques[].sources`), gerçek 375 kurallık veriyle ekran görüntüsü — 3 matris sayfası, 254 hücre, 618 alt teknik hücresi, sıfır konsol hatası. Print-media emülasyonuyla da doğrulandı (aksiyon çubuğu gizleniyor, "gerekli değil" doğru render). `?v=120` (app.js).
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).

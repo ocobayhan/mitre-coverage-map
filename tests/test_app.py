@@ -692,6 +692,105 @@ class AppTestCase(unittest.TestCase):
         self.assertFalse(preview["ok"])
         self.assertTrue(any("schema" in e for e in preview["errors"]))
 
+    def test_rule_rename_and_move_to_different_product(self):
+        """Tespit oluşturulduktan sonra adı ve ürünü (kaynağı) değiştirilebilir.
+
+        Kullanıcı: "yönetim alanında her şeyi ekle, elimiz kolumuz
+        bağlanmasın" — ilk girişte yanlış yazılan bir isim ya da yanlış
+        ürüne bağlanan bir kural elle düzeltilebilmeli.
+        """
+        self.login()
+        created = self.client.post("/api/rules", json={
+            "name": "Yanlis isim", "source": "QRadar"}).get_json()
+        rule_id = created["id"]
+
+        # Sadece adi degistir
+        r1 = self.client.put(f"/api/rules/{rule_id}", json={"name": "Dogru isim"})
+        self.assertEqual(r1.status_code, 200)
+        rules = {r["id"]: r for r in self.client.get("/api/rules").get_json()}
+        self.assertEqual(rules[rule_id]["name"], "Dogru isim")
+        self.assertEqual(rules[rule_id]["source"], "QRadar")
+
+        # Urunu degistir (tasima)
+        self.client.post("/api/products", json={"name": "DFE", "color": "#111111"})
+        r2 = self.client.put(f"/api/rules/{rule_id}", json={"source": "DFE"})
+        self.assertEqual(r2.status_code, 200)
+        rules = {r["id"]: r for r in self.client.get("/api/rules").get_json()}
+        self.assertEqual(rules[rule_id]["source"], "DFE")
+        self.assertEqual(rules[rule_id]["name"], "Dogru isim", "urun degisince isim degismemeli")
+
+        # Katalogda olmayan urune tasinamaz
+        r3 = self.client.put(f"/api/rules/{rule_id}", json={"source": "Yok Boyle Urun"})
+        self.assertEqual(r3.status_code, 400)
+
+        # Ayni (isim, urun) baska bir kuralda varsa 409
+        self.client.post("/api/rules", json={"name": "Cakisan isim", "source": "DFE"})
+        r4 = self.client.put(f"/api/rules/{rule_id}", json={"name": "Cakisan isim"})
+        self.assertEqual(r4.status_code, 409)
+
+        # Bos isim reddedilir
+        r5 = self.client.put(f"/api/rules/{rule_id}", json={"name": "  "})
+        self.assertEqual(r5.status_code, 400)
+
+        # Viewer degistiremez
+        self.login("viewer", "Viewer123!")
+        r6 = self.client.put(f"/api/rules/{rule_id}", json={"name": "Viewer deneme"})
+        self.assertEqual(r6.status_code, 403)
+
+    # ── /report (PDF Export'un yerine gecen zengin rapor) ────────────────
+    def test_report_page_renders_matrix_and_full_technique_list(self):
+        """PDF Export artik DOM kazima degil, bu sayfaya yonlendiriyor.
+
+        Rapor: yonetici ozeti, Navigator tarzi kapsama haritasi (alt
+        teknikler dahil), taktik tablosu, tespitsiz teknikler, tam teknik
+        listesi eki ve aksiyon plani icermeli. Eski "onem" dili kalmamali
+        (Faz 4b'de kaldirildi).
+        """
+        self.login()
+        self.client.post("/api/rules", json={
+            "name": "Rapor testi", "tactic": "execution", "tech": "T1000",
+            "source": "QRadar"})
+
+        response = self.client.get("/report")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+
+        self.assertIn("Kapsama Haritası", html)
+        self.assertIn("Tam Teknik Listesi", html)
+        self.assertIn("Tespitsiz Teknikler", html)
+        self.assertIn("T1000", html)
+        # Eski, kaldirilmis "onem seviyesi" kavrami rapora sizmamali
+        self.assertNotIn("Önem", html)
+        self.assertNotIn("Kritik Boşluklar (Önem", html)
+
+    def test_report_page_scopes_to_environment_query_param(self):
+        """?environment_id= verilirse rapor o ortamin adini ve kapsamini
+        gosterir; gecersiz id sessizce birlesik moda doner (crash yerine)."""
+        self.login()
+        env = self.client.post("/api/environments", json={
+            "name": "Test Ortami", "code": "TST", "asset_count": 10}).get_json()
+
+        combined = self.client.get("/report").get_data(as_text=True)
+        self.assertIn("Tüm ortamlar (birleşik)", combined)
+
+        scoped = self.client.get(f"/report?environment_id={env['id']}").get_data(as_text=True)
+        self.assertIn("Test Ortami", scoped)
+
+        invalid = self.client.get("/report?environment_id=999999")
+        self.assertEqual(invalid.status_code, 200, "gecersiz id 500 degil, birlesik moda donmeli")
+
+    def test_gap_analysis_techniques_expose_sources_for_report(self):
+        """_compute_gap_analysis artik her teknik icin urun isimlerini de
+        (yalnizca sayisini degil) dondurur — raporun 'Ürünler' sutunu icin."""
+        self.login()
+        self.client.post("/api/rules", json={
+            "name": "Kaynak testi", "tactic": "execution", "tech": "T1000",
+            "source": "QRadar"})
+        gap = self.client.get("/api/gap-analysis").get_json()
+        techs = {t["tech_id"]: t for t in gap.get("techniques", [])}
+        self.assertIn("T1000", techs)
+        self.assertEqual(techs["T1000"]["sources"], ["QRadar"])
+
     def test_import_new_product_requires_admin(self):
         """Ürün oluşturma admin işi; editor kural yükleyebilir ama katalogu
         genişletemez (POST /api/products ile aynı kural)."""

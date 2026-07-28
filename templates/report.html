@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MITRE ATT&CK GAP Raporu</title>
+  <title>MITRE ATT&CK Kapsama Raporu</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -12,7 +12,7 @@
       font-size: 13px;
       color: #201f1e;
       background: #fff;
-      padding: 32px 40px;
+      padding: 28px 36px;
     }
     /* ── Header ── */
     .rpt-header {
@@ -21,14 +21,14 @@
       justify-content: space-between;
       border-bottom: 3px solid #0078d4;
       padding-bottom: 16px;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
     .rpt-title { font-size: 22px; font-weight: 700; color: #003060; }
     .rpt-subtitle { font-size: 13px; color: #605e5c; margin-top: 4px; }
     .rpt-meta { font-size: 12px; color: #605e5c; text-align: right; }
+    .rpt-meta strong { color: #201f1e; }
     .rpt-back {
       display: inline-block;
-      margin-bottom: 16px;
       font-size: 12px;
       color: #0078d4;
       text-decoration: none;
@@ -37,166 +37,155 @@
     .rpt-back:hover { text-decoration: underline; }
 
     /* ── Section titles ── */
-    .rpt-section { margin-bottom: 28px; }
+    .rpt-section { margin-bottom: 26px; }
     .rpt-section-title {
       font-size: 15px;
       font-weight: 600;
       color: #003060;
       border-bottom: 1px solid #edebe9;
       padding-bottom: 6px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
+    }
+    .rpt-section-note {
+      font-size: 11.5px;
+      color: #605e5c;
+      margin-bottom: 10px;
+      line-height: 1.5;
     }
 
     /* ── Overview cards ── */
     .rpt-cards {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-bottom: 20px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-bottom: 16px;
     }
     .rpt-card {
       border: 1px solid #edebe9;
       border-radius: 6px;
-      padding: 16px 20px;
+      padding: 14px 16px;
       text-align: center;
       background: #faf9f8;
     }
-    .rpt-card-val {
-      font-size: 32px;
-      font-weight: 700;
-      color: #0078d4;
-      line-height: 1.1;
-    }
+    .rpt-card-val { font-size: 28px; font-weight: 700; color: #0078d4; line-height: 1.1; }
     .rpt-card-val.red { color: #d13438; }
     .rpt-card-val.green { color: #107c10; }
-    .rpt-card-lbl { font-size: 12px; color: #605e5c; margin-top: 4px; }
-    .rpt-card-sub { font-size: 11px; color: #a19f9d; margin-top: 2px; }
+    .rpt-card-lbl { font-size: 11.5px; color: #605e5c; margin-top: 4px; font-weight: 600; }
+    .rpt-card-sub { font-size: 10.5px; color: #a19f9d; margin-top: 2px; }
 
     /* ── Status comment ── */
     .rpt-status-box {
-      padding: 12px 16px;
+      padding: 11px 16px;
       border-radius: 6px;
       border-left: 4px solid #0078d4;
       background: #f0f6ff;
-      font-size: 13px;
-      color: #201f1e;
+      font-size: 12.5px;
       line-height: 1.5;
     }
     .rpt-status-box.warn { border-color: #ca5010; background: #fff4ef; }
     .rpt-status-box.danger { border-color: #d13438; background: #fde7e9; }
 
-    /* ── Tactic table ── */
-    .rpt-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
+    /* ── Generic table ── */
+    .rpt-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
     .rpt-table th {
-      background: #0078d4;
-      color: #fff;
-      padding: 7px 10px;
-      text-align: left;
-      font-weight: 600;
+      background: #0078d4; color: #fff; padding: 6px 9px; text-align: left; font-weight: 600;
     }
-    .rpt-table td {
-      padding: 6px 10px;
-      border-bottom: 1px solid #edebe9;
-      vertical-align: middle;
-    }
+    .rpt-table td { padding: 5px 9px; border-bottom: 1px solid #edebe9; vertical-align: middle; page-break-inside: avoid; }
     .rpt-table tr:last-child td { border-bottom: none; }
-    .rpt-table tr:hover td { background: #f3f2f1; }
+    .rpt-table tr { page-break-inside: avoid; }
 
-    /* ── Progress bar ── */
-    .rpt-bar-wrap {
-      background: #edebe9;
-      border-radius: 3px;
-      height: 10px;
-      width: 180px;
-      overflow: hidden;
-    }
-    .rpt-bar-fill {
-      height: 100%;
-      border-radius: 3px;
-      background: #107c10;
-      transition: width 0.3s;
-    }
+    .rpt-bar-wrap { background: #edebe9; border-radius: 3px; height: 9px; width: 160px; overflow: hidden; }
+    .rpt-bar-fill { height: 100%; border-radius: 3px; background: #107c10; }
     .rpt-bar-fill.low { background: #ca5010; }
     .rpt-bar-fill.mid { background: #d69923; }
 
-    /* ── Importance badges ── */
-    .imp-dot {
-      display: inline-block;
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      margin-right: 4px;
-      vertical-align: middle;
-    }
-    .imp-1 { background: #888; }
-    .imp-2 { background: #0078d4; }
-    .imp-3 { background: #ca5010; }
-    .imp-4 { background: #e67800; }
-    .imp-5 { background: #d13438; }
-
-    /* ── Priority / Status badges ── */
-    .badge {
-      display: inline-block;
-      padding: 2px 7px;
-      border-radius: 3px;
-      font-size: 11px;
-      font-weight: 600;
-    }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10.5px; font-weight: 600; }
     .p-1 { background: #f3f2f1; color: #605e5c; }
     .p-2 { background: #dff6dd; color: #107c10; }
     .p-3 { background: #fff4ce; color: #7a5900; }
     .p-4 { background: #fde7e9; color: #d13438; }
     .s-open { background: #deecf9; color: #004e8c; }
     .s-in_progress { background: #fff4ce; color: #7a5900; }
+    .s-done { background: #dff6dd; color: #107c10; }
+    .s-cancelled { background: #f3f2f1; color: #605e5c; }
+
+    /* ── Kapsama Haritası (Navigator tarzı) ── */
+    .rpt-matrix-page { margin-bottom: 18px; }
+    .rpt-matrix-page:not(:last-child) { page-break-after: always; }
+    .rpt-matrix-grid { display: grid; gap: 6px; align-items: start; }
+    .rpt-matrix-col {
+      border: 1px solid #d8d6d4; border-radius: 5px; overflow: hidden; background: #fff;
+    }
+    .rpt-matrix-col-header {
+      background: #003060; color: #fff; font-size: 10.5px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.04em; text-align: center;
+      padding: 6px 4px;
+    }
+    .rpt-matrix-cell {
+      padding: 4px 6px 3px; border-bottom: 1px solid #e5e3e1; page-break-inside: avoid;
+    }
+    .rpt-matrix-col > .rpt-matrix-cell:last-child { border-bottom: none; }
+    .rpt-cell-id {
+      font-family: 'Consolas', monospace; font-size: 8.5px; font-weight: 700; color: #003060;
+    }
+    .rpt-cell-id .rpt-m-badge {
+      display: inline-block; font-size: 7.5px; font-weight: 700; color: #5b3fa0;
+      background: rgba(91,63,160,0.14); border: 1px solid rgba(91,63,160,0.35);
+      border-radius: 3px; padding: 0 3px; margin-left: 3px; vertical-align: middle;
+    }
+    .rpt-cell-name {
+      font-size: 9px; line-height: 1.25; color: #201f1e;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .rpt-cell-score { font-size: 8px; color: #605e5c; margin-top: 1px; }
+    .rpt-cell-children { margin: 3px 0 1px 6px; border-left: 2px solid #d8d6d4; padding-left: 5px; }
+    .rpt-subcell { padding: 2px 4px; border-radius: 3px; margin-bottom: 2px; font-size: 8px; line-height: 1.25; }
+    .rpt-subcell .rpt-cell-id { font-size: 7.5px; }
+    .rpt-matrix-legend { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; font-size: 10.5px; color: #605e5c; flex-wrap: wrap; }
+    .rpt-legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
+
+    /* ── Tam teknik listesi eki ── */
+    .rpt-fulllist-section .rpt-subtactic-title {
+      font-size: 12px; font-weight: 700; color: #003060; margin: 14px 0 6px;
+      background: #f3f2f1; padding: 5px 9px; border-radius: 4px;
+    }
+    .rpt-fulllist-section .rpt-subtactic-title:first-of-type { margin-top: 0; }
+    .rpt-src-badge {
+      display: inline-block; font-size: 9.5px; background: #f3f2f1; color: #494847;
+      border-radius: 3px; padding: 1px 6px; margin: 1px 3px 1px 0;
+    }
 
     /* ── Footer ── */
     .rpt-footer {
-      margin-top: 36px;
-      padding-top: 12px;
-      border-top: 1px solid #edebe9;
-      font-size: 11px;
-      color: #a19f9d;
-      display: flex;
-      justify-content: space-between;
+      margin-top: 30px; padding-top: 12px; border-top: 1px solid #edebe9;
+      font-size: 11px; color: #a19f9d; display: flex; justify-content: space-between;
     }
 
-    /* ── Print / PDF button ── */
+    /* ── Action bar (screen only) ── */
+    .rpt-actions-bar { display: flex; gap: 14px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+    .rpt-env-form { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #605e5c; }
+    .rpt-env-form select {
+      font-size: 12px; padding: 5px 8px; border: 1px solid #d8d6d4; border-radius: 4px; font-family: inherit;
+    }
     .rpt-print-btn {
-      background: #0078d4;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      padding: 8px 18px;
-      font-size: 13px;
-      cursor: pointer;
-      font-family: inherit;
+      background: #0078d4; color: #fff; border: none; border-radius: 4px;
+      padding: 8px 18px; font-size: 13px; cursor: pointer; font-family: inherit; margin-left: auto;
     }
     .rpt-print-btn:hover { background: #106ebe; }
-    .rpt-actions-bar {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
 
-    /* ── Empty state ── */
     .rpt-empty {
-      padding: 20px;
-      text-align: center;
-      color: #a19f9d;
-      font-style: italic;
-      border: 1px dashed #edebe9;
-      border-radius: 4px;
+      padding: 18px; text-align: center; color: #a19f9d; font-style: italic;
+      border: 1px dashed #edebe9; border-radius: 4px;
     }
 
-    /* ── Print media ── */
+    /* ── Print ── */
+    @page { size: A4 landscape; margin: 12mm; }
     @media print {
       body { padding: 0; font-size: 11px; }
-      .rpt-actions-bar, .rpt-back { display: none !important; }
-      .rpt-bar-wrap { width: 120px; }
-      @page { margin: 15mm; }
+      .rpt-actions-bar { display: none !important; }
+      .rpt-section { page-break-inside: avoid; }
+      .rpt-fulllist-section { page-break-inside: auto; }
+      .rpt-fulllist-section .rpt-subtactic-title { page-break-after: avoid; }
     }
   </style>
 </head>
@@ -204,14 +193,25 @@
 
   <div class="rpt-actions-bar">
     <a class="rpt-back" href="/">&#8592; Ana Sayfa</a>
+    <form class="rpt-env-form" method="get">
+      <label for="environment_id">Ortam:</label>
+      <select name="environment_id" id="environment_id" onchange="this.form.submit()">
+        <option value="">Tüm ortamlar (birleşik)</option>
+        {% for env in environments %}
+        <option value="{{ env.id }}" {% if env.id == environment_id %}selected{% endif %}>
+          {{ env.name }}{% if not env.active %} (pasif){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </form>
     <button class="rpt-print-btn" onclick="window.print()">&#128438; Yazdır / PDF Kaydet</button>
   </div>
 
   <!-- ── Header ── -->
   <div class="rpt-header">
     <div>
-      <div class="rpt-title">MITRE ATT&amp;CK GAP Raporu</div>
-      <div class="rpt-subtitle">SOC Coverage Map — Güvenlik Kapsama Analizi</div>
+      <div class="rpt-title">MITRE ATT&amp;CK Kapsama Raporu</div>
+      <div class="rpt-subtitle">SOC Coverage Map — {{ environment_name }}</div>
     </div>
     <div class="rpt-meta">
       <div>Oluşturulma: {{ generated_at }}</div>
@@ -231,14 +231,14 @@
         <div class="rpt-card-sub">Alt teknik: {{ gap.overview.detected_subtechniques }} / {{ gap.overview.total_subtechniques }} kendi kuralı var</div>
       </div>
       <div class="rpt-card">
-        <div class="rpt-card-val green">{{ gap.overview.detected_techniques }} <small style="font-size:18px">(%{{ gap.overview.coverage_pct }})</small></div>
+        <div class="rpt-card-val green">{{ gap.overview.detected_techniques }} <small style="font-size:16px">(%{{ gap.overview.coverage_pct }})</small></div>
         <div class="rpt-card-lbl">Tespit</div>
-        <div class="rpt-card-sub">Görebiliyoruz — tespit (kural) zorunlu</div>
+        <div class="rpt-card-sub">Görebiliyoruz — adı olan tespit var</div>
       </div>
       <div class="rpt-card">
         <div class="rpt-card-val red">{{ gap.overview.uncovered_techniques }}</div>
         <div class="rpt-card-lbl">Kapsamsız</div>
-        <div class="rpt-card-sub">Hiç tespit yok</div>
+        <div class="rpt-card-sub">Hiç tespit yok — asıl aksiyon listesi</div>
       </div>
       <div class="rpt-card">
         <div class="rpt-card-val">{{ gap.overview.mitigated_techniques }}</div>
@@ -246,28 +246,76 @@
         <div class="rpt-card-sub">Bilgi — kapsama skoruna girmez</div>
       </div>
       <div class="rpt-card">
-        <div class="rpt-card-val red">{{ gap.overview.critical_gap_count }}</div>
-        <div class="rpt-card-lbl">Kritik Boşluk</div>
-        <div class="rpt-card-sub">Önem yüksek, skor &lt; %35</div>
+        <div class="rpt-card-val">%{{ gap.overview.average_score_pct }}</div>
+        <div class="rpt-card-lbl">Ortalama Skor</div>
+        <div class="rpt-card-sub">Etkin tespit / teknik hedefi</div>
       </div>
     </div>
 
     {% set pct = gap.overview.coverage_pct | float %}
     {% if pct >= 60 %}
       <div class="rpt-status-box">
-        <strong>Genel Durum: İyi.</strong> Kapsama oranı %{{ gap.overview.coverage_pct }}'dir.
-        Kritik boşlukların kapatılması önceliklendirilmelidir.
+        <strong>Genel Durum: İyi.</strong> Tespit oranı %{{ gap.overview.coverage_pct }}'dir.
+        Tespitsiz tekniklerin kapatılması önceliklendirilmelidir.
       </div>
     {% elif pct >= 30 %}
       <div class="rpt-status-box warn">
-        <strong>Genel Durum: Orta.</strong> Kapsama oranı %{{ gap.overview.coverage_pct }}'dir.
-        {{ gap.overview.critical_gap_count }} kritik boşluk tespit edildi. Aksiyon planı gerekmektedir.
+        <strong>Genel Durum: Orta.</strong> Tespit oranı %{{ gap.overview.coverage_pct }}'dir.
+        {{ gap.overview.uncovered_techniques }} teknik hiç tespit edilemiyor. Aksiyon planı gerekmektedir.
       </div>
     {% else %}
       <div class="rpt-status-box danger">
-        <strong>Genel Durum: Yetersiz.</strong> Kapsama oranı %{{ gap.overview.coverage_pct }}'dir.
-        {{ gap.overview.critical_gap_count }} kritik boşluk mevcuttur. Acil müdahale önerilir.
+        <strong>Genel Durum: Yetersiz.</strong> Tespit oranı %{{ gap.overview.coverage_pct }}'dir.
+        {{ gap.overview.uncovered_techniques }} teknik hiç tespit edilemiyor. Acil müdahale önerilir.
       </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Kapsama Haritası (Navigator tarzı) ── -->
+  <div class="rpt-section">
+    <div class="rpt-section-title">Kapsama Haritası</div>
+    <div class="rpt-section-note">
+      Renk = etkin tespit / teknik hedefi (ekrandaki harita ile aynı ölçek). <strong>M</strong> rozeti
+      o teknikte kayıtlı bir mitigation olduğunu gösterir, renge karışmaz. Alt teknikler ana tekniğin
+      altında girintili gösterilir; kapsama oranının paydasına girmezler, yalnızca bilgi amaçlıdır.
+    </div>
+    <div class="rpt-matrix-legend">
+      <span><span class="rpt-legend-swatch" style="background:#ecf0f1"></span>0%</span>
+      <span><span class="rpt-legend-swatch" style="background:#f8d3d3"></span>~30%</span>
+      <span><span class="rpt-legend-swatch" style="background:#fde3c8"></span>~50%</span>
+      <span><span class="rpt-legend-swatch" style="background:#eef2c1"></span>~70%</span>
+      <span><span class="rpt-legend-swatch" style="background:#d1eed8"></span>%100</span>
+    </div>
+    {% if matrix_pages %}
+      {% for page in matrix_pages %}
+      <div class="rpt-matrix-page">
+        <div class="rpt-matrix-grid" style="grid-template-columns: repeat({{ page|length }}, 1fr);">
+          {% for col in page %}
+          <div class="rpt-matrix-col">
+            <div class="rpt-matrix-col-header">{{ col.label }}</div>
+            {% for t in col.techniques %}
+            <div class="rpt-matrix-cell" style="background:{{ t.color }}">
+              <div class="rpt-cell-id">{{ t.tech_id }}{% if t.mitigation_checked %}<span class="rpt-m-badge">M</span>{% endif %}</div>
+              <div class="rpt-cell-name">{{ t.name }}</div>
+              <div class="rpt-cell-score">{{ (t.coverage_score * 100) | round | int }}% &middot; {% if t.rule_threshold <= 0 %}gerekli değil{% else %}{{ t.named_rule_count }}/{{ t.rule_threshold }}{% endif %}</div>
+              {% if t.children %}
+              <div class="rpt-cell-children">
+                {% for c in t.children %}
+                <div class="rpt-subcell" style="background:{{ c.color }}">
+                  <span class="rpt-cell-id">{{ c.tech_id }}</span> {{ c.name }}
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="rpt-empty">Harita verisi bulunamadı.</div>
     {% endif %}
   </div>
 
@@ -277,12 +325,7 @@
     {% if gap.by_tactic %}
     <table class="rpt-table">
       <thead>
-        <tr>
-          <th>Taktik</th>
-          <th>Kapsama</th>
-          <th>Kapsanan / Toplam</th>
-          <th>Oran</th>
-        </tr>
+        <tr><th>Taktik</th><th>Tespit Oranı</th><th>Tespit / Toplam</th><th>Oran</th><th>Ort. Skor</th></tr>
       </thead>
       <tbody>
         {% for t in gap.by_tactic %}
@@ -290,12 +333,12 @@
           <td>{{ t.label }}</td>
           <td>
             <div class="rpt-bar-wrap">
-              <div class="rpt-bar-fill {% if t.pct < 30 %}low{% elif t.pct < 60 %}mid{% endif %}"
-                   style="width:{{ t.pct }}%"></div>
+              <div class="rpt-bar-fill {% if t.pct < 30 %}low{% elif t.pct < 60 %}mid{% endif %}" style="width:{{ t.pct }}%"></div>
             </div>
           </td>
           <td>{{ t.covered }} / {{ t.total }}</td>
           <td><strong>%{{ t.pct }}</strong></td>
+          <td>%{{ t.average_score_pct }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -305,19 +348,19 @@
     {% endif %}
   </div>
 
-  <!-- ── Kritik Boşluklar ── -->
+  <!-- ── Tespitsiz Teknikler ── -->
   <div class="rpt-section">
-    <div class="rpt-section-title">Kritik Boşluklar (Önem ≥ 4, Kapsanmamış)</div>
+    <div class="rpt-section-title">Tespitsiz Teknikler</div>
+    <div class="rpt-section-note">
+      Hiç adı olan tespiti bulunmayan {{ gap.overview.uncovered_techniques }} ana teknikten, en çok
+      tehdit grubunun kullandığı ilk {{ gap.critical_gaps | length }} tanesi aşağıda listelenmiştir.
+      Sıralama bir ayar değil — MITRE ATT&amp;CK verisinden gelen objektif bir sinyaldir (kaç tehdit
+      grubunun bu tekniği kullandığı).
+    </div>
     {% if gap.critical_gaps %}
     <table class="rpt-table">
       <thead>
-        <tr>
-          <th>Teknik ID</th>
-          <th>Ad</th>
-          <th>Taktik</th>
-          <th>Tehdit Grubu</th>
-          <th>Tespit</th>
-        </tr>
+        <tr><th>Teknik ID</th><th>Ad</th><th>Taktik</th><th>Tehdit Grubu</th><th>Mitigation</th></tr>
       </thead>
       <tbody>
         {% for g_item in gap.critical_gaps %}
@@ -325,14 +368,51 @@
           <td><strong>{{ g_item.tech_id }}</strong></td>
           <td>{{ g_item.name }}</td>
           <td style="color:#605e5c">{{ g_item.tactic | replace('-', ' ') | title }}</td>
-          <td>{{ g_item.group_count }} tehdit grubu</td>
-          <td>{{ g_item.rule_count }}</td>
+          <td>{{ g_item.group_count }} grup</td>
+          <td>{{ 'Var' if g_item.mitigation_checked else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
       <div class="rpt-empty">Tespitsiz teknik yok.</div>
+    {% endif %}
+  </div>
+
+  <!-- ── Tam Teknik Listesi (Ek) ── -->
+  <div class="rpt-section rpt-fulllist-section">
+    <div class="rpt-section-title">Tam Teknik Listesi (Ek)</div>
+    <div class="rpt-section-note">
+      Ana tekniklerin tamamı, taktik bazında gruplanmış olarak. Birden fazla taktikte yer alan bir
+      teknik burada tekrar etmez; ait olduğu tüm taktikleri aynı satırda görürsünüz.
+    </div>
+    {% if full_list_sections %}
+      {% for section in full_list_sections %}
+      <div class="rpt-subtactic-title">{{ section.label }} ({{ section.techniques | length }})</div>
+      <table class="rpt-table">
+        <thead>
+          <tr><th>ID</th><th>Ad</th><th>Tespit</th><th>Skor</th><th>Mitigation</th><th>Ürünler</th></tr>
+        </thead>
+        <tbody>
+          {% for t in section.techniques %}
+          <tr>
+            <td><strong>{{ t.tech_id }}</strong></td>
+            <td>{{ t.name }}</td>
+            <td>{% if t.rule_threshold <= 0 %}<em>gerekli değil</em>{% else %}{{ t.named_rule_count }} / {{ t.rule_threshold }}{% endif %}</td>
+            <td>%{{ (t.coverage_score * 100) | round | int }}</td>
+            <td>{{ 'Var' if t.mitigation_checked else '—' }}</td>
+            <td>
+              {% if t.sources %}
+                {% for s in t.sources %}<span class="rpt-src-badge">{{ s }}</span>{% endfor %}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endfor %}
+    {% else %}
+      <div class="rpt-empty">Teknik verisi bulunamadı.</div>
     {% endif %}
   </div>
 
@@ -348,14 +428,7 @@
     {% if action_items %}
     <table class="rpt-table">
       <thead>
-        <tr>
-          <th>Teknik</th>
-          <th>Başlık</th>
-          <th>Ekip</th>
-          <th>Öncelik</th>
-          <th>Durum</th>
-          <th>Bitiş</th>
-        </tr>
+        <tr><th>Teknik</th><th>Başlık</th><th>Ekip</th><th>Öncelik</th><th>Durum</th><th>Bitiş</th></tr>
       </thead>
       <tbody>
         {% for item in action_items %}
@@ -363,16 +436,8 @@
           <td>{% if item.tech_id %}<strong>{{ item.tech_id }}</strong>{% else %}—{% endif %}</td>
           <td>{{ item.title }}</td>
           <td>{{ item.team_name or '—' }}</td>
-          <td>
-            <span class="badge p-{{ item.priority }}">
-              {{ priority_labels.get(item.priority, item.priority) }}
-            </span>
-          </td>
-          <td>
-            <span class="badge s-{{ item.status }}">
-              {{ status_labels.get(item.status, item.status) }}
-            </span>
-          </td>
+          <td><span class="badge p-{{ item.priority }}">{{ priority_labels.get(item.priority, item.priority) }}</span></td>
+          <td><span class="badge s-{{ item.status }}">{{ status_labels.get(item.status, item.status) }}</span></td>
           <td>{{ item.due_date or '—' }}</td>
         </tr>
         {% endfor %}
@@ -385,7 +450,7 @@
 
   <!-- ── Footer ── -->
   <div class="rpt-footer">
-    <span>SOC Coverage Map — MITRE ATT&amp;CK GAP Raporu</span>
+    <span>SOC Coverage Map — MITRE ATT&amp;CK Kapsama Raporu</span>
     <span>{{ generated_at }}</span>
   </div>
 

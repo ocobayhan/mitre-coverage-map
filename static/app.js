@@ -395,41 +395,6 @@ function exportLayer() {
   downloadBlob('mitre_layer.json', JSON.stringify(layer, null, 2), 'application/json;charset=utf-8');
 }
 
-function exportPdf() {
-  const rows = buildExportRows();
-  const meta = buildFilterSummary();
-  const win = window.open('', '_blank');
-  if (!win) return;
-  const html = `<!DOCTYPE html><html><head><title>MITRE Coverage Report</title>
-    <style>
-      body{font-family:Inter,Arial,sans-serif;padding:24px;color:#111;}
-      h1{font-size:20px;margin:0 0 8px 0;}
-      .meta{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin:8px 0 16px 0;color:#333;}
-      .pill{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 10px;}
-      table{width:100%;border-collapse:collapse;font-size:11px;}
-      th,td{border:1px solid #e2e8f0;padding:6px;}
-      th{background:#f8fafc;text-align:left;}
-      .score{font-weight:600;}
-    </style>
-  </head><body>
-    <h1>MITRE Coverage Report</h1>
-    <div class="meta">
-      <div class="pill">Date: ${new Date().toISOString().slice(0,10)}</div>
-      <div class="pill">Search: ${meta.search || 'none'}</div>
-      <div class="pill">Products: ${meta.productsSelected}</div>
-      <div class="pill">Rows: ${rows.length}</div>
-    </div>
-    <table><thead><tr><th>Type</th><th>ID</th><th>Name</th><th>Tactic</th><th>Rules</th><th>Mitigations</th><th>Products</th><th>Score</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td>${r.type}</td><td>${r.tech_id}</td><td>${r.name}</td><td>${r.tactic}</td><td>${r.rule_count}</td><td>${r.mitigation_checked}</td><td>${(r.products||[]).join(', ')}</td><td class="score">${r.score.toFixed(2)}</td></tr>`).join('')}
-    </tbody></table>
-  </body></html>`;
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.print();
-}
-
-
 function summarizeText(text, maxLen = 120) {
   if (!text) return '';
   const clean = text.replace(/\s+/g, ' ').trim();
@@ -625,11 +590,38 @@ function renderMitigationList() {
 //
 // State: userRules (global) + rulesFilterSearch/rulesFilterProduct (sayfa-local).
 // Her re-render'da filtre değerleri input/select'e geri yazılır (state kaybolmaz).
+// Bir kural su an isim/urun duzenleme modundaysa id'si burada tutulur —
+// renderRulesList() her cagrildiginda _ruleRow() bu satiri farkli cizer.
+let rulesEditingId = null;
+
 function _ruleRow(r) {
   const level = r.coverage_level || 'full';
   const techs = (r.techniques && r.techniques.length > 0)
     ? r.techniques
     : (r.tech && r.tech !== 'None' ? [r.tech] : []);
+
+  if (hasRole('editor') && rulesEditingId === r.id) {
+    const productOptions = products.map(p =>
+      `<option value="${_esc(p.name)}" ${p.name === r.source ? 'selected' : ''}>${_esc(p.name)}</option>`
+    ).join('');
+    return `
+      <div class="rule-list-row rule-row-editing" data-rule-id="${r.id}">
+        <div class="rl-select"></div>
+        <div class="rl-name">
+          <input type="text" class="rule-edit-name" data-rule-id="${r.id}" value="${_esc(r.name)}" />
+        </div>
+        <div class="rl-cov">
+          <label class="rule-edit-product-label">Ürün</label>
+          <select class="rule-edit-source" data-rule-id="${r.id}">${productOptions}</select>
+        </div>
+        <div class="rl-techs"></div>
+        <div class="rl-actions">
+          <button class="action-btn btn-add rule-edit-save" data-rule-id="${r.id}">Kaydet</button>
+          <button class="action-btn btn-reset rule-edit-cancel" data-rule-id="${r.id}">İptal</button>
+        </div>
+      </div>`;
+  }
+
   const techChips = techs.map(t => {
     const details = techDetailsMap[t];
     const techLabel = details ? `${t} - ${details.name}` : t;
@@ -665,7 +657,8 @@ function _ruleRow(r) {
         </span>` : ''}
       </div>
       <div class="rl-actions">
-        ${hasRole('editor') ? `<button class="action-btn btn-reset rule-delete" data-rule-id="${r.id}">Sil</button>` : ''}
+        ${hasRole('editor') ? `<button class="action-btn btn-reset rule-edit-btn" data-rule-id="${r.id}" title="Adını veya ürününü değiştir">Düzenle</button>
+        <button class="action-btn btn-reset rule-delete" data-rule-id="${r.id}">Sil</button>` : ''}
       </div>
     </div>`;
 }
@@ -969,6 +962,49 @@ function renderRulesList() {
       const ruleId = parseInt(e.currentTarget.dataset.ruleId);
       if (!ruleId || !hasRole('editor')) return;
       await deleteRule(ruleId);
+    });
+  });
+
+  // Tespit adini / urununu duzenleme — Duzenle bir satiri edit moduna alir
+  // (rulesEditingId), Kaydet PUT /api/rules/<id> cagirir, Iptal geri alir.
+  container.querySelectorAll('.rule-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      rulesEditingId = parseInt(e.currentTarget.dataset.ruleId);
+      renderRulesList();
+    });
+  });
+  container.querySelectorAll('.rule-edit-cancel').forEach(btn => {
+    btn.addEventListener('click', () => {
+      rulesEditingId = null;
+      renderRulesList();
+    });
+  });
+  container.querySelectorAll('.rule-edit-save').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const ruleId = parseInt(e.currentTarget.dataset.ruleId);
+      const row = e.currentTarget.closest('.rule-list-row');
+      const nameInput = row?.querySelector('.rule-edit-name');
+      const sourceSelect = row?.querySelector('.rule-edit-source');
+      if (!ruleId || !nameInput || !sourceSelect) return;
+      const name = nameInput.value.trim();
+      const source = sourceSelect.value;
+      if (!name) { alert('Tespit adı boş olamaz.'); return; }
+
+      const res = await apiFetch(`/api/rules/${ruleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, source })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Kaydetme başarısız.');
+        return;
+      }
+      const rule = userRules.find(r => r.id === ruleId);
+      if (rule) { rule.name = name; rule.source = source; }
+      rulesEditingId = null;
+      renderRulesList();
+      renderMatrix();
     });
   });
 }
@@ -3268,11 +3304,12 @@ function wireValidation() {
 }
 
 function wireExport() {
+  // btnExportPdf burada wire edilmiyor — /report'a yonlendiren capture-phase
+  // handler'i templates/index.html'de tanimli (PDF Export artik DOM kazima
+  // degil, sunucu tarafinda render edilen zengin rapor).
   const btnCsv = document.getElementById('btnExportCsv');
-  const btnPdf = document.getElementById('btnExportPdf');
   const btnLayer = document.getElementById('btnExportLayer');
   if (btnCsv) btnCsv.addEventListener('click', exportCsv);
-  if (btnPdf) btnPdf.addEventListener('click', exportPdf);
   if (btnLayer) btnLayer.addEventListener('click', exportLayer);
 }
 

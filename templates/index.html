@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=119" />
+  <link rel="stylesheet" href="/static/styles.css?v=120" />
 </head>
 <body>
   <div class="ms-shell">
@@ -664,78 +664,28 @@
     </div>
   </div>
 
-  <!-- PDF Export + Importance Badge (BEFORE app.js) -->
+  <!-- PDF Export → /report (BEFORE app.js) -->
   <script>
-    // ── PDF Export Override ──────────────────────────────────
-    function exportMatrixPdf() {
-      const matrix = document.getElementById('matrix');
-      if (!matrix) return;
-      const cols = matrix.querySelectorAll('.tactic-column');
-      if (!cols.length) { alert('Matrix boş, önce veri yükleyin.'); return; }
-
-      const colData = [];
-      cols.forEach(col => {
-        const hdr = col.querySelector('.tactic-header');
-        const cards = Array.from(col.querySelectorAll('.technique-card'));
-        colData.push({ header: hdr ? hdr.textContent.trim() : '', cards });
-      });
-      const maxCards = Math.max(...colData.map(c => c.cards.length), 0);
-
-      let thHtml = colData.map(c => `<th>${c.header}</th>`).join('');
-      let rowsHtml = '';
-      for (let i = 0; i < maxCards; i++) {
-        let cells = colData.map(c => {
-          const card = c.cards[i];
-          if (!card) return '<td class="pdf-empty"></td>';
-          const idEl = card.querySelector('.tc-id');
-          const nmEl = card.querySelector('.tc-name');
-          const techId = idEl ? idEl.textContent.trim() : (card.dataset.techId || '');
-          const name = nmEl ? nmEl.textContent.trim() : '';
-          const bg = card.style.backgroundColor || '';
-          const style = bg ? ` style="background:${bg}"` : '';
-          return `<td${style}><strong>${techId}</strong><br><small>${name}</small></td>`;
-        }).join('');
-        rowsHtml += `<tr>${cells}</tr>`;
-      }
-
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>SOC Coverage Matrix</title>
-<style>
-body{margin:8mm;font-family:'Segoe UI',Arial,sans-serif;font-size:7pt}
-h2{font-size:11pt;margin-bottom:6pt;color:#003060}
-table{border-collapse:collapse;width:100%;table-layout:fixed}
-th{background:#0078d4;color:#fff;padding:3px 4px;font-size:6.5pt;text-align:center;border:1px solid #005fa3;word-break:break-word}
-td{border:1px solid #ccc;padding:2px 3px;vertical-align:top;font-size:6pt;word-break:break-word}
-td strong{display:block;font-size:6.5pt;color:#003060}
-td small{color:#555}
-.pdf-empty{background:#f8f8f8}
-@media print{@page{size:A3 landscape;margin:8mm}}
-</style></head>
-<body><h2>SOC Coverage Matrix &mdash; ${new Date().toLocaleDateString('tr-TR')}</h2>
-<table><thead><tr>${thHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
-</body></html>`;
-
-      const win = window.open('', '_blank', 'width=1400,height=900');
-      if (!win) { alert('Popup engellendi. Lütfen popup iznine izin verin.'); return; }
-      win.document.write(html);
-      win.document.close();
-      win.focus();
-      setTimeout(() => win.print(), 600);
-    }
-
+    // Onceden matristeki DOM'u kazip tek sayfalik, ayrintisiz bir tablo
+    // uretiyordu (alt teknikler, skor, mitigation, teknik listesi yoktu).
+    // /report zaten ayni veriyi (kompute_gap_analysis) kullanarak cok daha
+    // zengin, cok sayfali, yazdirmaya hazir bir rapor uretiyor — PDF Export
+    // artik secili ortami da tasiyarak oraya yonlendiriyor.
     document.addEventListener('DOMContentLoaded', () => {
-      // PDF export capture listener (intercepts before app.js)
       const pdfBtn = document.getElementById('btnExportPdf');
       if (pdfBtn) {
         pdfBtn.addEventListener('click', e => {
           e.stopImmediatePropagation();
-          exportMatrixPdf();
+          const scopeSelect = document.getElementById('matrixScopeSelect');
+          const envId = scopeSelect ? scopeSelect.value : '';
+          const url = envId ? `/report?environment_id=${encodeURIComponent(envId)}` : '/report';
+          window.open(url, '_blank');
         }, true);
       }
     });
   </script>
 
-  <script src="/static/app.js?v=118"></script>
+  <script src="/static/app.js?v=120"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

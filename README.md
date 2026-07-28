@@ -69,6 +69,16 @@ Yeniden başlatınca `build_technique_config()` otomatik olarak eksik teknikleri
 3. Harita sıfır konsol hatasıyla render oluyor mu, yeni/değişen taktik sütun(lar)ı doğru sırada mı?
 4. Testler (`python -m unittest discover -s tests`) ve `scripts/browser_smoke.py` geçiyor mu?
 
+## Yönetici Raporu (PDF Export)
+
+Haritadaki **PDF Export** butonu `/report` sayfasını yeni sekmede açar (seçili ortamı `?environment_id=` ile taşıyarak). Sayfa yazdırmaya hazırdır (`Yazdır / PDF Kaydet` → tarayıcının "PDF olarak kaydet" seçeneği), A4 yatay, birkaç sayfa sürebilir:
+
+- **Yönetici özeti** — ana teknik/tespit/kapsamsız/mitigation/ortalama skor kartları
+- **Kapsama Haritası** — MITRE Navigator tarzı ızgara, taktik başına sütun (sayfa başına 5 taktik), alt teknikler ana tekniğin altında girintili ve her zaman görünür
+- **Taktik Bazlı Kapsama**, **Tespitsiz Teknikler** (öncelik: tehdit grubu sayısı), **Tam Teknik Listesi** (taktik başına tam tablo — ID, ad, tespit, skor, mitigation, ürünler), **Aksiyon Planı**
+
+Sayfa üstündeki **Ortam** seçici raporun tamamını (haritayı ve tabloları) o ortama göre yeniden hesaplar — matristeki ortam filtresiyle aynı mantık (`_compute_gap_analysis`).
+
 ## Audit
 
 Audit kayıtları istek ID, kullanıcı, IP, user-agent, önce/sonra değerleri ve SHA-256 zincir hash'i içerir. Veritabanı trigger'ları audit satırlarının güncellenmesini veya silinmesini engeller. Admin kullanıcılar Audit ekranından filtreleme, detay inceleme, bütünlük doğrulama ve CSV export yapabilir. `Kanıt Paketi`, seçili filtrelerle kayıtları; üretim manifesti, tam zincir durumu, önceki/kayıt hash'leri ve bağımsız doğrulanabilir paket hash'i içeren JSON dosyası olarak dışa aktarır.

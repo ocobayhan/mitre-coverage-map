@@ -1196,10 +1196,12 @@ def _compute_gap_analysis(
                 for ph in obj.get("kill_chain_phases", [])
                 if ph.get("kill_chain_name") == "mitre-attack"
             ]
+            is_sub = obj.get("x_mitre_is_subtechnique", False)
             tech_by_stix[obj["id"]] = {
                 "external_id": ext_id,
                 "name": obj.get("name", ""),
-                "is_subtechnique": obj.get("x_mitre_is_subtechnique", False),
+                "is_subtechnique": is_sub,
+                "parent_id": ext_id.split(".")[0] if is_sub and "." in ext_id else None,
                 "tactics": tactics,
             }
         elif t == "course-of-action":
@@ -1253,6 +1255,7 @@ def _compute_gap_analysis(
         if row["source"] in detection_sources:
             stats["_products"].add(row["source"])
     for stats in rule_stats_by_tech.values():
+        stats["products"] = sorted(stats["_products"])
         stats["product_count"] = len(stats.pop("_products"))
 
     covered_mits: set = set(
@@ -1277,6 +1280,7 @@ def _compute_gap_analysis(
         named_rule_count = int(rule_stats.get("named_rule_count", 0))
         effective_rule_count = float(rule_stats.get("effective_rule_count", 0.0))
         product_count = int(rule_stats.get("product_count", 0))
+        products_for_tech = rule_stats.get("products", [])
         mits_for_tech = tech_to_mitigations.get(teid, set())
         covered_mitigation_count = len(mits_for_tech & covered_mits)
         mitigation_checked = covered_mitigation_count > 0
@@ -1307,12 +1311,14 @@ def _compute_gap_analysis(
             "tech_id": teid,
             "name": info["name"],
             "is_subtechnique": info["is_subtechnique"],
+            "parent_id": info.get("parent_id"),
             "tactics": info["tactics"],
             "rule_count": rule_count,
             "named_rule_count": named_rule_count,
             "effective_rule_count": round(effective_rule_count, 2),
             "rule_threshold": rule_threshold,
             "product_count": product_count,
+            "sources": products_for_tech,
             "mitigation_checked": mitigation_checked,
             "mitigation_count": covered_mitigation_count,
             "coverage_score": round(coverage_score, 3),
@@ -1444,6 +1450,10 @@ def _compute_gap_analysis(
         },
         "by_tactic": by_tactic,
         "critical_gaps": critical_gaps_out,
+        # Tam liste (parent+alt), /report ekranindaki matris ve teknik
+        # listesi eklerinde kullanilir. /api/gap-analysis bunu yoksayabilir
+        # (eklemek geriye donuk uyumlu, mevcut alanlarin hicbiri degismedi).
+        "techniques": all_techs,
     }
 
 
@@ -2284,6 +2294,60 @@ def rules_bulk():
         "techniques_added": applied["techniques_added"],
         "errors": [],
     })
+
+
+@app.route("/api/rules/<int:rule_id>", methods=["PUT"])
+@role_required("editor")
+def update_rule(rule_id: int):
+    """Bir tespitin adini ve/veya kaynagini (urun) sonradan degistirir.
+
+    Ikisi de opsiyonel ama en az biri verilmeli. Urun degisirse kural,
+    haritada ve Tespitler listesinde otomatik olarak yeni urunun altina
+    tasinir (grup, r.source'a gore kuruluyor) — ayrica bir "tasima"
+    islemi gerekmez.
+    """
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    row = db.execute(
+        "SELECT id, name, source FROM rules WHERE id=?", (rule_id,)
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "Tespit bulunamadı"}), 404
+
+    name = payload.get("name")
+    source = payload.get("source")
+    if name is None and source is None:
+        return jsonify({"error": "En az 'name' veya 'source' gerekli"}), 400
+
+    new_name = (name if name is not None else row["name"]).strip()
+    new_source = (source if source is not None else row["source"]).strip()
+    if not new_name:
+        return jsonify({"error": "'name' boş olamaz"}), 400
+    if not new_source:
+        return jsonify({"error": "'source' boş olamaz"}), 400
+    if new_source != row["source"] and not _product_exists(db, new_source):
+        return jsonify({"error": _UNKNOWN_SOURCE_ERROR.format(source=new_source)}), 400
+
+    try:
+        db.execute(
+            "UPDATE rules SET name=?, source=? WHERE id=?",
+            (new_name, new_source, rule_id),
+        )
+    except sqlite3.IntegrityError:
+        # idx_rules_name_source UNIQUE — bu isim+urun zaten baska bir kuralda var.
+        return jsonify({
+            "error": "Bu isim ve kaynak için başka bir tespit zaten mevcut."
+        }), 409
+
+    write_audit_log(
+        db, action="update", target_type="rule", target_id=str(rule_id),
+        detail=f"name={new_name};source={new_source}",
+        before={"name": row["name"], "source": row["source"]},
+        after={"name": new_name, "source": new_source},
+    )
+    _invalidate_ttp_cache()
+    db.commit()
+    return jsonify({"id": rule_id, "name": new_name, "source": new_source})
 
 
 @app.route("/api/rules/<int:rule_id>/coverage", methods=["PATCH"])
@@ -4162,20 +4226,83 @@ def action_item_detail(item_id: int):
     return jsonify({"ok": True})
 
 
+_REPORT_SCORE_STOPS = [
+    (0.00, (0xEC, 0xEF, 0xF1)),  # notr gri — hic tespit yok
+    (0.30, (0xF8, 0xD3, 0xD3)),  # acik kirmizi
+    (0.50, (0xFD, 0xE3, 0xC8)),  # acik turuncu
+    (0.70, (0xEE, 0xF2, 0xC1)),  # acik sari-yesil
+    (1.00, (0xD1, 0xEE, 0xD8)),  # acik yesil
+]
+
+
+def _score_to_report_color(score: float) -> str:
+    """Kapsama skorunu PDF/print icin acik, siyah metinle okunabilir bir
+    renge cevirir. Uygulamanin koyu temadaki scoreToColor() ile ayni 5
+    durakli gradyani kullanir (0/0.30/0.50/0.70/1.00) — ekranda gordugun
+    renk mantigi kagitta da ayni anlama gelsin diye."""
+    stops = _REPORT_SCORE_STOPS
+    score = max(0.0, min(1.0, score))
+    if score <= stops[0][0]:
+        r, g, b = stops[0][1]
+        return f"#{r:02x}{g:02x}{b:02x}"
+    for i in range(len(stops) - 1):
+        s0, c0 = stops[i]
+        s1, c1 = stops[i + 1]
+        if score <= s1:
+            t = (score - s0) / (s1 - s0) if s1 != s0 else 0.0
+            r = round(c0[0] + (c1[0] - c0[0]) * t)
+            g = round(c0[1] + (c1[1] - c0[1]) * t)
+            b = round(c0[2] + (c1[2] - c0[2]) * t)
+            return f"#{r:02x}{g:02x}{b:02x}"
+    r, g, b = stops[-1][1]
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+# Bir sayfada yan yana kac taktik sutunu gosterilecek — matris cok genis
+# oldugu icin (15 taktik) sayfalara bolunuyor ("birkac sayfalik pdf" —
+# kullanicinin kendi istegi).
+_REPORT_MATRIX_TACTICS_PER_PAGE = 5
+
+
 @app.route("/report")
 @login_required
 def report_page():
-    """Yönetici raporu — GAP verileri ve aksiyon planı."""
+    """Yönetici raporu — kapsama haritası (Navigator tarzı), taktik özeti,
+    tam teknik listesi, tespitsiz teknikler ve aksiyon planı.
+
+    Coverage haritasindaki ile ayni _compute_gap_analysis() ciktisini
+    kullanir; sayfa yalnizca bunu yazdirmaya uygun sekilde yeniden
+    duzenler (taktik basina sayfalara bolunmus matris + tam liste eki).
+    """
     from datetime import datetime
 
-    gap_data: dict = {"overview": {}, "by_tactic": [], "critical_gaps": []}
+    gap_data: dict = {"overview": {}, "by_tactic": [], "critical_gaps": [], "techniques": []}
     action_items_data: list = []
+    environments: list = []
+    matrix_pages: list = []
+    full_list_sections: list = []
+    environment_id = request.args.get("environment_id", type=int)
+    environment_name = "Tüm ortamlar (birleşik)"
 
     try:
         if MITRE_PATH.exists():
             mitre = get_minified_mitre()
             db = get_db()
-            gap_data = _compute_gap_analysis(mitre, db)
+            environments = [
+                dict(r) for r in db.execute(
+                    "SELECT id, name, active FROM environments ORDER BY active DESC, name"
+                ).fetchall()
+            ]
+            if environment_id:
+                env_row = db.execute(
+                    "SELECT name FROM environments WHERE id=?", (environment_id,)
+                ).fetchone()
+                if env_row:
+                    environment_name = env_row["name"]
+                else:
+                    environment_id = None  # gecersiz id — birlesik moda don
+
+            gap_data = _compute_gap_analysis(mitre, db, environment_id)
             rows = db.execute(
                 """SELECT ai.id, ai.tech_id, ai.title, ai.priority, ai.status,
                           ai.due_date, t.name AS team_name
@@ -4185,6 +4312,58 @@ def report_page():
                    ORDER BY ai.priority DESC, ai.created_at DESC"""
             ).fetchall()
             action_items_data = [dict(r) for r in rows]
+
+            techs = gap_data.get("techniques", [])
+            parents = {t["tech_id"]: t for t in techs if not t["is_subtechnique"]}
+            children_by_parent: dict[str, list] = {}
+            for t in techs:
+                if t["is_subtechnique"] and t.get("parent_id"):
+                    children_by_parent.setdefault(t["parent_id"], []).append(t)
+            for kids in children_by_parent.values():
+                kids.sort(key=lambda x: x["tech_id"])
+
+            def _cell(t: dict) -> dict:
+                return {**t, "color": _score_to_report_color(t["coverage_score"])}
+
+            # ── Matris: taktik basina sutun, teknik fan-out (coklu taktikli
+            # teknik her sutununda ayri ayri gorunur — canli haritayla ayni). ──
+            tactic_cols = []
+            for tactic in _TACTIC_ORDER:
+                items = sorted(
+                    (p for p in parents.values() if tactic in p["tactics"]),
+                    key=lambda x: x["tech_id"],
+                )
+                if not items:
+                    continue
+                tactic_cols.append({
+                    "label": _TACTIC_LABEL_MAP.get(tactic, tactic),
+                    "techniques": [
+                        {
+                            **_cell(p),
+                            "children": [_cell(c) for c in children_by_parent.get(p["tech_id"], [])],
+                        }
+                        for p in items
+                    ],
+                })
+            matrix_pages = [
+                tactic_cols[i:i + _REPORT_MATRIX_TACTICS_PER_PAGE]
+                for i in range(0, len(tactic_cols), _REPORT_MATRIX_TACTICS_PER_PAGE)
+            ]
+
+            # ── Tam teknik listesi eki: taktik basina bolum, TEK satir/teknik
+            # (fan-out yok — coklu taktikli teknik taktiklerini tek hucrede
+            # virgulle listeler, ek gereksiz tekrar etmesin diye). ──
+            for tactic in _TACTIC_ORDER:
+                items = sorted(
+                    (p for p in parents.values() if tactic in p["tactics"]),
+                    key=lambda x: x["tech_id"],
+                )
+                if not items:
+                    continue
+                full_list_sections.append({
+                    "label": _TACTIC_LABEL_MAP.get(tactic, tactic),
+                    "techniques": [_cell(p) for p in items],
+                })
     except Exception:
         pass
 
@@ -4195,6 +4374,11 @@ def report_page():
         "report.html",
         gap=gap_data,
         action_items=action_items_data,
+        environments=environments,
+        environment_id=environment_id,
+        environment_name=environment_name,
+        matrix_pages=matrix_pages,
+        full_list_sections=full_list_sections,
         priority_labels=priority_labels,
         status_labels=status_labels,
         generated_at=datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC"),
