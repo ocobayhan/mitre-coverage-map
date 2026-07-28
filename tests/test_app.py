@@ -630,6 +630,40 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(rules["Hic taninmayan"]["techniques"], [],
                          "tekniksiz de olsa kural eklenmeli, sonradan elle eslenir")
 
+    def test_import_merges_duplicate_name_product_pairs_instead_of_blocking(self):
+        """Dosyada aynı (isim, ürün) çifti birden fazla kez geçmesi HATA
+        değil, uyarıdır — teknikleri birleştirilir.
+
+        Gerçek olay: kullanıcı "Defender for Endpoint EDR – <Taktik>" adlı
+        13 satırın hepsi ikişer kez tekrar ettiği bir dosya yükledi (uzun
+        listede LLM'in bir bloğu tekrarlaması). Eskiden bu TÜM dosyayı
+        (300+ geçerli satır dahil) reddediyordu. Artık tekrar eden satırlar
+        birleşiyor, dosyanın geri kalanı etkilenmiyor.
+        """
+        self.login()
+        payload = self._import_payload(products=[], product_coverage=[], rules=[
+            {"name": "Defender EDR – Collection", "product": "QRadar",
+             "techniques": ["T1000"]},
+            {"name": "Defender EDR – Collection", "product": "QRadar",
+             "techniques": ["T1001"]},  # ayni isim+urun, farkli teknik
+            {"name": "Iyi kural", "product": "QRadar", "techniques": ["T1000"]},
+        ])
+        preview = self.client.post("/api/import/coverage/preview", json=payload).get_json()
+        self.assertTrue(preview["ok"], preview["errors"])
+        self.assertEqual(preview["errors"], [])
+        self.assertEqual(len(preview["warnings"]), 1)
+        self.assertIn("tekrar ediyor", preview["warnings"][0])
+        self.assertEqual(preview["summary"]["rules_new"], 2)
+
+        response = self.client.post("/api/import/coverage/apply", json=payload)
+        self.assertEqual(response.status_code, 200, response.get_json())
+        rules = {r["name"]: r for r in self.client.get("/api/rules").get_json()}
+        self.assertEqual(
+            sorted(rules["Defender EDR – Collection"]["techniques"]),
+            ["T1000", "T1001"],
+            "tekrar eden satirlarin teknikleri birlesmeli",
+        )
+
     def test_import_still_rejects_unknown_product_atomically(self):
         """Yapısal hatalar (katalogda olmayan ürün gibi) hâlâ tüm dosyayı
         reddettirir — kısmi uygulama yoktur, sadece teknik tanıma gevşetildi."""

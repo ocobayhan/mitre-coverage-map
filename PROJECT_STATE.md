@@ -359,6 +359,14 @@ Kullanıcı canlı ortamda test ederken (375 gerçek QRadar kuralı yüklenmiş 
 
 **Doğrulandı:** 38/38 test (1 yeni: `test_rule_threshold_zero_means_score_is_always_full`, negatif değerin 0'a kırpıldığını da kapsıyor), browser smoke sıfır konsol hatası. Gerçek 375 kurallık veride uçtan uca: 3 geçici test kuralı oluşturuldu → toplu seçildi → toplu "Düşük" yapıldı (3/3 başarılı) → onay diyaloğuyla toplu silindi (mesaj: *"3 tespiti kalıcı olarak silmek istediğinize emin misiniz?"*) → gerçek 375 kural dokunulmadan kaldı. `?v=118/119`.
 
+## İçe aktarımda tekrar eden satırlar artık hatayı değil uyarıyı tetikliyor (2026-07-28)
+
+Kullanıcı 375 kurallık gerçek dosyasını yüklerken 13 hata aldı: `"Defender for Endpoint EDR – <Taktik>"` adlı satırların hepsi dosyada **ikişer kez** geçiyordu (ürün başına taktik bazlı üretilen büyük bir listede bir LLM'in bloğu tekrarlaması — bilinen bir hata modu). Önceki tasarım aynı `(name, product)` çiftinin ikinci kez görünmesini **hata** sayıyordu, yani 13 tekrar tüm dosyayı (300+ geçerli satır dahil) reddettiriyor, Uygula pasif kalıyordu.
+
+Bu, bir önceki oturumda "tanınmayan teknik ID" için yaptığımız hata/uyarı ayrımıyla aynı kalıba giren bir sorun: **yapısal olmayan, iyileştirilebilir bir uyumsuzluk hata sayılmamalı.** Çözüm: `_plan_coverage_import()` artık aynı `(name, product)` çiftini gördüğünde hata vermek yerine **tekniklerini birleştiriyor** (union) — CSV toplu içe aktarımın zaten yaptığı şeyin aynısı (bkz. Faz 5 `rules_bulk()`), JSON yolu da aynı davranışa getirildi. İlk satırın `coverage_level`/`kind`/`rationale`'ı kullanılıyor, birleşme bir uyarı olarak raporlanıyor ("dosyada tekrar ediyor — teknikleri ilk satırla birleştirildi").
+
+**Doğrulandı:** 39/39 test (1 yeni: `test_import_merges_duplicate_name_product_pairs_instead_of_blocking`), gerçek senaryoyla (aynı "Defender for Endpoint EDR – Collection" adı iki farklı teknikle) uçtan uca — önizleme artık `ok:true`, 1 uyarı, teknikler birleşti. `docs/mitre_mapping_prompt.md`'deki hata/uyarı tablosu güncellendi.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).

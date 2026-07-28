@@ -247,7 +247,6 @@ konsoldan gerçek listeyi dışa aktar, model hafızasına dayanma.
 - `name`/`product` eksik
 - Katalogda olmayan ve `products[]`'ta da tanımlanmayan ürün
 - Geçersiz `category` veya `coverage_level`
-- Aynı `(name, product)` çifti dosyada iki kez geçiyor
 
 **Uyarı** dosyayı reddettirmez, o satırı etkiler:
 
@@ -260,6 +259,11 @@ konsoldan gerçek listeyi dışa aktar, model hafızasına dayanma.
   `unmapped_rule` olarak listelenir; oradan veya kural satırından elle teknik
   ekleyerek tamamlarsın.
 - Boş `techniques: []` — aynı şekilde tekniksiz kural olarak eklenir.
+- **Aynı `(name, product)` çifti dosyada birden fazla kez geçiyor.** Uzun
+  listelerde bir LLM'in bir bloğu tekrarlaması bilinen bir hata modu —
+  tekrar eden satırların teknikleri **birleştirilir** (union), ilk satırın
+  `coverage_level`/`kind`/`rationale`'ı kullanılır. 300 satırlık bir dosyada
+  13 satır ikişer kez tekrar etse bile geri kalan her şey uygulanır.
 
 Yani **kısmi uygulama** teknik tanıma sorunları için vardır, yapısal
 sorunlar için yoktur: bir dosyada hem uydurma ID'ler hem katalogda olmayan

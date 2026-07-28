@@ -1933,8 +1933,15 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
             "confidence": (item.get("confidence") or "").strip(),
         })
 
-    rule_plan = []
-    seen_keys: set[tuple[str, str]] = set()
+    # Ayni (isim, urun) dosyada birden fazla kez gecebilir — bu bir HATA
+    # DEGIL, uyaridir. Uzun listelerde bir LLM'in bir blogu tekrarlamasi
+    # bilinen bir hata modu (orn. urun basina taktik basina ayri satirlar
+    # uretilirken ayni satirin iki kez yazilmasi); yuzlerce gecerli satirin
+    # tamami bu yuzden reddedilmesin. Tekrar eden satirlarin teknikleri
+    # birlestirilir (union), ilk satirin coverage_level/kind/rationale'i
+    # kullanilir — tanimayan teknik ID'sini uyariya cevirmekle ayni ilke.
+    merged_incoming: dict[tuple[str, str], dict] = {}
+    merge_order: list[tuple[str, str]] = []
     for item in incoming:
         label = item["label"]
         name, product = item["name"], item["product"]
@@ -1984,11 +1991,28 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
             )
 
         key = (name.casefold(), product.casefold())
-        if key in seen_keys:
-            errors.append(f"{label} ({name}): dosyada ayni kural birden fazla kez var.")
-            continue
-        seen_keys.add(key)
+        if key not in merged_incoming:
+            merged_incoming[key] = {
+                "name": name, "product": product, "techs": [],
+                "coverage_level": item["coverage_level"], "kind": item["kind"],
+                "origin": item["origin"], "rationale": item["rationale"],
+                "confidence": item["confidence"],
+            }
+            merge_order.append(key)
+        else:
+            warnings.append(
+                f"{label} ({name}): dosyada tekrar ediyor — teknikleri ilk "
+                "satirla birlestirildi."
+            )
+        dest_techs = merged_incoming[key]["techs"]
+        for t in techs:
+            if t not in dest_techs:
+                dest_techs.append(t)
 
+    rule_plan = []
+    for key in merge_order:
+        entry = merged_incoming[key]
+        name, product, techs = entry["name"], entry["product"], entry["techs"]
         canonical_product = known_product_names[product.casefold()]
         existing = existing_rules.get(key)
         if existing:
@@ -2001,17 +2025,17 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
                 "existing_techniques": sorted(current),
                 "added_techniques": added,
                 "techniques": techs,
-                "coverage_level": item["coverage_level"],
-                "kind": item["kind"], "origin": item["origin"],
-                "rationale": item["rationale"], "confidence": item["confidence"],
+                "coverage_level": entry["coverage_level"],
+                "kind": entry["kind"], "origin": entry["origin"],
+                "rationale": entry["rationale"], "confidence": entry["confidence"],
             })
         else:
             rule_plan.append({
                 "name": name, "product": canonical_product, "action": "create",
                 "rule_id": None, "existing_techniques": [], "added_techniques": techs,
-                "techniques": techs, "coverage_level": item["coverage_level"],
-                "kind": item["kind"], "origin": item["origin"],
-                "rationale": item["rationale"], "confidence": item["confidence"],
+                "techniques": techs, "coverage_level": entry["coverage_level"],
+                "kind": entry["kind"], "origin": entry["origin"],
+                "rationale": entry["rationale"], "confidence": entry["confidence"],
             })
 
     summary = {
