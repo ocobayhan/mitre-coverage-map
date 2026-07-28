@@ -743,6 +743,32 @@ class AppTestCase(unittest.TestCase):
         self.login()
         self.assertEqual(self.client.get("/api/mitigation-notes").status_code, 404)
 
+    def test_rule_threshold_zero_means_score_is_always_full(self):
+        """Admin bir teknik için hedefi 0 yapabilir: "bu teknik için tespit
+        gerekmiyor" (kapsam dışı / başka bir kontrolle karşılanıyor). Skor
+        hiç tespit olmadan da %100 olmalı — bölen sıfır olduğu için ayrı bir
+        dal gerekir, aksi halde ZeroDivisionError.
+        """
+        self.login()
+        response = self.client.put(
+            "/api/technique-config/T1000", json={"rule_threshold": 0}
+        )
+        self.assertEqual(response.status_code, 200)
+
+        gaps = self.client.get("/api/gap-analysis").get_json()
+        tech = next(t for t in gaps["critical_gaps"] if t["tech_id"] == "T1000")
+        self.assertEqual(tech["rule_threshold"], 0)
+        self.assertEqual(tech["coverage_score"], 1.0)
+        # 0 tespitle de "Tespit" kovasina GIRMEZ — skor ile kova farkli
+        # sorulara cevap veriyor (bkz. Faz 5 origin ayrimi). Hedefi
+        # dusurmek "gorebiliyoruz" demek degil, "aramiyoruz" demek.
+        self.assertEqual(gaps["overview"]["detected_techniques"], 0)
+
+        # Negatif deger 0'a, 10 ustu 10'a kirpilir
+        self.client.put("/api/technique-config/T1001", json={"rule_threshold": -5})
+        cfg = self.client.get("/api/technique-config").get_json()
+        self.assertEqual(cfg["T1001"]["rule_threshold"], 0)
+
     def test_technique_config_picks_up_new_techniques_after_mitre_update(self):
         """MITRE veri seti güncellendiğinde (yeni teknik eklendiğinde)
         technique_config bunu görmeli — eskiden 'source=auto satırı varsa hiç

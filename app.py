@@ -876,7 +876,8 @@ def init_db() -> None:
             );
 
             -- technique_config: teknik bazlı hedef tespit sayısı.
-            -- rule_threshold (1–10): "yeterli kapsama" sayılacak tespit sayısı.
+            -- rule_threshold (0–10): "yeterli kapsama" sayılacak tespit sayısı.
+            --   0 = bu teknik icin tespit gerekmiyor (skor otomatik %100).
             --   Tüm teknikler DEFAULT_RULE_THRESHOLD ile başlar, admin değiştirir.
             -- group_count / tool_count: mitre.json'dan gelen kullanım sayaçları —
             --   yalnızca önceliklendirme bilgisi, skoru etkilemez.
@@ -1280,7 +1281,7 @@ def _compute_gap_analysis(
         covered_mitigation_count = len(mits_for_tech & covered_mits)
         mitigation_checked = covered_mitigation_count > 0
         tc = tech_config.get(teid, {})
-        rule_threshold = max(1, int(tc.get("rule_threshold", DEFAULT_RULE_THRESHOLD)))
+        rule_threshold = int(tc.get("rule_threshold", DEFAULT_RULE_THRESHOLD))
         # ── Kapsama skoru — tek satirda aciklanabilir ────────────────────────
         #   skor = min(etkin tespit sayisi / teknik hedefi, 1)
         # Mitigation skora GIRMEZ (haritada ayri kalkan isareti olarak gosterilir),
@@ -1288,7 +1289,14 @@ def _compute_gap_analysis(
         # Onceki 3 bilesenli agirlikli harman (0.50/0.30/0.20) ve MITRE'den
         # turetilen "onem" kavrami kaldirildi — kullanici karari, bkz.
         # PROJECT_STATE.md Faz 4.
-        coverage_score = min(effective_rule_count / rule_threshold, 1.0)
+        #
+        # Hedef 0 = "bu teknik icin tespit gerekmiyor" (admin karari — kapsam
+        # disi, tamamen mitigation/surecle karsilaniyor vb.). Skor dogrudan
+        # %100'dur; boleni sifir yapmamak icin ayri bir dal.
+        if rule_threshold <= 0:
+            coverage_score = 1.0
+        else:
+            coverage_score = min(effective_rule_count / rule_threshold, 1.0)
         # Kova SERT kanit ister: adi olan en az bir tespit. Urun seviyesi toplu
         # iddia (origin='product_claim') skora katkida bulunur ama teknigi
         # "Tespit" kovasina sokmaz — yoksa tek satirlik bir iddia 120 tekniği
@@ -3930,7 +3938,9 @@ def update_technique_config(tech_id: str):
         rule_threshold = int(payload.get("rule_threshold", DEFAULT_RULE_THRESHOLD))
     except (TypeError, ValueError):
         return jsonify({"error": "rule_threshold sayı olmalıdır"}), 400
-    rule_threshold = max(1, min(10, rule_threshold))
+    # 0 bilinçli bir deger: "bu teknik icin tespit gerekmiyor" (skor otomatik
+    # %100 olur, bkz. _compute_gap_analysis). Alt sinir bu yuzden 0.
+    rule_threshold = max(0, min(10, rule_threshold))
     db = get_db()
     db.execute(
         "UPDATE technique_config SET rule_threshold=?, source='admin' WHERE tech_id=?",

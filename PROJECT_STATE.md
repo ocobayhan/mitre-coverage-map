@@ -342,6 +342,23 @@ Kullanıcı gerçek QRadar kural setini yükleyip 38 satırda "tanınmayan tekni
 
 > **Bilinçli olarak yapılmayan:** eski `T1562` ailesi + `T1070.001`/`.002` için `technique_config`'te kalan 17 "artık revoked" `auto` satırı silinmedi (zararsız — canlı katalog zaten bunları dışlıyor, import bunları kabul etmez). Temizlik `docs/ACIK_SORULAR.md`'ye eklendi.
 
+## Harita okunabilirliği, hedef=0, toplu işlemler (2026-07-28)
+
+Kullanıcı canlı ortamda test ederken (375 gerçek QRadar kuralı yüklenmiş durumda) üç ayrı istek geldi.
+
+**1. Ölü ok temizlendi.** Kartların sağ üst köşesinde işe yaramayan bir "▶" vardı — Faz 4c'den önceki tasarımdan kalma saf CSS `::after` dekorasyonu (`.technique-card.has-subtechs::after`), hiçbir click handler'ı yok. Gerçek aç/kapa oku (`.tc-toggle`) sol kenarda zaten çalışıyordu; sağdaki bu ikinci, sahte ok kafa karıştırıyordu. Kaldırıldı. Aynı yerde, Faz 4b'de zaten terk edilmiş `critical-gap` CSS'i de (hiçbir JS bu class'ı hiç eklemiyor) temizlendi.
+
+**2. `rule_threshold = 0` desteği.** "Bazı teknikler için gereken tespit sayısını 0 yapabilmek istiyorum" — kapsam dışı veya tamamen başka bir kontrolle (mitigation, süreç) karşılanan teknikler için. Önceden hem backend (`max(1, ...)`) hem frontend (`|| DEFAULT_RULE_THRESHOLD`) 0'ı reddediyor ya da sessizce varsayılana çeviriyordu (JS'te `0 || 2` → `2`, klasik falsy-sıfır tuzağı — 3 ayrı yerde aynı hata vardı: `techniqueThreshold()`, admin modal select'in "seçili" işaretlemesi, `_ttpRowBg()`). Hepsi `??` ile düzeltildi.
+
+- `coverage_score`: hedef ≤ 0 ise doğrudan `1.0` (bölen sıfır olmasın diye ayrı dal) — hem `app.py` hem `static/app.js`.
+- Admin modalindeki `<select>`e `0 (gerekli değil)` seçeneği eklendi.
+- Harita hücresinde `X/0` yerine açık bir **"gerekli değil"** etiketi (italik, soluk) — `0/0` görsel olarak "hata" gibi okunurdu.
+- **Bilinçli tasarım:** hedef 0 skoru %100 yapar (kart yeşil) ama "Tespit" kovasına SOKMAZ — kova hâlâ adı olan bir tespit arıyor (Faz 5'teki `origin` ayrımıyla aynı ilke: skor ve kova farklı sorulara cevap verir). Yani hedefi düşürmek "görebiliyoruz" demek değil, "aramıyoruz" demek.
+
+**3. Tespitler panelinde toplu kapsam değiştirme + toplu silme.** Mevcut toplu-teknik-ekleme toolbar'ı (Faz 3) genişletildi — aynı desen: tekli `PATCH /api/rules/<id>/coverage` ve `DELETE /api/rules/<id>` endpoint'leri seçili ID listesi üzerinde sırayla çağrılıyor, yeni bir bulk endpoint gerekmedi. Toplu silme **geri alınamaz** olduğu için `window.confirm()` ile sayı belirten bir onay şart koşuluyor.
+
+**Doğrulandı:** 38/38 test (1 yeni: `test_rule_threshold_zero_means_score_is_always_full`, negatif değerin 0'a kırpıldığını da kapsıyor), browser smoke sıfır konsol hatası. Gerçek 375 kurallık veride uçtan uca: 3 geçici test kuralı oluşturuldu → toplu seçildi → toplu "Düşük" yapıldı (3/3 başarılı) → onay diyaloğuyla toplu silindi (mesaj: *"3 tespiti kalıcı olarak silmek istediğinize emin misiniz?"*) → gerçek 375 kural dokunulmadan kaldı. `?v=118/119`.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).

@@ -410,6 +410,16 @@ h1, h2, h3 { margin: 0; }
   padding-right: 2px;
 }
 .tc-count.zero { color: var(--d-text-3); opacity: 0.6; }
+.tc-count.na {
+  margin-left: auto;
+  font-family: inherit;
+  font-style: italic;
+  font-size: 9px;
+  color: var(--d-text-3);
+  opacity: 0.75;
+  padding-right: 2px;
+  white-space: nowrap;
+}
 
 /* Urun noktalari ust satira tasindi — alt satir artik sayaca ait */
 .technique-card > .product-dots,
@@ -1384,13 +1394,18 @@ button.action-btn {
 .rules-filter-bar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 3px; }
 
 .rules-bulk-toolbar {
-  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 8px;
   margin-bottom: 12px; padding: 8px 12px;
   background: rgba(0, 120, 212, 0.08); border: 1px solid var(--accent-blue); border-radius: 3px;
 }
-.rules-bulk-toolbar .bulk-count { font-size: 12px; color: var(--d-text-2); white-space: nowrap; }
+.bulk-toolbar-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.rules-bulk-toolbar .bulk-count { font-size: 12px; color: var(--d-text-2); white-space: nowrap; font-weight: 600; }
 .rules-bulk-toolbar #bulkTechWrapper { min-width: 160px; }
+.rules-bulk-toolbar #bulkCoverageSelect { min-width: 90px; }
 .rules-bulk-toolbar .upload-result { font-size: 12px; }
+.bulk-toolbar-divider { width: 1px; align-self: stretch; background: var(--d-border); }
+.bulk-delete-btn { border-color: var(--d-red); color: #ff8a8a; }
+.bulk-delete-btn:hover:not(:disabled) { background: rgba(209, 52, 56, 0.12); }
 
 /* ── Rule tech list ─────────────────────────────────────── */
 .rule-tech-list { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
@@ -1530,32 +1545,6 @@ button.action-btn {
   margin-bottom: 6px;
   padding-bottom: 5px;
   border-bottom: 1px solid var(--d-border);
-}
-
-/* ── Critical Gap ───────────────────────────────────────── */
-/* ── Subteknik expand göstergesi ─────────────────────────── */
-.technique-card.has-subtechs::after {
-  content: '▶';
-  position: absolute; right: 5px; top: 5px;
-  font-size: 8px; opacity: 0.35;
-  transition: transform 0.2s;
-}
-.technique-card.expanded::after { transform: rotate(90deg); opacity: 0.6; }
-
-.technique-card.critical-gap,
-.subtech-card.critical-gap {
-  border-color: var(--d-red) !important;
-  box-shadow: 0 0 0 1px rgba(209,52,56,0.3);
-}
-.technique-card.critical-gap::after {
-  content: '!';
-  position: absolute;
-  top: 3px;
-  right: 6px;
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--d-red);
-  line-height: 1;
 }
 
 /* ── Tech Config (Admin Modal) ──────────────────────────── */

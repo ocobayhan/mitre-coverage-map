@@ -735,14 +735,27 @@ function renderRulesList() {
   // cagrilir; yeni bir bulk endpoint gerekmez.
   const bulkToolbarHtml = hasRole('editor') ? `
     <div class="rules-bulk-toolbar">
-      <span class="bulk-count" id="bulkSelectedCount">0 tespit seçili</span>
-      <button class="action-btn btn-reset" id="btnBulkSelectVisible">Görünenleri seç</button>
-      <button class="action-btn btn-reset" id="btnBulkClearSelection">Seçimi temizle</button>
-      <div class="tech-autocomplete-wrapper" id="bulkTechWrapper">
-        <input class="rule-tech-input" type="text" id="bulkTechInput" placeholder="T1059 veya teknik adı" />
-        <div class="tech-autocomplete-dropdown hidden"></div>
+      <div class="bulk-toolbar-row">
+        <span class="bulk-count" id="bulkSelectedCount">0 tespit seçili</span>
+        <button class="action-btn btn-reset" id="btnBulkSelectVisible">Görünenleri seç</button>
+        <button class="action-btn btn-reset" id="btnBulkClearSelection">Seçimi temizle</button>
       </div>
-      <button class="action-btn btn-add" id="btnBulkAddTechnique" disabled>Seçili tespitlere ekle</button>
+      <div class="bulk-toolbar-row">
+        <div class="tech-autocomplete-wrapper" id="bulkTechWrapper">
+          <input class="rule-tech-input" type="text" id="bulkTechInput" placeholder="T1059 veya teknik adı" />
+          <div class="tech-autocomplete-dropdown hidden"></div>
+        </div>
+        <button class="action-btn btn-add" id="btnBulkAddTechnique" disabled>Teknik ekle</button>
+        <span class="bulk-toolbar-divider"></span>
+        <select id="bulkCoverageSelect" disabled>
+          <option value="full">Tam</option>
+          <option value="partial">Kısmi</option>
+          <option value="low">Düşük</option>
+        </select>
+        <button class="action-btn btn-add" id="btnBulkSetCoverage" disabled>Kapsamı değiştir</button>
+        <span class="bulk-toolbar-divider"></span>
+        <button class="action-btn btn-reset bulk-delete-btn" id="btnBulkDelete" disabled>Seçilenleri sil</button>
+      </div>
       <span class="upload-result" id="bulkResult"></span>
     </div>
   ` : '';
@@ -963,8 +976,11 @@ function renderRulesList() {
 function updateBulkToolbarUI(container) {
   const countEl = container.querySelector('#bulkSelectedCount');
   if (countEl) countEl.textContent = `${rulesSelectedIds.size} tespit seçili`;
-  const addBtn = container.querySelector('#btnBulkAddTechnique');
-  if (addBtn) addBtn.disabled = rulesSelectedIds.size === 0;
+  const empty = rulesSelectedIds.size === 0;
+  ['#btnBulkAddTechnique', '#btnBulkSetCoverage', '#bulkCoverageSelect', '#btnBulkDelete'].forEach(sel => {
+    const el = container.querySelector(sel);
+    if (el) el.disabled = empty;
+  });
 }
 
 // Toplu teknik ekleme toolbar'ını bağlar. Checkbox toggle'ları tam bir
@@ -1044,6 +1060,92 @@ function wireRulesBulkToolbar(container, visibleIds) {
         finalResult.textContent = failed.length === 0
           ? `${techId} — ${okCount} tespite eklendi.`
           : `${techId} — ${okCount} tespite eklendi, ${failed.length} başarısız (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})`;
+        if (failed.length > 0) finalResult.classList.add('error');
+      }
+    });
+  }
+
+  // Toplu kapsam degistirme — tek tek PATCH /api/rules/<id>/coverage,
+  // teknik ekleme ile ayni sirali-cagri deseni (yeni bir bulk endpoint gerekmez).
+  const setCoverageBtn = container.querySelector('#btnBulkSetCoverage');
+  if (setCoverageBtn) {
+    setCoverageBtn.addEventListener('click', async () => {
+      const select = container.querySelector('#bulkCoverageSelect');
+      const result = container.querySelector('#bulkResult');
+      if (!select || rulesSelectedIds.size === 0) return;
+      const level = select.value;
+
+      setCoverageBtn.disabled = true;
+      if (result) { result.textContent = 'Güncelleniyor...'; result.classList.remove('error'); }
+
+      const ruleIds = Array.from(rulesSelectedIds);
+      let okCount = 0;
+      const failed = [];
+      for (const ruleId of ruleIds) {
+        const res = await apiFetch(`/api/rules/${ruleId}/coverage`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coverage_level: level })
+        });
+        if (res.ok) {
+          okCount += 1;
+          const rule = userRules.find(r => r.id === ruleId);
+          if (rule) rule.coverage_level = level;
+        } else {
+          const rule = userRules.find(r => r.id === ruleId);
+          failed.push(rule ? rule.name : ruleId);
+        }
+      }
+
+      rulesSelectedIds.clear();
+      renderRulesList();
+      renderMatrix();
+      const finalResult = document.getElementById('bulkResult');
+      if (finalResult) {
+        finalResult.textContent = failed.length === 0
+          ? `Kapsam "${COV_LABEL[level]}" olarak ${okCount} tespitte güncellendi.`
+          : `Kapsam ${okCount} tespitte güncellendi, ${failed.length} başarısız (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})`;
+        if (failed.length > 0) finalResult.classList.add('error');
+      }
+    });
+  }
+
+  // Toplu silme — geri alinamaz, once onay istenir.
+  const bulkDeleteBtn = container.querySelector('#btnBulkDelete');
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.addEventListener('click', async () => {
+      const result = container.querySelector('#bulkResult');
+      const count = rulesSelectedIds.size;
+      if (count === 0) return;
+      if (!confirm(`${count} tespiti kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)) {
+        return;
+      }
+
+      bulkDeleteBtn.disabled = true;
+      if (result) { result.textContent = 'Siliniyor...'; result.classList.remove('error'); }
+
+      const ruleIds = Array.from(rulesSelectedIds);
+      let okCount = 0;
+      const failed = [];
+      for (const ruleId of ruleIds) {
+        const res = await apiFetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
+        if (res.ok) {
+          okCount += 1;
+          userRules = userRules.filter(r => r.id !== ruleId);
+        } else {
+          const rule = userRules.find(r => r.id === ruleId);
+          failed.push(rule ? rule.name : ruleId);
+        }
+      }
+
+      rulesSelectedIds.clear();
+      renderRulesList();
+      renderMatrix();
+      const finalResult = document.getElementById('bulkResult');
+      if (finalResult) {
+        finalResult.textContent = failed.length === 0
+          ? `${okCount} tespit silindi.`
+          : `${okCount} tespit silindi, ${failed.length} başarısız (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})`;
         if (failed.length > 0) finalResult.classList.add('error');
       }
     });
@@ -1828,17 +1930,22 @@ function effectiveRuleCount(rules, weightMap) {
 }
 
 /** Bir teknik için hedef tespit sayısı (admin teknik bazında değiştirebilir). */
+// DIKKAT: `||` degil `??` kullan — 0 gecerli bir hedef ("tespit gerekmiyor"),
+// falsy oldugu icin `||` onu sessizce DEFAULT_RULE_THRESHOLD'a cevirirdi.
 function techniqueThreshold(techId) {
-  return Math.max(1, techniqueConfig[techId]?.rule_threshold || DEFAULT_RULE_THRESHOLD);
+  return techniqueConfig[techId]?.rule_threshold ?? DEFAULT_RULE_THRESHOLD;
 }
 
 /** Kapsama skoru — tek satırda açıklanabilir:
  *      skor = min(etkin tespit sayısı / teknik hedefi, 1)
  *  Mitigation skora girmez (haritada ayrı kalkan işareti), ürün çeşitliliği de
  *  girmez (ürün noktaları olarak zaten görünür). Önceki 3 bileşenli ağırlıklı
- *  harman ve MITRE'den türetilen "önem" kavramı kaldırıldı — Faz 4 kararı. */
+ *  harman ve MITRE'den türetilen "önem" kavramı kaldırıldı — Faz 4 kararı.
+ *  Hedef 0 = "bu teknik icin tespit gerekmiyor" → skor otomatik %100. */
 function computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
-  return Math.min(weightedRuleCount / techniqueThreshold(techId), 1.0);
+  const threshold = techniqueThreshold(techId);
+  if (threshold <= 0) return 1.0;
+  return Math.min(weightedRuleCount / threshold, 1.0);
 }
 
 /** Matris ortam seçicisini scopeRegistry'den doldurur. */
@@ -2047,12 +2154,17 @@ function fillTechniqueCell(cell, { id, name, ruleCount, weighted, mitigationCoun
   }
   const target = techniqueThreshold(id);
   const shown = Math.round(weighted * 10) / 10;
+  // Hedef 0 = admin bu teknik icin tespit istemiyor demis ("kapsam disi").
+  // "0/0" kafa karistirir; acik bir etiket koyuyoruz.
+  const countHtml = target <= 0
+    ? `<span class="tc-count na" title="Bu teknik için tespit gerekmiyor (hedef 0)">gerekli değil</span>`
+    : `<span class="tc-count ${ruleCount ? '' : 'zero'}" title="${shown} etkin tespit / hedef ${target}">${shown}/${target}</span>`;
   cell.innerHTML = `
     <div class="tc-name">${_esc(name)}</div>
     <div class="tc-foot">
       <span class="tc-id">${_esc(id)}</span>
       <span class="tc-marks">${marks.join('')}</span>
-      <span class="tc-count ${ruleCount ? '' : 'zero'}" title="${shown} etkin tespit / hedef ${target}">${shown}/${target}</span>
+      ${countHtml}
     </div>`;
   cell.classList.toggle('is-sub', !!isSub);
 }
@@ -2427,15 +2539,20 @@ async function openModal(parentId, parentName, rules) {
     const cfgDiv = document.createElement('div');
     cfgDiv.className = 'tech-config-admin';
     const srcLabel = cfg.source === 'admin' ? 'admin override' : `auto (${cfg.group_count || 0} grup)`;
+    // DIKKAT: `cfg.rule_threshold || DEFAULT_RULE_THRESHOLD` degil \u2014 0 gecerli
+    // ve secili bir deger olabilir, `??` ile korunuyor.
+    const currentThreshold = cfg.rule_threshold ?? DEFAULT_RULE_THRESHOLD;
     cfgDiv.innerHTML = `
       <div class="tech-config-title">Teknik Yap\u0131land\u0131rmas\u0131 <span class="cfg-source-tag">${srcLabel}</span></div>
       <div class="tech-config-row">
         <label>Hedef tespit say\u0131s\u0131</label>
-        <select id="cfgThreshold">${[1,2,3,4,5,6,7,8,9,10].map(n =>
-          `<option value="${n}"${(cfg.rule_threshold || DEFAULT_RULE_THRESHOLD) === n ? ' selected' : ''}>${n}</option>`
+        <select id="cfgThreshold">${[0,1,2,3,4,5,6,7,8,9,10].map(n =>
+          `<option value="${n}"${currentThreshold === n ? ' selected' : ''}>${n === 0 ? '0 (gerekli de\u011fil)' : n}</option>`
         ).join('')}</select>
         <small>Bu teknik i\xe7in ka\xe7 tespit \u201cyeterli kapsama\u201d say\u0131ls\u0131n. Kart rengi buna g\xf6re hesaplan\u0131r
-        (varsay\u0131lan ${DEFAULT_RULE_THRESHOLD}). Bu teknigi ${cfg.group_count || 0} tehdit grubu kullan\u0131yor.</small>
+        (varsay\u0131lan ${DEFAULT_RULE_THRESHOLD}). <strong>0</strong> se\xe7ilirse bu teknik hi\xe7bir tespit
+        olmadan da tam skorla (%100) g\xf6sterilir \u2014 kapsam d\u0131\u015f\u0131 veya tamamen ba\u015fka
+        bir kontrolle kar\u015f\u0131lanan teknikler i\xe7in kullan\u0131n. Bu teknigi ${cfg.group_count || 0} tehdit grubu kullan\u0131yor.</small>
       </div>
       <button class="action-btn btn-add" id="btnSaveTechConfig">Kaydet</button>
     `;
@@ -3439,7 +3556,9 @@ function wireScoreTooltip() {
         try { d = JSON.parse(card.dataset.scoreData || '{}'); } catch { return; }
         if (!d.techId) return;
         const weightedRules = d.weightedRuleCount ?? d.rulesCount;
-        const ruleBar  = Math.min(weightedRules / Math.max(d.threshold, 1), 1) * 100;
+        // Hedef 0 = "tespit gerekmiyor" — skor zaten %100, cubuk da dolu gostersin.
+        const thresholdIsZero = d.threshold <= 0;
+        const ruleBar  = thresholdIsZero ? 100 : Math.min(weightedRules / d.threshold, 1) * 100;
         const mitBar   = d.mitTotal > 0 ? Math.min(d.mitigationCount / d.mitTotal, 1) * 100 : 0;
         tip = document.createElement('div');
         tip.className = 'score-tooltip';
@@ -3447,7 +3566,7 @@ function wireScoreTooltip() {
           <div class="score-tooltip-title">${_esc(d.techId)} · ${_esc(d.name || '')}</div>
           <div class="score-tooltip-row">
             <span class="score-tooltip-label">Tespit</span>
-            <span class="score-tooltip-val">${d.rulesCount} adet · ${weightedRules}/${d.threshold} etkin</span>
+            <span class="score-tooltip-val">${d.rulesCount} adet · ${thresholdIsZero ? 'gerekli değil' : `${weightedRules}/${d.threshold} etkin`}</span>
           </div>
           ${d.namedCount === 0 && d.rulesCount > 0 ? `<div class="score-tooltip-row">
             <span class="score-tooltip-label" style="color:#f0c674">Yalnız ürün iddiası</span>
@@ -3474,7 +3593,7 @@ function wireScoreTooltip() {
           </div>
           <div class="score-tooltip-row">
             <span class="score-tooltip-label">Kapsama</span>
-            <span class="score-tooltip-val" style="color:#35c48b">${d.score}% \xb7 hedef ${d.threshold} tespit</span>
+            <span class="score-tooltip-val" style="color:#35c48b">${d.score}% \xb7 ${thresholdIsZero ? 'tespit gerekmiyor' : `hedef ${d.threshold} tespit`}</span>
           </div>
         `;
         const rect = card.getBoundingClientRect();
@@ -4165,7 +4284,10 @@ const _TTP_TACTIC_LABELS = {
 let _ttpData = null;
 
 function _ttpRowBg(ruleCount, mitEntryCount, totalMits, ruleThreshold) {
-  const ruleScore = Math.min(ruleCount / (ruleThreshold || 3), 1.0);
+  // DIKKAT: `ruleThreshold || 3` degil — 0 gecerli bir hedef ("tespit
+  // gerekmiyor"), falsy oldugu icin `||` onu sessizce 3'e cevirirdi.
+  const threshold = ruleThreshold ?? DEFAULT_RULE_THRESHOLD;
+  const ruleScore = threshold <= 0 ? 1.0 : Math.min(ruleCount / threshold, 1.0);
   const mitScore  = totalMits > 0 ? Math.min(mitEntryCount / totalMits, 1.0) : 0;
   const score = Math.min(ruleScore * 0.65 + mitScore * 0.35, 1.0);
   if (score < 0.01) return '';
