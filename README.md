@@ -74,7 +74,7 @@ Yeniden başlatınca `build_technique_config()` otomatik olarak eksik teknikleri
 Haritadaki **PDF Export** butonu `/report` sayfasını yeni sekmede açar (seçili ortamı `?environment_id=` ile taşıyarak). Sayfa yazdırmaya hazırdır (`Yazdır / PDF Kaydet` → tarayıcının "PDF olarak kaydet" seçeneği), A4 yatay, birkaç sayfa sürebilir:
 
 - **Yönetici özeti** — ana teknik/tespit/kapsamsız/mitigation/ortalama skor kartları
-- **Kapsama Haritası** — MITRE Navigator tarzı ızgara, taktik başına sütun (sayfa başına 5 taktik), alt teknikler ana tekniğin altında girintili ve her zaman görünür
+- **Kapsama Haritası** — MITRE Navigator tarzı yoğun tek parça ızgara, 15 taktik tek satırda yan yana (yapay sayfa bölmesi yok — uzun sütunlar yazdırırken doğal olarak sonraki sayfaya akar), alt teknikler ana tekniğin altında girintili ve her zaman görünür
 - **Taktik Bazlı Kapsama**, **Tespitsiz Teknikler** (öncelik: tehdit grubu sayısı), **Tam Teknik Listesi** (taktik başına tam tablo — ID, ad, tespit, skor, mitigation, ürünler), **Aksiyon Planı**
 
 Sayfa üstündeki **Ortam** seçici raporun tamamını (haritayı ve tabloları) o ortama göre yeniden hesaplar — matristeki ortam filtresiyle aynı mantık (`_compute_gap_analysis`).

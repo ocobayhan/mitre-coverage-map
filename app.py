@@ -4258,12 +4258,6 @@ def _score_to_report_color(score: float) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-# Bir sayfada yan yana kac taktik sutunu gosterilecek — matris cok genis
-# oldugu icin (15 taktik) sayfalara bolunuyor ("birkac sayfalik pdf" —
-# kullanicinin kendi istegi).
-_REPORT_MATRIX_TACTICS_PER_PAGE = 5
-
-
 @app.route("/report")
 @login_required
 def report_page():
@@ -4272,14 +4266,14 @@ def report_page():
 
     Coverage haritasindaki ile ayni _compute_gap_analysis() ciktisini
     kullanir; sayfa yalnizca bunu yazdirmaya uygun sekilde yeniden
-    duzenler (taktik basina sayfalara bolunmus matris + tam liste eki).
+    duzenler (Navigator tarzi tek parca yogun matris + tam liste eki).
     """
     from datetime import datetime
 
     gap_data: dict = {"overview": {}, "by_tactic": [], "critical_gaps": [], "techniques": []}
     action_items_data: list = []
     environments: list = []
-    matrix_pages: list = []
+    matrix_tactics: list = []
     full_list_sections: list = []
     environment_id = request.args.get("environment_id", type=int)
     environment_name = "Tüm ortamlar (birleşik)"
@@ -4326,8 +4320,11 @@ def report_page():
                 return {**t, "color": _score_to_report_color(t["coverage_score"])}
 
             # ── Matris: taktik basina sutun, teknik fan-out (coklu taktikli
-            # teknik her sutununda ayri ayri gorunur — canli haritayla ayni). ──
-            tactic_cols = []
+            # teknik her sutununda ayri ayri gorunur — canli haritayla ayni).
+            # Navigator gibi TEK parca yatay serit: yapay sayfa gruplarina
+            # bolunmez, tasan uzun sutunlar yazdirma sirasinda dogal olarak
+            # bir sonraki sayfaya akar (CSS break-inside kurallariyla). ──
+            matrix_tactics = []
             for tactic in _TACTIC_ORDER:
                 items = sorted(
                     (p for p in parents.values() if tactic in p["tactics"]),
@@ -4335,8 +4332,9 @@ def report_page():
                 )
                 if not items:
                     continue
-                tactic_cols.append({
+                matrix_tactics.append({
                     "label": _TACTIC_LABEL_MAP.get(tactic, tactic),
+                    "count": len(items),
                     "techniques": [
                         {
                             **_cell(p),
@@ -4345,10 +4343,6 @@ def report_page():
                         for p in items
                     ],
                 })
-            matrix_pages = [
-                tactic_cols[i:i + _REPORT_MATRIX_TACTICS_PER_PAGE]
-                for i in range(0, len(tactic_cols), _REPORT_MATRIX_TACTICS_PER_PAGE)
-            ]
 
             # ── Tam teknik listesi eki: taktik basina bolum, TEK satir/teknik
             # (fan-out yok — coklu taktikli teknik taktiklerini tek hucrede
@@ -4377,7 +4371,7 @@ def report_page():
         environments=environments,
         environment_id=environment_id,
         environment_name=environment_name,
-        matrix_pages=matrix_pages,
+        matrix_tactics=matrix_tactics,
         full_list_sections=full_list_sections,
         priority_labels=priority_labels,
         status_labels=status_labels,

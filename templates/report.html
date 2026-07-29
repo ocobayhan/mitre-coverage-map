@@ -109,40 +109,41 @@
     .s-done { background: #dff6dd; color: #107c10; }
     .s-cancelled { background: #f3f2f1; color: #605e5c; }
 
-    /* ── Kapsama Haritası (Navigator tarzı) ── */
-    .rpt-matrix-page { margin-bottom: 18px; }
-    .rpt-matrix-page:not(:last-child) { page-break-after: always; }
-    .rpt-matrix-grid { display: grid; gap: 6px; align-items: start; }
+    /* ── Kapsama Haritası (Navigator tarzı, tek parça yoğun ızgara) ── */
+    .rpt-matrix-wrap { display: flex; flex-wrap: wrap; gap: 2px; align-items: flex-start; }
     .rpt-matrix-col {
-      border: 1px solid #d8d6d4; border-radius: 5px; overflow: hidden; background: #fff;
+      flex: 0 0 auto; width: 64px;
+      border: 1px solid #d8d6d4; border-radius: 3px; overflow: hidden; background: #fff;
     }
     .rpt-matrix-col-header {
-      background: #003060; color: #fff; font-size: 10.5px; font-weight: 700;
-      text-transform: uppercase; letter-spacing: 0.04em; text-align: center;
-      padding: 6px 4px;
+      background: #003060; color: #fff; font-size: 7px; font-weight: 700; line-height: 1.15;
+      text-align: center; padding: 3px 2px; min-height: 20px;
+      display: flex; align-items: center; justify-content: center;
     }
-    .rpt-matrix-cell {
-      padding: 4px 6px 3px; border-bottom: 1px solid #e5e3e1; page-break-inside: avoid;
+    .rpt-matrix-cell, .rpt-subcell {
+      position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      border-bottom: 1px solid #e5e3e1; page-break-inside: avoid;
     }
-    .rpt-matrix-col > .rpt-matrix-cell:last-child { border-bottom: none; }
-    .rpt-cell-id {
-      font-family: 'Consolas', monospace; font-size: 8.5px; font-weight: 700; color: #003060;
+    .rpt-matrix-col > .rpt-matrix-cell:last-child,
+    .rpt-matrix-col > .rpt-subcell:last-child { border-bottom: none; }
+    .rpt-matrix-cell { padding: 2px 3px; font-size: 7px; line-height: 1.3; color: #201f1e; }
+    .rpt-subcell {
+      padding: 1.5px 3px 1.5px 6px; font-size: 6.5px; line-height: 1.25; color: #201f1e;
+      border-left: 2px solid rgba(0,0,0,0.15);
     }
-    .rpt-cell-id .rpt-m-badge {
-      display: inline-block; font-size: 7.5px; font-weight: 700; color: #5b3fa0;
-      background: rgba(91,63,160,0.14); border: 1px solid rgba(91,63,160,0.35);
-      border-radius: 3px; padding: 0 3px; margin-left: 3px; vertical-align: middle;
+    .rpt-cell-id { font-family: 'Consolas', monospace; font-weight: 700; color: #003060; margin-right: 2px; }
+    .rpt-subcell .rpt-cell-id { font-size: 6px; }
+    .rpt-m-flag {
+      position: absolute; top: 0; right: 0; font-size: 6px; font-weight: 700; color: #fff;
+      background: #5b3fa0; line-height: 1; padding: 1px 2px; border-radius: 0 0 0 3px;
     }
-    .rpt-cell-name {
-      font-size: 9px; line-height: 1.25; color: #201f1e;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    .rpt-matrix-legend { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 10px; color: #605e5c; flex-wrap: wrap; }
+    .rpt-legend-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 3px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
+    .rpt-legend-flag {
+      display: inline-flex; align-items: center; justify-content: center; width: 11px; height: 11px;
+      font-size: 6px; font-weight: 700; color: #fff; background: #5b3fa0; border-radius: 2px;
+      margin-right: 3px; vertical-align: middle;
     }
-    .rpt-cell-score { font-size: 8px; color: #605e5c; margin-top: 1px; }
-    .rpt-cell-children { margin: 3px 0 1px 6px; border-left: 2px solid #d8d6d4; padding-left: 5px; }
-    .rpt-subcell { padding: 2px 4px; border-radius: 3px; margin-bottom: 2px; font-size: 8px; line-height: 1.25; }
-    .rpt-subcell .rpt-cell-id { font-size: 7.5px; }
-    .rpt-matrix-legend { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; font-size: 10.5px; color: #605e5c; flex-wrap: wrap; }
-    .rpt-legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
 
     /* ── Tam teknik listesi eki ── */
     .rpt-fulllist-section .rpt-subtactic-title {
@@ -184,6 +185,7 @@
       body { padding: 0; font-size: 11px; }
       .rpt-actions-bar { display: none !important; }
       .rpt-section { page-break-inside: avoid; }
+      .rpt-matrix-section { page-break-inside: auto; }
       .rpt-fulllist-section { page-break-inside: auto; }
       .rpt-fulllist-section .rpt-subtactic-title { page-break-after: avoid; }
     }
@@ -272,12 +274,13 @@
   </div>
 
   <!-- ── Kapsama Haritası (Navigator tarzı) ── -->
-  <div class="rpt-section">
+  <div class="rpt-section rpt-matrix-section">
     <div class="rpt-section-title">Kapsama Haritası</div>
     <div class="rpt-section-note">
-      Renk = etkin tespit / teknik hedefi (ekrandaki harita ile aynı ölçek). <strong>M</strong> rozeti
-      o teknikte kayıtlı bir mitigation olduğunu gösterir, renge karışmaz. Alt teknikler ana tekniğin
-      altında girintili gösterilir; kapsama oranının paydasına girmezler, yalnızca bilgi amaçlıdır.
+      Renk = etkin tespit / teknik hedefi (ekrandaki harita ile aynı ölçek). Mor bayrak o teknikte
+      kayıtlı bir mitigation olduğunu gösterir, renge karışmaz. Alt teknikler ana tekniğin altında
+      girintili ve daima görünür; kapsama oranının paydasına girmezler. Kesilen isimlerin üzerine
+      gelerek tam adı ve oranı görebilirsiniz; kesin sayılar Tam Teknik Listesi ekindedir.
     </div>
     <div class="rpt-matrix-legend">
       <span><span class="rpt-legend-swatch" style="background:#ecf0f1"></span>0%</span>
@@ -285,35 +288,29 @@
       <span><span class="rpt-legend-swatch" style="background:#fde3c8"></span>~50%</span>
       <span><span class="rpt-legend-swatch" style="background:#eef2c1"></span>~70%</span>
       <span><span class="rpt-legend-swatch" style="background:#d1eed8"></span>%100</span>
+      <span><span class="rpt-legend-flag">M</span>Mitigation kayıtlı</span>
     </div>
-    {% if matrix_pages %}
-      {% for page in matrix_pages %}
-      <div class="rpt-matrix-page">
-        <div class="rpt-matrix-grid" style="grid-template-columns: repeat({{ page|length }}, 1fr);">
-          {% for col in page %}
-          <div class="rpt-matrix-col">
-            <div class="rpt-matrix-col-header">{{ col.label }}</div>
-            {% for t in col.techniques %}
-            <div class="rpt-matrix-cell" style="background:{{ t.color }}">
-              <div class="rpt-cell-id">{{ t.tech_id }}{% if t.mitigation_checked %}<span class="rpt-m-badge">M</span>{% endif %}</div>
-              <div class="rpt-cell-name">{{ t.name }}</div>
-              <div class="rpt-cell-score">{{ (t.coverage_score * 100) | round | int }}% &middot; {% if t.rule_threshold <= 0 %}gerekli değil{% else %}{{ t.named_rule_count }}/{{ t.rule_threshold }}{% endif %}</div>
-              {% if t.children %}
-              <div class="rpt-cell-children">
-                {% for c in t.children %}
-                <div class="rpt-subcell" style="background:{{ c.color }}">
-                  <span class="rpt-cell-id">{{ c.tech_id }}</span> {{ c.name }}
-                </div>
-                {% endfor %}
-              </div>
-              {% endif %}
-            </div>
-            {% endfor %}
-          </div>
-          {% endfor %}
+    {% if matrix_tactics %}
+    <div class="rpt-matrix-wrap">
+      {% for col in matrix_tactics %}
+      <div class="rpt-matrix-col">
+        <div class="rpt-matrix-col-header">{{ col.label }}</div>
+        {% for t in col.techniques %}
+        <div class="rpt-matrix-cell" style="background:{{ t.color }}"
+             title="{{ t.tech_id }} — {{ t.name }} (%{{ (t.coverage_score * 100) | round | int }}, {% if t.rule_threshold <= 0 %}gerekli değil{% else %}{{ t.named_rule_count }}/{{ t.rule_threshold }}{% endif %})">
+          <span class="rpt-cell-id">{{ t.tech_id }}</span>{{ t.name }}{% if t.mitigation_checked %}<span class="rpt-m-flag">M</span>{% endif %}
         </div>
+        {% for c in t.children %}
+        {% set c_parts = c.tech_id.split('.') %}
+        <div class="rpt-subcell" style="background:{{ c.color }}"
+             title="{{ c.tech_id }} — {{ c.name }} (%{{ (c.coverage_score * 100) | round | int }})">
+          <span class="rpt-cell-id">{{ '.' + c_parts[1] if c_parts|length > 1 else c.tech_id }}</span>{{ c.name }}{% if c.mitigation_checked %}<span class="rpt-m-flag">M</span>{% endif %}
+        </div>
+        {% endfor %}
+        {% endfor %}
       </div>
       {% endfor %}
+    </div>
     {% else %}
       <div class="rpt-empty">Harita verisi bulunamadı.</div>
     {% endif %}
