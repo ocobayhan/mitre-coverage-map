@@ -401,6 +401,203 @@ Zaten var olan `/report` sayfası (`templates/report.html`) çok daha zengindi a
 
 **Doğrulandı:** 43/43 test (3 yeni: matris+ek render, ortam scoping, `techniques[].sources`), gerçek 375 kurallık veriyle ekran görüntüsü — 3 matris sayfası, 254 hücre, 618 alt teknik hücresi, sıfır konsol hatası. Print-media emülasyonuyla da doğrulandı (aksiyon çubuğu gizleniyor, "gerekli değil" doğru render). `?v=120` (app.js).
 
+## Rapor matrisi yoğunlaştırıldı — gerçek Navigator ızgarası (2026-07-28)
+
+Kullanıcı geri bildirimi: *"pdf raporunda taktiklerin alanları çok büyük olmuş daha kompakt olsun, matrix çok bölmüşsün, mitre navigator gibi düşün daha zekice bir görselleştirme yapabilirsin."* Bir önceki maddedeki ilk `/report` sürümü, 15 taktiği `_REPORT_MATRIX_TACTICS_PER_PAGE = 5` ile zorla 3 sayfaya bölüyordu ve her hücre 3 satır (ID+M rozeti, ad 2 satır clamp, skor satırı) kaplıyordu — bu hem yapay sayfalama hem de gereğinden büyük hücreler demekti.
+
+Kaldırılan yapay sayfalama, gerçek Navigator davranışıyla değiştirildi:
+- `app.py`: `_REPORT_MATRIX_TACTICS_PER_PAGE` sabiti ve `matrix_pages` chunking'i tamamen kaldırıldı. `report_page()` artık tek düz liste üretiyor: `matrix_tactics` (15 taktik, hiçbiri sayfaya bölünmüyor).
+- `report.html`: `.rpt-matrix-grid` (CSS Grid, sayfa başına 5 sütun) yerine `.rpt-matrix-wrap` (flexbox, `flex-wrap`) — tüm 15 taktik sütunu tek akışta yan yana, taşan uzun sütunlar (ör. Stealth, 148 teknik/alt teknik) yazdırma sırasında doğal olarak bir sonraki sayfaya akıyor; yapay sayfa grubu yok.
+- Hücre içeriği tek satıra indirildi: `ID + ad` tek satırda `text-overflow:ellipsis` ile kesiliyor, skor satırı tamamen kaldırıldı (rengin kendisi + `title` tooltip'i + Tam Teknik Listesi ekindeki kesin sayılar yeterli). Mitigation rozeti artık hücrenin sağ üst köşesinde küçük mor bayrak (`position:absolute`), metni kesmiyor.
+- Alt teknikler artık ayrı bir sarmalayıcı `div` içinde değil, doğrudan üst tekniğin altına sıralanan kardeş satırlar (`.rpt-subcell`) — ID kısaltıldı (`T1589.001` yerine `.001`), kendi rengi ve kendi `page-break-inside:avoid`'ı var (bir tekniğin tüm alt teknikleri artık tek blok halinde sayfa atlamaya zorlanmıyor, gereksiz boşluk bırakmıyor).
+- Sütun genişliği (64px + 2px gap + 1px kenarlık) bilinçli olarak A4 yatay sayfanın kullanılabilir genişliğine (12mm kenar boşluklu ~1031px) göre ayarlandı — 15 taktik tam olarak tek satıra sığıyor (doğrulandı: 1103px pencere genişliğinde, ki bu ekran `padding`'i A4 kenar boşluğuna eşdeğer).
+- `.rpt-section { page-break-inside: avoid }` genel kuralı matris için `.rpt-matrix-section { page-break-inside: auto }` ile eziliyor (`.rpt-fulllist-section` ile aynı desen) — önceki sürümde bu genel kural, kısmen dolu bir sayfayı bomboş bırakıp matrisin tamamını bir sonraki sayfaya iten asıl nedenlerden biriydi.
+
+**Doğrulandı:** 43/43 test değişmeden geçti (hiçbir test `matrix_pages`/`rpt-matrix-page` yapısına bağımlı değildi — grep ile önceden doğrulandı). Gerçek 222 ana teknik/475 alt teknikli veriyle: 15 taktik sütunu tek satırda (DOM ölçümüyle doğrulandı, ekran görüntüsü bu oturumda alınamadı — Browser paneli görüntülenmiyordu), sıfır konsol hatası, tooltip'ler (`title`) tam ID/ad/skor bilgisini koruyor.
+
+## "Ortalama Skor" formülü — eşik-ağırlıklı + alt teknik + ürün iddiası indirimi (2026-07-29)
+
+Kullanıcının gözlemi: canlı haritada "Ort. Skor" (~%56-60) ile "Tespit" (~%30-41) arasında kafa karıştırıcı bir makas vardı — ortalama skor, tespit oranından çok daha yüksek görünüyordu. Kök neden araştırıldı (gerçek veriyle): 156 "Kapsamsız" teknikten **95'i** aslında `origin='product_claim'` (adı olan tespit değil, toplu ürün iddiası) üzerinden **skor** alıyordu — bazıları (ör. T1133 Valid Accounts benzeri External Remote Services) tam %100 skor gösterirken aynı anda "Kapsamsız" listesindeydi. Eşik-ağırlıklandırma tek başına simüle edildiğinde makası yalnızca ~2 puan kapatıyordu (222 tekniğin 197'si zaten aynı eşiğe=2 sahip); asıl kaynak ürün iddiası kredisiydi.
+
+Kullanıcıyla birlikte 4 karar netleştirildi (AskUserQuestion), formül şu şekilde değişti:
+
+1. **Kapsam:** Yalnızca özet "Ortalama Skor" (genel kart + taktik bazlı) değişiyor — matristeki tek tek teknik hücrelerinin rengi hâlâ tamamen kendi tespit/eşik oranını gösteriyor (bu netlik korunuyor).
+2. **Alt teknikler dahil, düşük ağırlıkla:** Ortalama artık ana+alt teknikleri birlikte kapsıyor ama her tekniğin katkısı kendi `rule_threshold`'uyla orantılı; alt teknikler ek olarak **0.3×** çarpanla girer (`SUBTECHNIQUE_AVG_WEIGHT`). "Gerekli değil" (eşik=0) işaretli teknikler otomatik ağırlıksız kalır (0 × her şey = 0) — önceki düz ortalamada bunlar tam ağırlıkla %100 sayılıyordu.
+3. **Ürün iddiası (`product_claim`) hücre skorunda indirimli:** Artık tam (1×) değil **0.75×** ağırlıkla sayılıyor (`PRODUCT_CLAIM_SCORE_WEIGHT`) — adı olan gerçek tespiti olmayan bir teknik artık yalnızca toplu iddiayla asla %100 gösteremez. Bu, hem hücre rengini hem "Ortalama Skor"u etkiler; "Tespit" kovasının sert-kanıt tanımına (bkz. yukarıdaki "Kapsanan Tanımı" bölümü) hiç dokunmadı.
+4. **Mitigation skora hâlâ girmiyor** — kullanıcı bilinçli olarak dışarıda bıraktı; `docs/ACIK_SORULAR.md` madde 1'deki bilinen sorun (`M1018` gibi tek bir mitigation kaydı MITRE'nin geniş eşlemesi yüzünden 120 tekniği birden etkiliyor) hâlâ çözülmediği için skora eklemek suni şişmeyi büyütürdü.
+
+**Kod:** `app.py` — `PRODUCT_CLAIM_SCORE_WEIGHT`/`SUBTECHNIQUE_AVG_WEIGHT` sabitleri (`DEFAULT_RULE_THRESHOLD` yanında), `_compute_gap_analysis()`'te `effective_rule_count` hesaplamasına `origin_weight` çarpanı, `average_score`/`by_tactic[].average_score_pct` artık `_avg_weight()` closure'ıyla eşik-ağırlıklı (bucket sayıları — `total`/`covered`/`mature` — bilinçli olarak DOKUNULMADI, Faz 3'ün "Kapsanan Tanımı" kararı geçerliliğini koruyor). `static/app.js` — aynı iki sabit, `ruleCoverageWeight()`'e origin çarpanı, `visibleExportRows` satırlarına `rule_threshold` alanı eklendi, `updateMatrixStats()`'teki `avgScore` aynı ağırlıklı formülle yeniden yazıldı (sunucuyla birebir aynı sonucu üretmesi gerekiyor — doğrulandı). `?v=121` (app.js).
+
+**Test güncellemeleri (kullanıcı onayıyla, formül kasıtlı değişti):** `test_product_claim_scores_but_does_not_fill_detection_bucket` (0.3→0.225: partial×0.75 indirimi), `test_score_is_detection_only_and_uses_per_technique_threshold` (50.0→33.3: eşik=1 olan teknik artık ortalamayı daha az etkiliyor — tam da istenen davranış). 43/43 test geçiyor.
+
+**Doğrulandı (gerçek veri):** Sunucu ve bağımsız istemci-taraf yeniden hesaplaması birebir aynı sonucu verdi: **%56.0 → %45.6**. `mature_techniques` (skoru tam %100 olan teknik sayısı) 72→54'e düştü — beklenen, çünkü artık salt ürün-iddiasıyla %100'e ulaşan teknikler bunu kaybetti.
+
+**Yeni bulgu (ayrı, henüz çözülmedi):** Doğrulama sırasında canlı Matris panelinin kendi "Tespit" sayısının (90/222, istemci tarafı `updateMatrixStats()`) sunucunun `/api/gap-analysis` sayısıyla (66/222) **uyuşmadığı** ortaya çıktı — bugünkü skor değişikliğinden tamamen bağımsız, önceden var olan bir tutarsızlık. Kök neden: istemci tarafı `parentRules = enriched.filter(r => r.parentId == tech.id)` bir **alt tekniğe** yazılmış kuralı (`tid="T1552.001"`, `parentId="T1552"`) ana tekniğin (`T1552`) tespit sayımına **dahil ediyor**; sunucudaki `_compute_gap_analysis()` ise `rule_stats_by_tech`'i `rt.tech_id`'ye (kuralın yazıldığı TAM ID) göre gruplandırıyor ve alt tekniğe yazılan bir kuralı üst tekniğin sayımına **hiç eklemiyor**. CLAUDE.md'deki "alt tekniğe yazılan kural zaten ana tekniğe sayılır" notu yalnızca istemci tarafı için doğru. Örnek: T1552 (Unsecured Credentials) — QRadar'da 9 adet kural var ama hepsi `.001`/`.002`/`.004` gibi alt tekniklere yazılmış, T1552'nin kendisine yazılmış hiçbir kural yok; istemci onu "tespitli" sayıyor, sunucu saymıyor. Bu, kullanıcının orijinal "karmaşa" şikayetinin bir parçası olabilir ama bugünkü isteğin (skor formülü) kapsamı dışında — ayrı bir karar gerektiriyor (fold-up her iki tarafta da aynı mı olmalı, ve öyleyse hangi yönde). `docs/ACIK_SORULAR.md`'ye eklenmesi öneriliyor.
+
+## Alt tekniklerin varsayılan tespit hedefi 1'e çekildi (2026-07-29)
+
+Kullanıcı isteği: *"alt tekniklerde beklenen tespiti 1'e düşür hepsinde."* Yeni
+`ensure_subtechnique_default_threshold(db)` migration'ı (`app.py`,
+`build_technique_config()`'ten hemen sonra, her `init_db()`'de çalışır —
+tek seferlik değil): `UPDATE technique_config SET rule_threshold=1 WHERE
+source='auto' AND tech_id LIKE '%.%'`. Ana teknikler (`DEFAULT_RULE_THRESHOLD=2`)
+dokunulmadan kaldı. Admin override'lar (`source='admin'`) korunur — MITRE
+yeni bir alt teknik ekledikçe `build_technique_config()` onu önce eşik=2 ile
+ekler, bu migration hemen ardından 1'e çeker, böylece gelecekte de tutarlı kalır.
+
+**Doğrulandı (gerçek veritabanı):** 489 alt teknikten 488'i artık eşik=1;
+kalan 1 tanesi (**T1204.002** Malicious Copy and Paste) daha önce admin
+tarafından elle 2'ye ayarlanmış — kasıtlı olarak dokunulmadı (istenirse
+Ayarlar'dan tek satırlık bir düzeltmeyle değiştirilebilir). Bu değişiklikten
+sonra "Ortalama Skor" %45.6 → **%52.6**'ya çıktı (alt tekniklerin kendi skoru
+daha kolay dolsa da, ortalamadaki ağırlıkları da düştü — `1×0.3=0.3` yerine
+eskiden `2×0.3=0.6`'ydı; net etki yukarı yönlü çıktı). Yeni test:
+`test_subtechniques_default_to_threshold_one_admin_override_preserved`.
+
+## İstemci-sunucu "Tespit" fold-up tutarsızlığı çözüldü (2026-07-29)
+
+Bir önceki maddede bulunan `docs/ACIK_SORULAR.md` madde 7 (istemci 90/222,
+sunucu 66/222) kullanıcıyla konuşuldu. Kullanıcının kararı: *"alt teknik üst
+tekniği kapsamasın, alt teknik kendini kapsasın"* — yani sunucunun zaten
+yaptığı (tam eşleşme, fold-up yok) davranış doğru; **istemci** ona eşitlendi.
+
+`static/app.js` `renderMatrix()`: `parentRules` (fold-up'lı, `r.parentId ==
+tech.id` — üst teknik + tüm alt tekniklerine yazılan kurallar) artık yalnızca
+**modal içeriği** için kullanılıyor (Direkt + alt teknik başına gruplanmış
+görünüm zaten vardı, korundu — böylece bir teknik "tespitsiz" görünse bile
+modalda alt tekniklerindeki kapsama görülebiliyor). Yeni `parentOwnRules`
+(`r.tid == tech.id`, tam eşleşme) artık "Tespit" durumunu, hücre rengini,
+kritik-boşluk işaretini, skoru ve `visibleExportRows`'u besliyor —
+sunucudaki `_compute_gap_analysis()` ile birebir aynı tanım. Aynı düzeltme
+`updateTechniqueCard()`'a da uygulandı (mitigation/kural ekleme sonrası tek
+kart yenilemesi de artık tutarlı).
+
+**Doğrulandı (gerçek veri, canlı sunucu):** Matris paneli ile
+`/api/gap-analysis` artık **birebir aynı** 6 sayıyı gösteriyor: Teknik 222,
+Tespit 66/222 (%29.7~30), Kapsamsız 156, Mitigation 163, Ort. Skor
+%52.6~53, Alt Teknik 72/475. Örnek doğrulama: T1552 (Unsecured Credentials)
+— hiç doğrudan kuralı yok, 9 kuralın hepsi alt tekniklere yazılmış — artık
+kart `covered:false` gösteriyor (öncesinde fold-up yüzünden `true`'ydu),
+modal tıklanınca hâlâ "Doğrudan Eşleşmeler" (boş) + 7 alt teknik grubu
+(T1552.001, .002, .003, .004, .006, .007, .008) doğru render ediliyor —
+sayım düzeldi, görünürlük kaybolmadı. Backend değişmedi (zaten doğruydu),
+44/44 test aynen geçiyor. `?v=122` (app.js).
+
+## Bilgilendirme (Wiki) — skorlama dokümantasyonu güncellendi (2026-07-29)
+
+`templates/docs.html` (uygulama içi `/docs` sayfası) büyük ölçüde Faz 4b/4c/4d
+öncesinden kalmıştı — "önem seviyesi" (1-5, kaldırıldı), eski 3 bileşenli
+skor formülü (0.50 tespit + 0.30 mitigation + 0.20 çeşitlilik, kaldırıldı) ve
+3 bölgeli eski renk geçişini (0/0.40/1.0) hâlâ anlatıyordu; hiçbiri bugünkü
+üç değişikliği (eşik-ağırlıklı ortalama, alt teknik dahil etme, product_claim
+indirimi, fold-up düzeltmesi) yansıtmıyordu. Kullanıcı isteği üzerine tüm
+skorlama/kapsama ile ilgili sayfalar gerçek koddan doğrulanarak yeniden yazıldı:
+
+- **Puanlama** — tamamen yeniden yazıldı: tek terimli güncel formül (kapsama
+  seviyesi × ortam izleme × kaynak ağırlığı [named 1.0 / product_claim 0.75]),
+  hedef varsayılanları (ana 2 / alt 1), yeni "Tespit mi, Ortalama Skor mü?"
+  bölümü (bu oturumun asıl kafa karışıklığını doğrudan açıklıyor), yeni "Alt
+  Teknikler Puanlamaya Nasıl Girer?" bölümü (fold-up yok, 0.3× ağırlık),
+  gerçek sayılarla 4 örnek hesaplama.
+- **Renk Kodu** — 5 duraklı gradyan (0/0.30/0.50/0.70/1.00), gerçek RGB
+  değerleri (`_SCORE_STOPS`'tan alındı), %20/%13 opaklık farkı (ana/alt
+  teknik), düzeltilmiş hover tooltip örneği (mitigation artık "skora girmez"
+  etiketiyle, tehdit grubu ve kapsama satırları eklendi).
+- **Mitigation** — "Skor Etkisi" (× 0.30) bölümü kaldırıldı, yerine "Neden
+  Skora Girmiyor?" — MITRE'nin geniş eşlemesinin riskini (M1018 → 120+
+  teknik) açıkça anlatıyor. "Nasıl Kayıt Eklenir?" adımlarına eksik olan
+  Ürün alanı eklendi (Faz 4d'de gelmiş ama hiç dokümante edilmemişti).
+- **Ekipler** (eski "Önem & Ekipler") — "Önem Seviyesi" bölümü tamamen
+  kaldırıldı, sayfa/nav adı sadeleşti. Ne olduğu ve neden kaldırıldığı tek
+  cümlelik bir notla açıklandı.
+- **Matris** — demo mockup'taki hayali "kritik boşluk kırmızı kenarlık +
+  ünlem" kartı ve "✓2" mitigation rozeti kaldırıldı (gerçek uygulamada hiç
+  yok); gerçek mor "M" kalkan rozetiyle değiştirildi. Alt teknik notu
+  güçlendirildi: bir alt tekniğin tespiti üst tekniği kapsamaz, ama modalda
+  görünürlüğü kaybolmaz.
+- **Genel Bakış / Hızlı Başlangıç / TTP Listesi** — kalan "önem seviyesi"
+  referansları (kartlar, adım 6, sütun listesi) düzeltildi.
+- Ayrıca: `docs.html`'in kendi `styles.css?v=106` sabitlemesi `v=120`'ye
+  senkronlandı (index.html'inkiyle aynı olmalıydı, hiç bump edilmemişti).
+
+**Bulunan ve düzeltilen bir kendi hatam:** Mitigation sayfasındaki yeni
+bölümde bir `<div class="wiki-warning">` yanlışlıkla `</p>` ile kapatılmış
+— tarayıcı bunu telafi ederken `w-import`'tan `w-qradar-connector`'a kadar
+**sonraki 7 wiki sayfasının tamamını** `w-mitigation`'ın içine gömdü (DOM
+kontrolüyle yakalandı: `el.parentElement.id` hepsinde `wiki-content` yerine
+`w-mitigation` çıktı). `</div>` ile düzeltildi, dosya geneli div sayısı
+374/374 dengeye geldi, 13 sayfa da tekrar `wiki-content`'in doğrudan çocuğu.
+
+Kod değişmedi (yalnızca `templates/docs.html`), 44/44 test aynen geçiyor.
+
+## Üst teknik skoru alt tekniklerinden "rollup" ile besleniyor (2026-07-29)
+
+Kullanıcının gözlemi (aynı günün fold-up düzeltmesinin doğal sonucu): alt
+teknikleri zengin kapsanmış bir üst teknik, kendisine doğrudan yazılmış
+kural olmadığı için kart üzerinde tamamen "boş" görünüyordu — "alt
+teknikleri dolu olan bir üst teknik nasıl boş olabilir, saçma" haklı tepkisi.
+
+Kullanıcı bir rollup önerisi getirdi, 3 noktada birlikte netleştirdik
+(AskUserQuestion):
+1. **Telafi yok** — bir alt tekniğin fazla tespiti başka bir kardeşin
+   eksiğini örtmez; her alt teknik kendi hedefinde tavanlanır, sonra toplanır
+   (muhafazakâr seçim — aksi halde tek bir aşırı-kapsanmış alt teknik,
+   tamamen boş 4-5 kardeşi gizleyebilirdi).
+2. **Üst tekniğin kendi payı da ekleniyor** — kendi doğrudan kuralı varsa
+   toplam kaybolmuyor.
+3. **"Tespit" kovası da aileye genişliyor** — üst teknik, kendi doğrudan
+   kuralı VARSA ya da en az bir alt tekniği zaten tespitliyse tespitli
+   sayılır. Bu, sabah düzelttiğimiz fold-up prensibini bozmuyor (kanıt hâlâ
+   sert — sadece aileden herhangi bir yerden gelebiliyor).
+
+**Formül** (alt tekniği olan bir üst teknik için):
+```
+hedef  = kendi_hedef + Σ(alt.hedef)                     [alt.hedef=0 olan hariç]
+etkin  = kendi_etkin + Σ(min(alt.etkin, alt.hedef))      [alt.hedef=0 olan hariç]
+skor   = min(etkin / hedef, 1.0)
+kapsandı = kendi_isimli_kural_var MI YA DA herhangi_bir_alt_teknik_kapsandı_MI
+```
+Alt tekniği olmayan teknikler etkilenmez (toplam sıfır alt teknikle "kendi"
+değerine indirgenir, ayrı bir dal gerekmedi).
+
+**Kod:** `app.py` `_compute_gap_analysis()` — `parents`/`subs` ayrımından
+hemen sonra yeni bir döngü, her `p` için `children_by_parent` üzerinden
+rollup uygulayıp `effective_rule_count`/`rule_threshold`/`coverage_score`/
+`covered`/`mature`'ı YERİNDE değiştiriyor (aynı dict `all_techs` içinde de
+paylaşıldığı için "Ortalama Skor" ağırlıklı ortalaması da otomatik güncel
+değerleri kullanıyor — ayrı bir değişiklik gerekmedi).
+
+`static/app.js` — yeni `familyRollup(techId, ownRules, weightMap,
+enrichedRules)` paylaşılan yardımcı fonksiyonu (sunucuyla birebir aynı
+formül). `computeScore()`/`applyTechniqueVisuals()`/`fillTechniqueCell()`
+artık opsiyonel `thresholdOverride` (ve `applyTechniqueVisuals` için
+`coveredOverride`) parametresi alıyor — geriye dönük uyumlu (varsayılan
+`null`, verilmezse eski davranış). `renderMatrix()`'teki üst teknik bloğu ve
+`updateTechniqueCard()` (tek kart yenileme — mitigation/kural ekleme sonrası)
+artık `familyRollup()` sonucunu kullanıyor. `updateMatrixStats()`'teki
+"Tespit" kovası sayımı `named_rule_count>0` yerine yeni `covered` alanını
+okuyor (`visibleExportRows`'a eklendi).
+
+**Doğrulandı (gerçek veri, canlı sunucu, T1552 örneği — 8 alt teknik, 3'ü
+zengin kapsanmış, 5'i zayıf/sıfır):** Sunucu ve istemci **birebir aynı**
+sonucu üretti: hedef=10, etkin=6.9, skor=%69, kapsandı=true (öncesinde
+kart tamamen "kapsanmamış" görünüyordu). Genel istatistikler de iki tarafta
+birebir eşleşti: Tespit 90/222 (%41), Kapsamsız 132, Ortalama Skor %61.
+Yeni test: `test_parent_score_rolls_up_from_subtechniques_with_per_sub_cap`
+(tavanlama + kova genişlemesini ayrı ayrı doğruluyor). 45/45 test geçiyor.
+`?v=123` (app.js).
+
+**Bulunan ama düzeltilmeyen ayrı bir tutarsızlık:** TTP Listesi paneli
+(`ttp_list()` / `/api/ttp-list`, `renderTtpList()`) `_compute_gap_analysis()`
+ile **hiç paylaşılmayan, tamamen ayrı** bir MITRE-parse + kural-sayma
+implementasyonu kullanıyor — bugünkü rollup (ve daha önceki fold-up
+düzeltmesi) oraya hiç uygulanmadı. Yani T1552 gibi bir teknik artık Matriste
+ve Boşluklar/`/report`'ta tutarlı görünürken, TTP Listesi'nde hâlâ eski
+(muhtemelen fold-up'sız, rollup'suz) davranışı gösterebilir. Kapsamı bugünkü
+istekten (Matris renklendirmesi) ayrı ve daha büyük bir refactor — üçüncü,
+bağımsız bir kod yolunu `_compute_gap_analysis()`'e taşımak gerekir.
+`docs/ACIK_SORULAR.md`'ye eklenmesi öneriliyor.
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).

@@ -59,6 +59,24 @@ PRODUCT_CATEGORY_DEFAULT = "tespit_kaynagi"
 # static/app.js DEFAULT_RULE_THRESHOLD ile ayni olmali.
 DEFAULT_RULE_THRESHOLD = 2
 
+# Urun seviyesi toplu iddia (origin='product_claim') hucre skoruna tam degil,
+# indirimli agirlikla katkida bulunur. Adi olan gercek tespiti (named) olmayan
+# bir teknik artik yalnizca toplu iddiayla %100 skor gosteremez — "Tespit"
+# kovasi zaten sert kanit istiyordu (bkz. ensure_rule_origin()), skor bu
+# degisiklikten once ayni tekniğe tam kredi veriyordu ve ikisi celisiyordu.
+# Kullanici karari (2026-07-29). static/app.js PRODUCT_CLAIM_SCORE_WEIGHT ile
+# ayni olmali.
+PRODUCT_CLAIM_SCORE_WEIGHT = 0.75
+
+# Ozet "Ortalama Skor" (genel + taktik bazli) artik esik-agirlikli ortalama:
+# her tekniğin katkisi kendi rule_threshold'uyla orantili — "gerekli değil"
+# (0) isaretli teknikler zaten agirliksiz kalir, cok tespit gerektiren
+# teknikler ortalamayi daha fazla etkiler. Alt teknikler dahil olur ama daha
+# dusuk carpanla (kurallar neredeyse tamamen ana teknige eslendigi icin
+# agirliksiz dahil etmek ortalamayi yapay dusururdu). Kullanici karari
+# (2026-07-29). static/app.js SUBTECHNIQUE_AVG_WEIGHT ile ayni olmali.
+SUBTECHNIQUE_AVG_WEIGHT = 0.3
+
 # rules.source ile products.name arasinda FK yok; kopru yalnizca isim esitligi.
 # Eslesmeyen bir kaynak, ortam bazli kapsama hesabinda hicbir varlik grubuna
 # baglanamaz ve teknik sessizce kapsanmamis gorunur — bu yuzden yazma aninda
@@ -380,6 +398,30 @@ def build_technique_config(db: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO technique_config "
         "(tech_id, rule_threshold, source, group_count, tool_count) VALUES (?,?,?,?,?)",
         rows,
+    )
+    db.commit()
+
+
+def ensure_subtechnique_default_threshold(db: sqlite3.Connection) -> None:
+    """Alt tekniklerin varsayilan tespit hedefini 1'e ceker (ana teknikler
+    DEFAULT_RULE_THRESHOLD=2'de kalir).
+
+    Kurallar neredeyse tamamen ana teknige eslendigi icin (475 alt teknikten
+    yalnizca birkacinin kendi kurali var) alt teknik basina 2 ayri kural
+    beklemek gercekci degildi. Yalnizca source='auto' satirlar degisir —
+    admin'in elle ayarladigi bir alt teknik esigi asla ezilmez. Kullanici
+    karari (2026-07-29).
+
+    build_technique_config()'ten HEMEN SONRA cagrilir ve her init_db()
+    calismasinda tekrar uygulanir (yalniz bir kerelik migration DEGIL) —
+    boylece MITRE yeni bir alt teknik ekledikce (build_technique_config
+    onu once DEFAULT_RULE_THRESHOLD=2 ile ekler) bu fonksiyon onu hemen 1'e
+    ceker. Alt teknik tespiti: ATT&CK ID'sinde nokta olmasi ("T1078.001"),
+    technique_config tablosunda ayri bir is_subtechnique sutunu yok.
+    """
+    db.execute(
+        "UPDATE technique_config SET rule_threshold=1 "
+        "WHERE source='auto' AND rule_threshold != 1 AND tech_id LIKE '%.%'"
     )
     db.commit()
 
@@ -909,6 +951,7 @@ def init_db() -> None:
         migrate_consolidate_rules(db)
         drop_technique_importance(db)
         build_technique_config(db)
+        ensure_subtechnique_default_threshold(db)
         ensure_rule_coverage_level(db)
         ensure_rule_origin(db)
         drop_soc_cmm_schema(db)
@@ -1243,6 +1286,7 @@ def _compute_gap_analysis(
         if weight <= 0:
             continue
         level_weight = {"low": 0.25, "partial": 0.60}.get(row["coverage_level"], 1.00)
+        origin_weight = 1.0 if row["origin"] != "product_claim" else PRODUCT_CLAIM_SCORE_WEIGHT
         stats = rule_stats_by_tech.setdefault(
             row["tech_id"],
             {"rule_count": 0, "named_rule_count": 0, "effective_rule_count": 0.0,
@@ -1251,7 +1295,7 @@ def _compute_gap_analysis(
         stats["rule_count"] += int(row["rule_count"])
         if row["origin"] != "product_claim":
             stats["named_rule_count"] += int(row["rule_count"])
-        stats["effective_rule_count"] += level_weight * weight * int(row["rule_count"])
+        stats["effective_rule_count"] += level_weight * weight * origin_weight * int(row["rule_count"])
         if row["source"] in detection_sources:
             stats["_products"].add(row["source"])
     for stats in rule_stats_by_tech.values():
@@ -1331,12 +1375,61 @@ def _compute_gap_analysis(
     parents = [t for t in all_techs if not t["is_subtechnique"]]
     subs = [t for t in all_techs if t["is_subtechnique"]]
 
+    # ── Üst teknik ailesi (rollup) ───────────────────────────────────────────
+    # Alt tekniği OLAN bir üst teknik artık yalnızca kendi payıyla değil,
+    # kendi payı + TÜM alt tekniklerinin toplamıyla değerlendirilir: skor,
+    # hedef, etkin tespit ve "tespitli mi" (kova) hepsi bu aileyi yansıtır.
+    # Alt tekniği olmayan teknikler etkilenmez (toplam sıfır alt teknikle
+    # "kendi" değerine indirgenir, ayrı bir dal gerekmez).
+    #
+    # Her alt teknik KENDİ HEDEFİNDE TAVANLANIR — bir alt tekniğin fazla
+    # tespiti başka bir kardeşin eksiğini örtmez (bilinçli, muhafazakâr
+    # seçim: aile "ortalaması" telafi ile şişmesin). "Gerekli değil" (hedef=0)
+    # işaretli bir alt teknik aileye ne katkı ne yük getirir, tamamen
+    # dışarıda kalır.
+    #
+    # "Tespit" kovası da aileye genişler: üst teknik, kendisine doğrudan
+    # yazılmış bir kural VARSA ya da en az bir alt tekniği zaten tespitliyse
+    # tespitli sayılır — böylece skor (kart rengi) ile kova (Boşluklar
+    # listesi) her zaman aynı sonuca varır, birbirini yalanlamaz. Bu, aşağıdaki
+    # "sert kanıt" ilkesini bozmaz — kanıt hâlâ gerekiyor, sadece ailenin
+    # herhangi bir üyesinden gelebiliyor.
+    #
+    # Kullanıcı kararı (2026-07-29, bkz. PROJECT_STATE.md). static/app.js
+    # renderMatrix()/updateTechniqueCard() aynı formülle eşitlenmeli.
+    children_by_parent: dict[str, list] = {}
+    for s in subs:
+        pid = s.get("parent_id")
+        if pid:
+            children_by_parent.setdefault(pid, []).append(s)
+
+    for p in parents:
+        kids = children_by_parent.get(p["tech_id"])
+        if not kids:
+            continue
+        kids_threshold_sum = sum(k["rule_threshold"] for k in kids if k["rule_threshold"] > 0)
+        kids_effective_sum = sum(
+            min(k["effective_rule_count"], k["rule_threshold"])
+            for k in kids if k["rule_threshold"] > 0
+        )
+        rollup_threshold = p["rule_threshold"] + kids_threshold_sum
+        rollup_effective = p["effective_rule_count"] + kids_effective_sum
+        p["effective_rule_count"] = round(rollup_effective, 2)
+        p["rule_threshold"] = rollup_threshold
+        p["coverage_score"] = (
+            round(min(rollup_effective / rollup_threshold, 1.0), 3)
+            if rollup_threshold > 0 else 1.0
+        )
+        p["covered"] = p["named_rule_count"] > 0 or any(k["covered"] for k in kids)
+        p["mature"] = p["coverage_score"] >= 1.0
+
     # ── Kapsama tanımı (tek doğru kaynak) ───────────────────────────────────
     # Payda: ANA teknikler. Alt teknikler paydaya girmez çünkü kurallar
     # neredeyse tamamen ana tekniğe eşleniyor (475 alt teknikten yalnızca
     # birkaçının kendi kuralı var) — paydaya katmak oranı yapay düşürür.
-    # Alt tekniğe yazılan kural zaten ana tekniğe sayılır (rule_techniques →
-    # parent eşlemesi), alt teknikler ayrıca bilgi olarak raporlanır.
+    # "Tespitli" olmak yukarıdaki aile kuralına göre belirlenir: doğrudan
+    # kendi kuralı VEYA en az bir alt tekniğin kendi kuralı yeterli — sert
+    # kanıt ilkesi bozulmaz, kanıt sadece aileden gelebilir.
     #
     # İki ayrık kova (toplamı = ana teknik sayısı):
     #   detected  → tespit var (görebiliyoruz)
@@ -1352,9 +1445,22 @@ def _compute_gap_analysis(
     detected_subtechniques = sum(1 for t in subs if t["covered"])
 
     mature_techniques = sum(1 for t in parents if t["mature"])
+
+    # "Ortalama Skor" — yukaridaki Tespit/Kapsamsiz kovasindan FARKLI bir
+    # soruya cevap verir ("genel olgunluk ne kadar iyi", kova ise "gorebiliyor
+    # muyuz"). Alt teknikler burada dahil olur (kovaya girmezler, skora
+    # girerler) ve her teknigin katkisi kendi rule_threshold'uyla agirliklanir
+    # — "gerekli değil" (0) isaretli teknikler agirliksiz kalir, cok tespit
+    # gerektiren teknikler ortalamayi daha fazla etkiler. Kullanici karari
+    # (2026-07-29, bkz. PROJECT_STATE.md).
+    def _avg_weight(t: dict) -> float:
+        w = max(t["rule_threshold"], 0)
+        return w * SUBTECHNIQUE_AVG_WEIGHT if t["is_subtechnique"] else w
+
+    _avg_weight_total = sum(_avg_weight(t) for t in all_techs)
     average_score = round(
-        sum(t["coverage_score"] for t in parents) / max(total_techniques, 1) * 100, 1
-    )
+        sum(t["coverage_score"] * _avg_weight(t) for t in all_techs) / _avg_weight_total * 100, 1
+    ) if _avg_weight_total else 0.0
     # Tespitsiz teknikler — "önem seviyesi" kavramı kaldırıldığı için artık
     # eşik yok: hiç tespiti olmayan her ana teknik listeye girer. Sıralama,
     # MITRE'den gelen objektif sinyalle yapılır (kaç tehdit grubu kullanıyor).
@@ -1363,15 +1469,22 @@ def _compute_gap_analysis(
         round(detected_techniques / total_techniques * 100, 1) if total_techniques else 0.0
     )
 
-    # Taktik bazlı: parent + alt teknikler birlikte
+    # Taktik bazlı: parent + alt teknikler birlikte. "total"/"covered"/"mature"
+    # bilinçli olarak eşit ağırlıklı kalır (Faz 3'te karara bağlanan tanım,
+    # bkz. yukarısı) — yalnızca average_score_pct, genel Ortalama Skor ile
+    # aynı eşik-ağırlıklı formülü kullanır (score_weight_total/weight_total).
     by_tactic_map: dict[str, dict] = {}
     for t in all_techs:
+        w = _avg_weight(t)
         for tactic in t["tactics"]:
             entry = by_tactic_map.setdefault(
-                tactic, {"total": 0, "covered": 0, "mature": 0, "score_total": 0.0}
+                tactic, {"total": 0, "covered": 0, "mature": 0, "score_total": 0.0,
+                         "score_weight_total": 0.0, "weight_total": 0.0}
             )
             entry["total"] += 1
             entry["score_total"] += t["coverage_score"]
+            entry["score_weight_total"] += t["coverage_score"] * w
+            entry["weight_total"] += w
             if t["covered"]:
                 entry["covered"] += 1
             if t["mature"]:
@@ -1390,7 +1503,10 @@ def _compute_gap_analysis(
                 "pct": pct,
                 "mature": entry["mature"],
                 "maturity_pct": round(entry["mature"] / entry["total"] * 100, 1),
-                "average_score_pct": round(entry["score_total"] / entry["total"] * 100, 1),
+                "average_score_pct": (
+                    round(entry["score_weight_total"] / entry["weight_total"] * 100, 1)
+                    if entry["weight_total"] else 0.0
+                ),
             })
     for tactic, entry in by_tactic_map.items():
         if tactic not in _TACTIC_ORDER:
@@ -1403,7 +1519,10 @@ def _compute_gap_analysis(
                 "pct": pct,
                 "mature": entry["mature"],
                 "maturity_pct": round(entry["mature"] / entry["total"] * 100, 1),
-                "average_score_pct": round(entry["score_total"] / entry["total"] * 100, 1),
+                "average_score_pct": (
+                    round(entry["score_weight_total"] / entry["weight_total"] * 100, 1)
+                    if entry["weight_total"] else 0.0
+                ),
             })
 
     # Sıralama: en çok tehdit grubunun kullandığı teknik başta — objektif

@@ -8,6 +8,17 @@ const tacticOrder = Object.values(tacticMap);
 // bununla başlar, admin teknik bazında değiştirir. app.py ile aynı olmalı.
 const DEFAULT_RULE_THRESHOLD = 2;
 
+// Ürün seviyesi toplu iddia (origin='product_claim') hücre skoruna indirimli
+// ağırlıkla katkı yapar — adı olan tespiti olmayan bir teknik artık yalnızca
+// toplu iddiayla %100 gösteremez. Kullanıcı kararı (2026-07-29). app.py
+// PRODUCT_CLAIM_SCORE_WEIGHT ile aynı olmalı.
+const PRODUCT_CLAIM_SCORE_WEIGHT = 0.75;
+
+// Özet "Ort. Skor" artık eşik-ağırlıklı ortalama; alt teknikler bu çarpanla
+// dahil olur. Kullanıcı kararı (2026-07-29). app.py SUBTECHNIQUE_AVG_WEIGHT
+// ile aynı olmalı.
+const SUBTECHNIQUE_AVG_WEIGHT = 0.3;
+
 let mitreObjects = [];
 let techDetailsMap = {};
 let nameToIdMap = {};
@@ -1885,8 +1896,13 @@ function getMitigationTotal(techId) {
 
 // Kapsama skoru: min(etkin tespit sayısı / teknik hedefi, 1).
 // Hedef techniqueConfig.rule_threshold'dan gelir (varsayılan DEFAULT_RULE_THRESHOLD).
+// product_claim kökenli kurallar indirimli ağırlıkla sayılır (bkz.
+// PRODUCT_CLAIM_SCORE_WEIGHT) — adı olan tespiti olmayan bir teknik artık
+// yalnızca toplu ürün iddiasıyla tam skor gösteremez.
 function ruleCoverageWeight(rule) {
-  return ({low: 0.25, partial: 0.60, full: 1.00})[rule?.coverage_level || 'full'] || 1.00;
+  const levelWeight = ({low: 0.25, partial: 0.60, full: 1.00})[rule?.coverage_level || 'full'] || 1.00;
+  const originWeight = rule?.origin === 'product_claim' ? PRODUCT_CLAIM_SCORE_WEIGHT : 1.00;
+  return levelWeight * originWeight;
 }
 
 // ─── Ortam boyutu ──────────────────────────────────────────────────────────
@@ -1977,11 +1993,45 @@ function techniqueThreshold(techId) {
  *  Mitigation skora girmez (haritada ayrı kalkan işareti), ürün çeşitliliği de
  *  girmez (ürün noktaları olarak zaten görünür). Önceki 3 bileşenli ağırlıklı
  *  harman ve MITRE'den türetilen "önem" kavramı kaldırıldı — Faz 4 kararı.
- *  Hedef 0 = "bu teknik icin tespit gerekmiyor" → skor otomatik %100. */
-function computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount) {
-  const threshold = techniqueThreshold(techId);
+ *  Hedef 0 = "bu teknik icin tespit gerekmiyor" → skor otomatik %100.
+ *  thresholdOverride: alt tekniği olan üst teknikler için familyRollup()'tan
+ *  gelen aile hedefi — verilmezse techniqueThreshold(techId) kullanılır. */
+function computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount, thresholdOverride = null) {
+  const threshold = thresholdOverride ?? techniqueThreshold(techId);
   if (threshold <= 0) return 1.0;
   return Math.min(weightedRuleCount / threshold, 1.0);
+}
+
+/** Alt tekniği OLAN bir üst teknik için "aile" (rollup) hedef/etkin/kapsanma
+ * değerlerini hesaplar: kendi payı + TÜM alt tekniklerinin toplamı. Her alt
+ * teknik KENDİ hedefinde tavanlanır (bir alt tekniğin fazlası bir kardeşin
+ * eksiğini örtmez — bilinçli, muhafazakâr seçim). "Gerekli değil" (hedef=0)
+ * işaretli bir alt teknik aileye ne katkı ne yük getirir. Alt tekniği yoksa
+ * "kendi" değerlerine indirgenir (ayrı bir dal gerekmez).
+ * "Tespit" kovası da aileye genişler: kendi doğrudan kuralı VARSA ya da en
+ * az bir alt tekniği zaten tespitliyse üst teknik de tespitli sayılır.
+ * app.py _compute_gap_analysis() ile birebir aynı formül olmalı (bkz.
+ * PROJECT_STATE.md 2026-07-29). enrichedRules verilmezse enrichRules() taze
+ * çağrılır (tek kart yenilemesi gibi performans kritik olmayan yerler için). */
+function familyRollup(techId, ownRules, weightMap, enrichedRules) {
+  const ownThreshold = techniqueThreshold(techId);
+  const ownEffective = effectiveRuleCount(ownRules, weightMap);
+  let threshold = ownThreshold;
+  let effective = ownEffective;
+  let covered = namedRuleCount(ownRules) > 0;
+  const subTechs = subTechsByParent[techId] || [];
+  if (subTechs.length) {
+    const rules = enrichedRules || enrichRules();
+    subTechs.forEach(st => {
+      const stThreshold = techniqueThreshold(st.id);
+      if (stThreshold <= 0) return;
+      const stRules = rulesInScope(rules.filter(r => r.tid == st.id), weightMap);
+      threshold += stThreshold;
+      effective += Math.min(effectiveRuleCount(stRules, weightMap), stThreshold);
+      if (namedRuleCount(stRules) > 0) covered = true;
+    });
+  }
+  return { threshold, effective, covered };
 }
 
 /** Matris ortam seçicisini scopeRegistry'den doldurur. */
@@ -2108,10 +2158,11 @@ function applySourceDots(card, sources) {
 
 // Kart görselleri: dolgu rengi YALNIZCA tespite bakar; mitigation ayrı bir
 // kalkan işareti olarak gösterilir (renge karışmaz) — Faz 4 kararı.
-function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount, envRatio = null, namedCount = rulesCount) {
-  const score = computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount);
+function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, sources, weightedRuleCount = rulesCount, envRatio = null, namedCount = rulesCount, thresholdOverride = null, coveredOverride = null) {
+  const score = computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount, thresholdOverride);
+  const covered = coveredOverride ?? (namedCount > 0);
   card.style.backgroundColor = scoreToColor(score);
-  card.classList.toggle('covered', namedCount > 0);
+  card.classList.toggle('covered', covered);
   card.classList.toggle('claim-only', namedCount === 0 && rulesCount > 0);
   card.classList.toggle('mitigated', mitigationCount > 0);
 
@@ -2123,7 +2174,7 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
     sources: [...new Set(Array.isArray(sources) ? sources : [])],
     score: Math.round(score * 100),
     namedCount,
-    threshold: techniqueThreshold(techId),
+    threshold: thresholdOverride ?? techniqueThreshold(techId),
     mitTotal: getMitigationTotal(techId),
     groupCount: cfg.group_count || 0,
     envRatio,
@@ -2136,13 +2187,15 @@ function updateTechniqueCard(parentId) {
   const card = document.querySelector(`.technique-card[data-tech-id="${parentId}"]`);
   if (!card) return;
   const weightMap = scopeWeightMap();
-  const linkedRules = rulesInScope(enrichRules().filter(r => r.parentId === parentId), weightMap);
-  const rulesCount = weightMap ? linkedRules.length : (currentRulesByParent[parentId] || 0);
+  // parentId DEGIL tid ile eslesir: bir alt teknige yazilan kural bu kartin
+  // KENDI payini "tespitli" yapmaz — ama familyRollup() asagida ayni kurali
+  // aileye genisletiyor (bkz. renderMatrix()'teki parentOwnRules notu).
+  const linkedRules = rulesInScope(enrichRules().filter(r => r.tid === parentId), weightMap);
+  const rollup = familyRollup(parentId, linkedRules, weightMap);
   const mitigationCount = getCheckedMitigationCountForTech(parentId);
-  const sources = linkedRules.map(r => r.source);
-  const score = computeScore(parentId, rulesCount, mitigationCount, sources, effectiveRuleCount(linkedRules, weightMap));
+  const score = rollup.threshold > 0 ? Math.min(rollup.effective / rollup.threshold, 1.0) : 1.0;
   card.style.backgroundColor = scoreToColor(score);
-  card.classList.toggle('covered', namedRuleCount(linkedRules) > 0);
+  card.classList.toggle('covered', rollup.covered);
   card.classList.toggle('mitigated', mitigationCount > 0);
 }
 
@@ -2177,7 +2230,7 @@ function refreshTechniqueCardsForMitigation(mitId) {
  *  kullanır, yalnızca ölçek farklı. Kompakt olması için kimlik ve sayaçlar
  *  tek bir alt satırda toplanır; mitigation dolguyu değil köşedeki kalkanı
  *  etkiler. */
-function fillTechniqueCell(cell, { id, name, ruleCount, weighted, mitigationCount, envRatio, isSub }) {
+function fillTechniqueCell(cell, { id, name, ruleCount, weighted, mitigationCount, envRatio, isSub, thresholdOverride = null }) {
   const marks = [];
   if (mitigationCount > 0) {
     marks.push(`<span class="tc-shield" title="${mitigationCount} işaretli mitigation — kapsama skoruna girmez">M</span>`);
@@ -2188,7 +2241,7 @@ function fillTechniqueCell(cell, { id, name, ruleCount, weighted, mitigationCoun
     const full = envRatio.covered === envRatio.total;
     marks.push(`<span class="tc-env ${full ? 'full' : 'partial'}" title="${envRatio.covered}/${envRatio.total} ortamda tespit var">${envRatio.covered}/${envRatio.total}</span>`);
   }
-  const target = techniqueThreshold(id);
+  const target = thresholdOverride ?? techniqueThreshold(id);
   const shown = Math.round(weighted * 10) / 10;
   // Hedef 0 = admin bu teknik icin tespit istemiyor demis ("kapsam disi").
   // "0/0" kafa karistirir; acik bir etiket koyuyoruz.
@@ -3416,7 +3469,23 @@ function renderMatrix() {
       const parentMatchesSearch = matchesSearch(tech);
       // Ortam seçiliyse, o ortamda geçerli olmayan tespitler hesaba katılmaz —
       // kart yine görünür ama boşluğu dürüstçe gösterir.
+      //
+      // parentRules: fold-up'lı (üst teknik + TÜM alt tekniklerine yazılan
+      // kurallar). Yalnızca modal içeriği için kullanılır (Direkt + alt
+      // teknik başına gruplanmış görünüm) ve ürün filtresi eşleşmesi için.
+      // parentOwnRules: yalnızca DOĞRUDAN bu tekniğe yazılan kurallar.
+      //
+      // Hücre rengi/skoru/kova artık ne salt "own" ne salt fold-up: alt
+      // tekniği OLAN bir üst teknik "aile" (rollup) değerini kullanır —
+      // kendi payı + tüm alt tekniklerinin (kendi hedefinde tavanlanmış)
+      // toplamı. Alt tekniği yoksa aile = kendi. Bkz. familyRollup() ve
+      // PROJECT_STATE.md 2026-07-29 (bu, aynı günün ERKEN saatlerindeki
+      // "hiç fold-up yok" kararını üst teknik seviyesinde kısmen tersine
+      // çevirir — kullanıcı: bir alt tekniği tamamen kapsanmış bir üst
+      // teknik, kendisi "boş" görünmesin).
       const parentRules = rulesInScope(enrichedData.filter(r => r.parentId == tech.id), scopeWeights);
+      const parentOwnRules = rulesInScope(enrichedData.filter(r => r.tid == tech.id), scopeWeights);
+      const parentRollup = familyRollup(tech.id, parentOwnRules, scopeWeights, enrichedData);
       const parentMatchesProduct = matchesProduct(parentRules);
 
       const subTechs = subTechsByParent[tech.id] || [];
@@ -3432,19 +3501,21 @@ function renderMatrix() {
       }
 
       // export rows
-      const parentRuleCount = parentRules.length;
+      const parentRuleCount = parentOwnRules.length;
       const parentMitCount = getCheckedMitigationCountForTech(tech.id);
-      const parentSources = parentRules.map(r => r.source);
+      const parentSources = parentOwnRules.map(r => r.source);
       visibleExportRows.push({
         type: "technique",
         tech_id: tech.id,
         name: tech.name,
         tactic: tactic,
         rule_count: parentRuleCount,
-        named_rule_count: namedRuleCount(parentRules),
+        named_rule_count: namedRuleCount(parentOwnRules),
+        covered: parentRollup.covered,
         mitigation_checked: parentMitCount,
         products: Array.from(new Set(parentSources)),
-        score: computeScore(tech.id, parentRuleCount, parentMitCount, parentSources, effectiveRuleCount(parentRules, scopeWeights))
+        rule_threshold: parentRollup.threshold,
+        score: parentRollup.threshold > 0 ? Math.min(parentRollup.effective / parentRollup.threshold, 1.0) : 1.0
       });
       subMatches.forEach(st => {
         const subRules = rulesInScope(enrichedData.filter(r => r.tid == st.id), scopeWeights);
@@ -3460,11 +3531,12 @@ function renderMatrix() {
           named_rule_count: namedRuleCount(subRules),
           mitigation_checked: subMitCount,
           products: Array.from(new Set(subSources)),
+          rule_threshold: techniqueThreshold(st.id),
           score: computeScore(st.id, subRuleCount, subMitCount, subSources, effectiveRuleCount(subRules, scopeWeights))
         });
       });
 
-      const rulesForCell = parentRules;
+      const rulesForCell = parentOwnRules;
       const card = document.createElement('div');
       card.className = 'technique-card';
       card.dataset.techId = tech.id;
@@ -3472,18 +3544,21 @@ function renderMatrix() {
 
       const mitigationCount = getCheckedMitigationCountForTech(tech.id);
       const sources = rulesForCell.map(r => r.source);
-      const weighted = effectiveRuleCount(rulesForCell, scopeWeights);
+      // weighted/threshold aile (rollup) değeri — kartın rengi/sayacı ile
+      // "Tespit" kovası hep aynı sonuca varsın diye parentRollup kullanılır.
+      const weighted = parentRollup.effective;
       // Birleşik modda (ortam seçilmemişken) kaç ortamda tespit olduğunu göster.
-      const envRatio = scopeWeights ? null : envCoverageRatio(parentRules);
+      const envRatio = scopeWeights ? null : envCoverageRatio(parentOwnRules);
       // Once icerik, sonra gorseller — applySourceDots karta DOM ekliyor,
       // innerHTML sonradan yazilirsa noktalar silinirdi.
       fillTechniqueCell(card, {
         id: tech.id, name: tech.name,
         ruleCount: rulesForCell.length, weighted, mitigationCount, envRatio, isSub: false,
+        thresholdOverride: parentRollup.threshold,
       });
       applyTechniqueVisuals(
         card, tech.id, rulesForCell.length, mitigationCount, sources, weighted,
-        envRatio, namedRuleCount(rulesForCell)
+        envRatio, namedRuleCount(rulesForCell), parentRollup.threshold, parentRollup.covered
       );
 
       const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches, scopeWeights);
@@ -3504,7 +3579,9 @@ function renderMatrix() {
         };
         card.insertBefore(toggle, card.firstChild);
       }
-      card.onclick = () => openModal(tech.id, tech.name, rulesForCell);
+      // Modal bilinçli olarak fold-up'lı parentRules alır (Direkt + alt
+      // teknik başına gruplu görünüm) — drill-down'da tam aile görünsün.
+      card.onclick = () => openModal(tech.id, tech.name, parentRules);
 
       col.appendChild(card);
       col.appendChild(subContainer);
@@ -3547,8 +3624,11 @@ function updateMatrixStats() {
 
   // İki ayrık kova — toplamı totalP. Mitigation ayrı kova değil; haritada
   // kalkan işareti olarak görünür, burada bilgi amaçlı ayrıca sayılır.
+  // r.covered: kendi doğrudan kuralı VEYA en az bir alt tekniği tespitliyse
+  // true (familyRollup() — bkz. renderMatrix()). named_rule_count>0 DEĞİL,
+  // çünkü o yalnızca kendi payını sayar, aileyi değil.
   const totalP    = parents.length;
-  const detected  = parents.filter(r => r.named_rule_count > 0).length;
+  const detected  = parents.filter(r => r.covered).length;
   const uncovered = totalP - detected;
   const mitigated = parents.filter(r => r.mitigation_checked > 0).length;
   const covPct    = totalP ? Math.round(detected / totalP * 100) : 0;
@@ -3556,9 +3636,18 @@ function updateMatrixStats() {
   const totalS    = subs.length;
   const detectedS = subs.filter(r => r.named_rule_count > 0).length;
 
-  const avgScore = totalP
-    ? Math.round(parents.reduce((s, r) => s + r.score, 0) / totalP * 100)
-    : 0;
+  // Ort. Skor: esik-agirlikli ortalama, alt teknikler dahil ama daha dusuk
+  // carpanla (bkz. SUBTECHNIQUE_AVG_WEIGHT). Ayni formul app.py
+  // _compute_gap_analysis()'teki _avg_weight() ile birebir ayni olmali.
+  const avgWeight = (r, isSub) => {
+    const w = Math.max(r.rule_threshold ?? DEFAULT_RULE_THRESHOLD, 0);
+    return isSub ? w * SUBTECHNIQUE_AVG_WEIGHT : w;
+  };
+  const scoreWeightTotal = parents.reduce((s, r) => s + r.score * avgWeight(r, false), 0)
+    + subs.reduce((s, r) => s + r.score * avgWeight(r, true), 0);
+  const weightTotal = parents.reduce((s, r) => s + avgWeight(r, false), 0)
+    + subs.reduce((s, r) => s + avgWeight(r, true), 0);
+  const avgScore = weightTotal ? Math.round(scoreWeightTotal / weightTotal * 100) : 0;
 
   // Ust bar ile serit ayni sayiyi gostersin — ortam secilince ikisi birden duser
   const topCovered = document.getElementById('coveredTechs');

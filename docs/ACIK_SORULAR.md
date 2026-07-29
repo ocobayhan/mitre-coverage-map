@@ -97,3 +97,24 @@ bunları göstermiyor. Sadece `technique_config` tablosunda ölü satır.
 `source='auto'` satırları silen bir migration. `source='admin'` satırlar asla
 silinmemeli (kullanıcının bilinçli kararı, revoked olsa bile Veri Kalitesi
 üzerinden görünür kalsın).
+
+---
+
+## 7. TTP Listesi paneli `_compute_gap_analysis()`'i hiç kullanmıyor ⚠️ KARAR BEKLİYOR
+
+*(2026-07-29'da üst teknik rollup'u eklenirken bulundu — bkz. PROJECT_STATE.md)*
+
+Matris (canlı harita), Boşluklar paneli (`/api/gap-analysis`) ve `/report`
+artık aynı kapsama tanımını paylaşıyor (fold-up yok + üst teknik rollup'u).
+Ama **TTP Listesi** paneli (`ttp_list()` / `/api/ttp-list` → `renderTtpList()`)
+bunlardan tamamen bağımsız, kendi MITRE-parse + kural-sayma kodunu kullanıyor
+— `_compute_gap_analysis()`'i hiç çağırmıyor.
+
+Sonuç: alt tekniği zengin kapsanmış ama kendisine doğrudan kural yazılmamış
+bir teknik, Matriste/Boşluklar'da artık doğru (kapsanmış) görünürken, TTP
+Listesi'nde hâlâ eski davranışı gösterebilir — üçüncü bir tutarsız görünüm.
+
+**Seçenek:** `ttp_list()`'i söküp `_compute_gap_analysis()`'in çıktısını
+(`techniques[]`) kullanacak şekilde yeniden yazmak — bugünküyle aynı sınıf
+bir iş ama daha büyük: TTP Listesi'nin kendi taktik gruplama ve arama mantığı
+`_compute_gap_analysis()`'in üzerine oturtulmalı.

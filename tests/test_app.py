@@ -444,6 +444,77 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(overview["mature_techniques"], 0)
         self.assertLess(overview["average_score_pct"], 20)
 
+    def test_parent_score_rolls_up_from_subtechniques_with_per_sub_cap(self):
+        """Alt tekniği olan bir üst teknik artık kendi payı + TÜM alt
+        tekniklerinin toplamıyla değerlendirilir (kullanıcı kararı,
+        2026-07-29): tek başına boş görünen ama alt teknikleri dolu olan
+        bir üst teknik artık yanlış/saçma görünmüyor.
+
+        Her alt teknik KENDİ hedefinde tavanlanır — bir alt tekniğin fazla
+        tespiti başka bir kardeşin eksiğini örtmez (muhafazakâr seçim).
+        "Tespit" kovası da aileye genişler.
+        """
+        self.login()
+        fixture = mitre_fixture()
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-a",
+            "name": "Sub A",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.001"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-b",
+            "name": "Sub B",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.002"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        application.MITRE_PATH.write_text(json.dumps(fixture), encoding="utf-8")
+        application.MITRE_CACHE.update({"mtime": None, "data": None})
+        with application.app.app_context():
+            db = application.get_db()
+            application.build_technique_config(db)
+            application.ensure_subtechnique_default_threshold(db)
+            db.commit()
+
+        # T1000 (ust teknik, hedef varsayilan 2) hic dogrudan kural almiyor.
+        # T1000.001'e IKI adi olan kural yaziliyor (hedefi 1'i asiyor: etkin=2).
+        # T1000.002 hic tespit almiyor (hedef varsayilan 1).
+        self.client.post("/api/rules", json={
+            "name": "Sub A kural 1", "tactic": "execution", "tech": "T1000.001", "source": "QRadar"})
+        self.client.post("/api/rules", json={
+            "name": "Sub A kural 2", "tactic": "execution", "tech": "T1000.001", "source": "QRadar"})
+
+        gaps = self.client.get("/api/gap-analysis").get_json()
+        techs = {t["tech_id"]: t for t in gaps["techniques"]}
+
+        # Alt tekniklerin KENDI skorlari degismedi (hala kendi hedeflerinde
+        # tavanlaniyor) — yalniz ust teknigin rollup'unda tavanlanarak kullanilir.
+        self.assertEqual(techs["T1000.001"]["coverage_score"], 1.0)
+        self.assertEqual(techs["T1000.002"]["coverage_score"], 0.0)
+
+        parent = techs["T1000"]
+        # Rollup hedef = kendi (2) + .001 (1) + .002 (1) = 4
+        self.assertEqual(parent["rule_threshold"], 4)
+        # Rollup etkin = kendi (0) + min(.001 etkin=2, hedef=1)=1 + min(.002 etkin=0, hedef=1)=0 = 1
+        self.assertAlmostEqual(parent["effective_rule_count"], 1.0, places=2)
+        self.assertAlmostEqual(parent["coverage_score"], 0.25, places=2)
+        # Ust teknigin dogrudan kurali olmasa da, bir alt teknigi tespitli
+        # oldugu icin "Tespit" kovasina giriyor artik "bos" gorunmuyor.
+        self.assertTrue(parent["covered"],
+                         "en az bir alt teknik tespitliyse ust teknik de tespitli sayilir")
+        self.assertEqual(gaps["overview"]["detected_techniques"], 1,
+                          "T1000 artik tespitli, T1001 (alt teknigi yok, hic kurali yok) degil")
+
     def test_coverage_buckets_are_disjoint_and_sum_to_total(self):
         """Tespit / kapsamsız birbirini dışlar ve toplamları ana teknik
         sayısını verir. Mitigation ayrı bir kova DEĞİL — haritada kalkan
@@ -556,8 +627,10 @@ class AppTestCase(unittest.TestCase):
         self.assertIn("T1000", gaps, "ürün iddiası tekniği boşluk listesinden çıkarmamalı")
         self.assertEqual(gaps["T1000"]["rule_count"], 1)
         self.assertEqual(gaps["T1000"]["named_rule_count"], 0)
-        # ...skoru var: partial (0.60) / hedef 2 = %30 -> kart amber, gri degil
-        self.assertAlmostEqual(gaps["T1000"]["coverage_score"], 0.3, places=2)
+        # ...skoru var: partial (0.60) x urun iddiasi agirligi (0.75) / hedef 2
+        # = %22.5 -> kart amber, gri degil. (0.75 carpani yoksa bu adi olan
+        # tespiti hic olmayan teknik %30 gosterirdi; 2026-07-29 karari.)
+        self.assertAlmostEqual(gaps["T1000"]["coverage_score"], 0.225, places=3)
 
         # Adi olan bir tespit eklenince kova dolar
         self.client.post("/api/import/coverage/apply", json=self._import_payload(
@@ -964,6 +1037,59 @@ class AppTestCase(unittest.TestCase):
         self.assertTrue(preview["ok"], preview["errors"])
         self.assertEqual(preview["warnings"], [])
 
+    def test_subtechniques_default_to_threshold_one_admin_override_preserved(self):
+        """Alt tekniklerin varsayilan tespit hedefi 1'dir (ana teknikler 2'de
+        kalir) — kurallar neredeyse tamamen ana teknige eslendigi icin alt
+        teknik basina 2 ayri kural beklemek gercekci degildi. Kullanici karari
+        (2026-07-29). Admin'in elle ayarladigi bir alt teknik esigi asla
+        ezilmemeli.
+        """
+        self.login()
+        fixture = mitre_fixture()
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-one",
+            "name": "Test Subtechnique One",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.001"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        application.MITRE_PATH.write_text(json.dumps(fixture), encoding="utf-8")
+        application.MITRE_CACHE.update({"mtime": None, "data": None})
+
+        with application.app.app_context():
+            db = application.get_db()
+            application.build_technique_config(db)
+            application.ensure_subtechnique_default_threshold(db)
+            db.commit()
+            cfg = {r["tech_id"]: r["rule_threshold"] for r in db.execute(
+                "SELECT tech_id, rule_threshold FROM technique_config"
+            ).fetchall()}
+
+        self.assertEqual(cfg["T1000.001"], 1, "alt teknik varsayilani 1 olmali")
+        self.assertEqual(cfg["T1000"], application.DEFAULT_RULE_THRESHOLD,
+                          "ana teknik varsayilani degismemeli")
+
+        # Admin T1000.001 icin esigi elle 3 yapar
+        self.assertEqual(self.client.put(
+            "/api/technique-config/T1000.001", json={"rule_threshold": 3}
+        ).status_code, 200)
+
+        # Migration tekrar calissa bile (ornek: bir sonraki init_db) admin
+        # override ezilmemeli
+        with application.app.app_context():
+            db = application.get_db()
+            application.ensure_subtechnique_default_threshold(db)
+            db.commit()
+            after = db.execute(
+                "SELECT rule_threshold FROM technique_config WHERE tech_id=?",
+                ("T1000.001",),
+            ).fetchone()
+        self.assertEqual(after["rule_threshold"], 3, "admin override ezilmemis olmali")
+
     def test_score_is_detection_only_and_uses_per_technique_threshold(self):
         """Skor = min(etkin tespit / teknik hedefi, 1). Mitigation ve ürün
         çeşitliliği skora girmez; hedef teknik bazında admin tarafından
@@ -987,11 +1113,16 @@ class AppTestCase(unittest.TestCase):
             "mitigation skora girmemeli",
         )
 
-        # Hedefi 1'e cekince tek tespit yeterli olur -> T1000 skoru %100
+        # Hedefi 1'e cekince tek tespit yeterli olur -> T1000 skoru %100.
+        # Ortalama artik esik-agirlikli: T1000 (hedef=1, skor=1.0) agirlik 1,
+        # T1001 (hedef=2, skor=0) agirlik 2 -> (1.0*1 + 0*2)/(1+2) = %33.3.
+        # Dusuk hedefli T1000'in agirligi azaldigi icin ortalama 50'den
+        # dusuyor — "az tespit gerektiren teknik ortalamayi az etkilesin"
+        # karariyla tutarli (2026-07-29).
         self.assertEqual(self.client.put(
             "/api/technique-config/T1000", json={"rule_threshold": 1}).status_code, 200)
         self.assertEqual(
-            self.client.get("/api/gap-analysis").get_json()["overview"]["average_score_pct"], 50.0)
+            self.client.get("/api/gap-analysis").get_json()["overview"]["average_score_pct"], 33.3)
 
     def test_gap_analysis_is_scoped_to_environment_monitoring(self):
         """Kurumsal gerçek: her ürün her yerde yok.
