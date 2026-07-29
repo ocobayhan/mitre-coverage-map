@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bilgilendirme — SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=106" />
+  <link rel="stylesheet" href="/static/styles.css?v=120" />
 </head>
 <body class="docs-body">
   <header class="docs-topbar">
@@ -56,7 +56,7 @@
               </button>
               <button class="wiki-nav-item" data-wiki="w-teams">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1.5l1.8 3.6 4 .6-2.9 2.8.7 4L8 10.5l-3.6 2 .7-4L2.2 5.7l4-.6L8 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-                Önem &amp; Ekipler
+                Ekipler
               </button>
               <button class="wiki-nav-item" data-wiki="w-audit">Audit &amp; Veri Kalitesi</button>
               <button class="wiki-nav-item" data-wiki="w-scope-registry">Kapsam Envanteri</button>
@@ -101,7 +101,7 @@
                       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="11" width="3" height="7" rx="1" fill="currentColor"/><rect x="8.5" y="7" width="3" height="11" rx="1" fill="currentColor"/><rect x="15" y="3" width="3" height="15" rx="1" fill="currentColor"/></svg>
                     </div>
                     <div class="wiki-card-title">Veri Odaklı Skor</div>
-                    <div class="wiki-card-body">Her teknik için tespit sayısı, mitigation tamamlanma oranı ve ürün çeşitliliğine göre 0–100 arası skor hesaplanır.</div>
+                    <div class="wiki-card-body">Her teknik için "etkin tespit / hedef" oranından 0–100 arası bir skor hesaplanır. Mitigation ve ürün çeşitliliği skora girmez — ayrı gösterge olarak görünür.</div>
                   </div>
                   <div class="wiki-card">
                     <div class="wiki-card-icon" style="background:rgba(0,120,212,.1);color:#2b88d8">
@@ -115,14 +115,14 @@
                       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><line x1="3" y1="5" x2="17" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="15" x2="11" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                     </div>
                     <div class="wiki-card-title">TTP Listesi</div>
-                    <div class="wiki-card-body">Tüm teknikleri taktik bazında satır listesi olarak görüntüleyin. Her satırda tespit sayısı, mitigation durumu ve önem seviyesi yer alır.</div>
+                    <div class="wiki-card-body">Tüm teknikleri taktik bazında satır listesi olarak görüntüleyin. Her satırda tespit/hedef oranı ve mitigation durumu yer alır.</div>
                   </div>
                   <div class="wiki-card">
                     <div class="wiki-card-icon" style="background:rgba(209,52,56,.1);color:#d13438">
                       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2l2.2 4.5 5 .7-3.6 3.5.85 5L10 13.25 5.55 15.7l.85-5L2.8 7.2l5-.7L10 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
                     </div>
-                    <div class="wiki-card-title">Önem Seviyeleri</div>
-                    <div class="wiki-card-body">Her tekniğe 1–5 arası önem seviyesi atayın. Seviye 5 kritik tekniklerin kartlarına kırmızı kenarlık eklenir; boşluklar hemen fark edilir.</div>
+                    <div class="wiki-card-title">Tespitsiz Öncelik</div>
+                    <div class="wiki-card-body">Hiç tespiti olmayan teknikler, MITRE'nin objektif bir sinyaline göre sıralanır: bu tekniği kaç tehdit grubu kullanıyor. Bu bir ayar değil, veriden gelir — elle "önem" atamak yok.</div>
                   </div>
                 </div>
 
@@ -147,7 +147,7 @@
                       <div class="wiki-step-num">3</div>
                       <div>
                         <div class="wiki-step-title">Matrisi İncele</div>
-                        <div class="wiki-step-body">Renklenen kartlar kapsamı gösterir. Kırmızı kenarlıklı kartlar kritik boşluk — önemli ama yetersiz kapsanmış teknikler.</div>
+                        <div class="wiki-step-body">Renklenen kartlar kapsamı gösterir. Hiç tespiti olmayan teknikler <strong>Boşluklar</strong> panelinde ayrı bir listede, en çok tehdit grubunun kullandığı sırayla gösterilir.</div>
                       </div>
                     </div>
                     <div class="wiki-step">
@@ -167,8 +167,8 @@
                     <div class="wiki-step">
                       <div class="wiki-step-num">6</div>
                       <div>
-                        <div class="wiki-step-title">Ekip &amp; Önem Ayarla</div>
-                        <div class="wiki-step-body">Ayarlar → Ekipler sekmesinden ekip adları tanımla. Teknik modalı → Admin sekmesinden önem seviyesi (1–5) ata. Mitigation girişlerinde ekibi dropdown'dan seç.</div>
+                        <div class="wiki-step-title">Ekip Ayarla &amp; Hedefi İncele</div>
+                        <div class="wiki-step-body">Ayarlar → Ekipler sekmesinden ekip adları tanımla, mitigation girişlerinde dropdown'dan seç. Teknik modalı → Admin sekmesinden gerekirse o tekniğin hedef tespit sayısını değiştir.</div>
                       </div>
                     </div>
                     <div class="wiki-step">
@@ -212,12 +212,11 @@
                         <div class="wmd-id">T1059</div>
                         <div class="wmd-name">Command &amp; Scripting</div>
                         <div class="wmd-stripe" style="background:linear-gradient(#0078d4 50%,#57a300 50%)"></div>
-                        <div class="wmd-badge">✓2</div>
+                        <div class="wmd-badge" style="background:rgba(138,127,209,.32);color:#cfc6f5;border:1px solid rgba(138,127,209,.55)">M</div>
                       </div>
-                      <div class="wmd-card wmd-low wmd-critical">
+                      <div class="wmd-card wmd-low">
                         <div class="wmd-id">T1203</div>
                         <div class="wmd-name">Exploitation for Execution</div>
-                        <div class="wmd-exclaim">!</div>
                       </div>
                     </div>
                     <div class="wmd-col">
@@ -233,11 +232,14 @@
                     </div>
                   </div>
                   <div class="wiki-legend-row">
-                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:#14181e"></div>Tespit yok</div>
-                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(96,74,18)"></div>Düşük (%0–40)</div>
-                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(176,124,30)"></div>Orta (%40)</div>
-                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(53,196,139)"></div>İyi kapsama (%100)</div>
-                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="border:2px solid #d13438;background:#14181e"></div>Kritik boşluk</div>
+                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(20,26,34)"></div>0%</div>
+                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(205,50,50)"></div>~%30</div>
+                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(225,135,45)"></div>~%50</div>
+                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(185,205,60)"></div>~%70</div>
+                    <div class="wiki-legend-item"><div class="wiki-legend-swatch" style="background:rgb(42,155,55)"></div>%100</div>
+                  </div>
+                  <div class="wiki-info-box" style="margin-top:10px">
+                    <p>Renk, 5 duraklı bir gradyanın enterpolasyonudur (0 / 0.30 / 0.50 / 0.70 / 1.00) — koyudan kırmızıya, turuncuya, sarı-yeşile ve son olarak koyu yeşile geçer. Ana teknik kartları %20, alt teknik kartları %13 saydamlıkta uygulanır (koyu arka plan üzerinde okunabilir kalması için).</p>
                   </div>
                 </div>
 
@@ -247,13 +249,15 @@
                     <table class="wiki-table">
                       <thead><tr><th>Gösterge</th><th>Anlamı</th></tr></thead>
                       <tbody>
-                        <tr><td><span class="wt-badge" style="background:#57a300">✓2</span></td><td>Yeşil rozet — tamamlanan mitigation sayısı</td></tr>
-                        <tr><td><span class="wt-exclaim">!</span></td><td>Kırmızı ünlem — kritik boşluk (önem ≥ 0.7 ve skor &lt; 0.35)</td></tr>
+                        <tr><td><span class="wt-badge" style="background:rgba(138,127,209,.32);color:#cfc6f5;border:1px solid rgba(138,127,209,.55)">M</span></td><td>Mor "M" rozeti — bu teknikte kayıtlı bir mitigation var. Renge ve skora karışmaz, yalnızca bilgi.</td></tr>
                         <tr><td><div class="wt-dots"><span class="wt-dot" style="background:#0078d4"></span><span class="wt-dot" style="background:#57a300"></span></div></td><td>Sağ alt nokta(lar) — tekniği kapsayan ürün renkleri</td></tr>
                         <tr><td><div class="wt-stripe" style="background:#ca5010"></div></td><td>Sol renkli şerit — hangi ürünlerin tespit içerdiği</td></tr>
                         <tr><td><span style="font-size:10px;opacity:.7">▶</span></td><td>Sağ üst küçük ok — kartta alt teknikler (subtechnik) var; tıklayınca açılır / kapanır</td></tr>
                       </tbody>
                     </table>
+                  </div>
+                  <div class="wiki-info-box">
+                    <p><em>Not:</em> Eskiden "kritik boşluk" işaretli tekniklerin kartına kırmızı kenarlık ve ünlem ekleniyordu (önem seviyesine dayanıyordu). Önem seviyesi kavramı kaldırıldığından bu kart üzerinde artık yok — hiç tespiti olmayan teknikler <strong>Boşluklar</strong> panelinde ayrı bir listede, en çok tehdit grubunun kullandığı sırayla gösterilir.</p>
                   </div>
                 </div>
 
@@ -262,7 +266,7 @@
                   <div class="wiki-info-box">
                     <p>Alt teknikleri olan kartlarda sağ üst köşede küçük <strong>▶</strong> oku gösterilir. Karta tıklayınca alt teknikler kartın altında açılır; ok 90° döner. Tekrar tıklayınca kapanır.</p>
                     <p>Filter bar'daki <strong>"Hepsini Aç"</strong> butonu tüm alt teknikleri aynı anda açar; tekrar basınca hepsini kapatır. Her yeni arama sonrasında buton "Hepsini Aç" konumuna sıfırlanır.</p>
-                    <p><em>Not:</em> Alt tekniklerin kapsama sayımı ebeveyn teknikten bağımsızdır — alt tekniğe eklenen tespit ve mitigationlar yalnızca o alt tekniğin skoruna katkı sağlar.</p>
+                    <p><em>Önemli:</em> Bir alt tekniğe yazılan tespit yalnızca o alt tekniğin kendi rengine ve skoruna katkı sağlar — üst tekniği "tespitli" yapmaz. Bir tekniğin üst kartı, ancak <strong>doğrudan kendisine</strong> yazılmış bir tespitle kapsanmış sayılır; kardeş alt tekniklerden birinin kapsanması diğerleri (veya üst teknik) hakkında bir şey söylemez. Üst kartı tıklayıp modalı açtığınızda yine de tüm alt tekniklerdeki kuralları ayrı ayrı gruplanmış olarak görürsünüz — sayım net kalır, görünürlük kaybolmaz.</p>
                   </div>
                 </div>
 
@@ -278,42 +282,52 @@
               <!-- Puanlama -->
               <div class="wiki-page" id="w-scoring">
                 <h1 class="wiki-page-title">Puanlama Sistemi</h1>
-                <p class="wiki-page-lead">Her teknik için 0–1 arasında bir skor hesaplanır. Bu skor kart rengini ve "kritik boşluk" etiketini belirler.</p>
-                <div class="wiki-warning"><strong>Bu puan operasyonel olgunluk göstergesidir.</strong> Tespit sayısı, mitigation kapsamı ve ürün çeşitliliğinden türetilir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.</div>
+                <p class="wiki-page-lead">Her teknik için 0–1 arasında bir skor hesaplanır. Bu skor, o tekniğin matris kartındaki rengini belirler.</p>
+                <div class="wiki-warning"><strong>Bu puan operasyonel bir olgunluk göstergesidir, kanıt değildir.</strong> Kısmi kapsama ve toplu ürün iddiaları da (indirimli ağırlıkla) skora girer; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir. Mitigation ve ürün çeşitliliği skora hiç girmez — ayrı göstergelerdir.</div>
 
                 <div class="wiki-section">
                   <h2 class="wiki-h2">Formül</h2>
                   <div class="wiki-formula">
                     <div class="wf-row">
                       <div class="wf-term">
-                        <div class="wf-label">Tespit Skoru</div>
-                        <div class="wf-eq"><code>min(tespit_sayısı / eşik, 1.0)</code></div>
-                        <div class="wf-note">Varsayılan eşik: 10 tespit</div>
+                        <div class="wf-label">Kapsama Skoru</div>
+                        <div class="wf-eq"><code>min(etkin_tespit / hedef, 1.0)</code></div>
+                        <div class="wf-note">Hedef 0 ("gerekli değil") ise skor her zaman %100</div>
                       </div>
-                      <div class="wf-weight" style="color:#4f86c6">× 0.50</div>
-                    </div>
-                    <div class="wf-plus">+</div>
-                    <div class="wf-row">
-                      <div class="wf-term">
-                        <div class="wf-label">Mitigation Skoru</div>
-                        <div class="wf-eq"><code>min(tamamlanan / toplam, 1.0)</code></div>
-                        <div class="wf-note">Toplam: tekniğe bağlı MITRE mitigation sayısı</div>
-                      </div>
-                      <div class="wf-weight" style="color:#35c48b">× 0.30</div>
-                    </div>
-                    <div class="wf-plus">+</div>
-                    <div class="wf-row">
-                      <div class="wf-term">
-                        <div class="wf-label">Çeşitlilik Skoru</div>
-                        <div class="wf-eq"><code>min(ürün_sayısı / 2, 1.0)</code></div>
-                        <div class="wf-note">2 veya daha fazla farklı ürünle maksimum puan</div>
-                      </div>
-                      <div class="wf-weight" style="color:#ca5010">× 0.20</div>
                     </div>
                     <div class="wf-result">
-                      <span>= Nihai Skor</span>
+                      <span>= Teknik Skoru</span>
                       <span class="wf-range">( 0.0 — 1.0 )</span>
                     </div>
+                  </div>
+                  <div class="wiki-info-box" style="margin-top:10px">
+                    <p><strong>Etkin tespit</strong>, tekniğe bağlı her tespitin üç ayrı ağırlığının çarpımının toplamıdır:</p>
+                    <ul class="wiki-ul">
+                      <li><strong>Kapsama seviyesi</strong> — <code>low</code> ×0.25, <code>partial</code> ×0.60, <code>full</code> ×1.00</li>
+                      <li><strong>Ortam izleme ağırlığı</strong> — belirli bir ortam seçiliyken, o tespitin ürünü orada ne kadar izliyorsa (tam ×1.00, kısmi ×%oran, yok ×0). "Tüm ortamlar (birleşik)" modunda etkisizdir.</li>
+                      <li><strong>Kaynak ağırlığı</strong> — adı olan gerçek bir tespit (<code>named</code>) ×1.00; toplu ürün iddiası (<code>product_claim</code> — içe aktarımdaki "built-in kapsama" gibi tek satırlık, isimsiz bir iddia) ×0.75. Böylece adı olan hiçbir tespiti olmayan bir teknik, yalnızca toplu iddiayla asla %100 gösteremez.</li>
+                    </ul>
+                    <p><strong>Hedef</strong> (kaç etkin tespit "yeterli" sayılır), her teknik için ayrı ayrı ayarlanabilir: ana teknikler varsayılan <strong>2</strong>, alt teknikler varsayılan <strong>1</strong> ile başlar (kurallar neredeyse tamamen ana tekniğe yazıldığı için alt teknik başına 2 ayrı kural beklemek gerçekçi değildi). Admin, teknik detay modalından bunu her teknik için elle değiştirebilir; <strong>0</strong> seçilirse "bu teknik için tespit gerekmiyor" demektir ve skor daima %100'dür.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">"Tespit" mi, "Ortalama Skor" mü?</h2>
+                  <div class="wiki-info-box">
+                    <p>Üstteki özet çubuğunda iki ayrı sayı vardır ve <strong>farklı sorulara</strong> cevap verirler — birbirine yakın olmaları beklenmemeli:</p>
+                    <ul class="wiki-ul">
+                      <li><strong>Tespit / Kapsamsız</strong> — sert kanıt ister: adı olan gerçek bir tespit var mı, yok mu (evet/hayır). Toplu ürün iddiası bu kovaya girmez, kısmi kapsama da "yarım tespit" sayılmaz.</li>
+                      <li><strong>Ortalama Skor</strong> — yukarıdaki formülün ağırlıklı ortalamasıdır; kısmi kapsamayı, toplu iddiaları ve alt teknikleri (düşük ağırlıkla) de sayar. Daha yumuşak bir olgunluk göstergesidir.</li>
+                    </ul>
+                    <p>Bir teknik <em>aynı anda</em> "Kapsamsız" listesinde görünüp yine de sıfırdan yüksek bir skora sahip olabilir — bu bir hata değil, örneğin toplu bir ürün iddiası varsa beklenen davranıştır.</p>
+                  </div>
+                </div>
+
+                <div class="wiki-section">
+                  <h2 class="wiki-h2">Alt Teknikler Puanlamaya Nasıl Girer?</h2>
+                  <div class="wiki-info-box">
+                    <p>Her alt teknik yukarıdaki formülle <strong>kendi</strong> skorunu alır (kendi hedefi, varsayılan 1). Ama bir üst tekniğin kartı, ancak <strong>doğrudan kendisine</strong> yazılmış bir tespitle kapsanmış sayılır — bir kardeş alt tekniğin kapsanması üst tekniği veya diğer kardeşleri etkilemez.</p>
+                    <p>Genel <strong>"Ortalama Skor"</strong> özetine alt teknikler dahildir, ama ana tekniklerden daha düşük ağırlıkla: her tekniğin ortalamaya katkısı kendi hedefiyle orantılıdır (hedefi 0 olan "gerekli değil" teknikler otomatik ağırlıksız kalır), alt teknikler ayrıca <strong>0.3×</strong> ek çarpanla girer.</p>
                   </div>
                 </div>
 
@@ -321,25 +335,29 @@
                   <h2 class="wiki-h2">Örnek Hesaplamalar</h2>
                   <div class="wiki-examples">
                     <div class="wx-card">
-                      <div class="wx-title">Başlangıç Seviyesi</div>
-                      <div class="wx-row"><span>3 tespit</span><div class="wx-bar"><div style="width:15%;background:#4f86c6"></div></div><span>%15</span></div>
-                      <div class="wx-row"><span>0 mitigation</span><div class="wx-bar"><div style="width:0%;background:#35c48b"></div></div><span>%0</span></div>
-                      <div class="wx-row"><span>1 ürün</span><div class="wx-bar"><div style="width:10%;background:#ca5010"></div></div><span>%10</span></div>
-                      <div class="wx-total" style="background:rgb(60,55,20)">Skor: ~0.25 <span>■ Amber'e yakın</span></div>
+                      <div class="wx-title">Yalnızca Toplu İddia</div>
+                      <div class="wx-row"><span>Adı olan tespit yok</span><div class="wx-bar"><div style="width:0%;background:#4f86c6"></div></div><span>0</span></div>
+                      <div class="wx-row"><span>1× partial ürün iddiası</span><div class="wx-bar"><div style="width:45%;background:#4f86c6"></div></div><span>0.60×0.75</span></div>
+                      <div class="wx-row"><span>Hedef 2</span><div class="wx-bar"><div style="width:100%;background:#ca5010"></div></div><span>÷2</span></div>
+                      <div class="wx-total" style="background:rgb(96,55,55)">Skor: 0.225 <span>■ "Kapsamsız" listesinde de görünür</span></div>
                     </div>
                     <div class="wx-card">
-                      <div class="wx-title">Orta Seviye</div>
-                      <div class="wx-row"><span>5 tespit</span><div class="wx-bar"><div style="width:25%;background:#4f86c6"></div></div><span>%25</span></div>
-                      <div class="wx-row"><span>2 mitigation</span><div class="wx-bar"><div style="width:12%;background:#35c48b"></div></div><span>%12</span></div>
-                      <div class="wx-row"><span>2 ürün</span><div class="wx-bar"><div style="width:20%;background:#ca5010"></div></div><span>%20</span></div>
-                      <div class="wx-total" style="background:rgb(110,95,25)">Skor: ~0.57 <span>■ Yeşile gidiyor</span></div>
+                      <div class="wx-title">Kısmi, Adı Olan Tespit</div>
+                      <div class="wx-row"><span>1× partial, named</span><div class="wx-bar"><div style="width:30%;background:#4f86c6"></div></div><span>0.60</span></div>
+                      <div class="wx-row"><span>Hedef 2</span><div class="wx-bar"><div style="width:100%;background:#ca5010"></div></div><span>÷2</span></div>
+                      <div class="wx-total" style="background:rgb(110,95,25)">Skor: 0.30 <span>■ "Tespit" kovasına girer</span></div>
                     </div>
                     <div class="wx-card">
                       <div class="wx-title">Tam Kapsama</div>
-                      <div class="wx-row"><span>10+ tespit</span><div class="wx-bar"><div style="width:50%;background:#4f86c6"></div></div><span>%50</span></div>
-                      <div class="wx-row"><span>Tüm mitigationlar</span><div class="wx-bar"><div style="width:30%;background:#35c48b"></div></div><span>%30</span></div>
-                      <div class="wx-row"><span>2+ ürün</span><div class="wx-bar"><div style="width:20%;background:#ca5010"></div></div><span>%20</span></div>
+                      <div class="wx-row"><span>2× full, named</span><div class="wx-bar"><div style="width:100%;background:#4f86c6"></div></div><span>2.0</span></div>
+                      <div class="wx-row"><span>Hedef 2</span><div class="wx-bar"><div style="width:100%;background:#ca5010"></div></div><span>÷2</span></div>
                       <div class="wx-total" style="background:rgb(35,140,95)">Skor: 1.00 <span>■ Tam yeşil</span></div>
+                    </div>
+                    <div class="wx-card">
+                      <div class="wx-title">"Gerekli Değil" (hedef=0)</div>
+                      <div class="wx-row"><span>0 tespit</span><div class="wx-bar"><div style="width:0%;background:#4f86c6"></div></div><span>0</span></div>
+                      <div class="wx-row"><span>Hedef 0</span><div class="wx-bar"><div style="width:100%;background:#ca5010"></div></div><span>—</span></div>
+                      <div class="wx-total" style="background:rgb(35,140,95)">Skor: 1.00 <span>■ Bölme yok, doğrudan tam</span></div>
                     </div>
                   </div>
                 </div>
@@ -347,8 +365,8 @@
                 <div class="wiki-section">
                   <h2 class="wiki-h2">Teknik Bazlı Yapılandırma</h2>
                   <div class="wiki-info-box">
-                    <p>Her teknik için varsayılan eşik değerleri admin panelinden özelleştirilebilir. Teknik kartına tıklayın → <strong>Admin</strong> sekmesi → <em>Önem Derecesi</em> ve <em>Tespit Eşiği</em> alanlarını düzenleyin.</p>
-                    <p>Önem derecesi <strong>≥ 0.7</strong> olan bir tekniğin skoru <strong>&lt; 0.35</strong> ise kırmızı kenarlıklı <em>kritik boşluk</em> etiketi alır.</p>
+                    <p>Her teknik için hedef tespit sayısı admin panelinden özelleştirilebilir. Teknik kartına tıklayın → <strong>Admin</strong> sekmesi → <em>Hedef tespit sayısı</em> alanını düzenleyin (0–10 arası, 0 = "gerekli değil").</p>
+                    <p>Hiç adı olan tespiti olmayan teknikler artık kart üzerinde işaretlenmez — <strong>Boşluklar</strong> panelindeki "Tespitsiz Teknikler" listesinde, MITRE'nin objektif sinyaline (kaç tehdit grubu kullanıyor) göre sıralanmış olarak görünürler. Bu bir ayar değil, veriden gelir.</p>
                   </div>
                 </div>
               </div>
@@ -356,24 +374,33 @@
               <!-- Renk Kodu -->
               <div class="wiki-page" id="w-colors">
                 <h1 class="wiki-page-title">Renk Kodu</h1>
-                <p class="wiki-page-lead">Teknik kartlarının arka plan rengi, o tekniğin hesaplanan skoruna göre 3 bölgeli bir geçiş izler.</p>
-                <div class="wiki-warning">Aşağıdaki geçiş <strong>Operasyonel</strong> Matrix modu içindir. Validated Detection, Data Visibility ve Combined modları kendi lejantlarını kullanır.</div>
+                <p class="wiki-page-lead">Teknik kartlarının arka plan rengi, o tekniğin hesaplanan skoruna göre 5 duraklı bir gradyanın enterpolasyonudur.</p>
 
                 <div class="wiki-section">
                   <div class="wiki-gradient-bar">
                     <div class="wgb-track">
                       <div class="wgb-fill"></div>
                       <div class="wgb-marker" style="left:0%"><div class="wgb-label">0.0</div></div>
-                      <div class="wgb-marker" style="left:40%"><div class="wgb-label">0.40</div></div>
+                      <div class="wgb-marker" style="left:30%"><div class="wgb-label">0.30</div></div>
+                      <div class="wgb-marker" style="left:50%"><div class="wgb-label">0.50</div></div>
+                      <div class="wgb-marker" style="left:70%"><div class="wgb-label">0.70</div></div>
                       <div class="wgb-marker" style="left:100%"><div class="wgb-label">1.0</div></div>
                     </div>
                     <div class="wgb-zones">
-                      <div class="wgb-zone" style="width:40%">
-                        <span>Koyu gri → Amber</span>
-                        <span class="wgb-zone-sub">Kapsanmamış / Düşük</span>
+                      <div class="wgb-zone" style="width:30%">
+                        <span>Koyu → Kırmızı</span>
+                        <span class="wgb-zone-sub">Tespit yok / çok az</span>
                       </div>
-                      <div class="wgb-zone" style="width:60%;border-left:1px solid var(--d-border)">
-                        <span>Amber → Yeşil</span>
+                      <div class="wgb-zone" style="width:20%;border-left:1px solid var(--d-border)">
+                        <span>Kırmızı → Turuncu</span>
+                        <span class="wgb-zone-sub">Düşük kapsama</span>
+                      </div>
+                      <div class="wgb-zone" style="width:20%;border-left:1px solid var(--d-border)">
+                        <span>Turuncu → Sarı-yeşil</span>
+                        <span class="wgb-zone-sub">Orta kapsama</span>
+                      </div>
+                      <div class="wgb-zone" style="width:30%;border-left:1px solid var(--d-border)">
+                        <span>Sarı-yeşil → Koyu yeşil</span>
                         <span class="wgb-zone-sub">İyi kapsama</span>
                       </div>
                     </div>
@@ -383,13 +410,13 @@
                 <div class="wiki-section">
                   <h2 class="wiki-h2">RGBA Şeffaflık Sistemi</h2>
                   <div class="wiki-info-box">
-                    <p>Kart arka plan rengi doğrudan solid bir renk değil, <strong>%20 opaklıkta</strong> bir RGBA katmanıdır. Bu sayede:</p>
+                    <p>Kart arka plan rengi doğrudan solid bir renk değil, bir RGBA katmanıdır. Bu sayede:</p>
                     <ul class="wiki-ul">
-                      <li>Karanlık arka plan (%80) korunur — kartlar okunabilir kalır</li>
+                      <li>Karanlık arka plan korunur — kartlar okunabilir kalır</li>
                       <li>Çok sayıda kart aynı anda ekranda olduğunda göz yorulmaz</li>
                       <li>Ürün rengi şeridi ile arka plan rengi aynı anda görülebilir</li>
                     </ul>
-                    <p>Örneğin tam yeşil <code>rgb(48,165,122)</code> rengi %20 opaklıkta uygulanır: <code>rgba(48,165,122, 0.20)</code>.</p>
+                    <p>Ana teknik kartları <strong>%20</strong> opaklıkta, alt teknik kartları biraz daha sönük <strong>%13</strong> opaklıkta uygulanır — örneğin tam yeşil <code>rgb(42,155,55)</code>, ana kartta <code>rgba(42,155,55,0.20)</code>, alt teknik kartında <code>rgba(42,155,55,0.13)</code> olur.</p>
                   </div>
                 </div>
 
@@ -400,35 +427,35 @@
                       <div class="wcs-swatch" style="background:rgb(20,26,34)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 0.00</div>
-                        <div class="wcs-desc">Hiç tespit yok, mitigation yok. Tamamen koyu arka plan.</div>
+                        <div class="wcs-desc">Hiç etkin tespit yok. Tamamen koyu arka plan.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgba(176,124,30,0.20)"></div>
+                      <div class="wcs-swatch" style="background:rgba(205,50,50,0.20)"></div>
                       <div class="wcs-info">
-                        <div class="wcs-score">Skor: 0.20</div>
-                        <div class="wcs-desc">1–2 tespit. Hafif amber tonu — %20 opaklık.</div>
+                        <div class="wcs-score">Skor: 0.30</div>
+                        <div class="wcs-desc">Hedefin ~üçte biri karşılanmış. Kırmızı ton.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgba(176,124,30,0.55)"></div>
+                      <div class="wcs-swatch" style="background:rgba(225,135,45,0.20)"></div>
                       <div class="wcs-info">
-                        <div class="wcs-score">Skor: 0.40</div>
-                        <div class="wcs-desc">~4 tespit veya bazı mitigationlar. Daha belirgin amber, orta kapsama.</div>
+                        <div class="wcs-score">Skor: 0.50</div>
+                        <div class="wcs-desc">Hedefin yarısı karşılanmış. Turuncu ton.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgba(48,165,122,0.20)"></div>
+                      <div class="wcs-swatch" style="background:rgba(185,205,60,0.20)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 0.70</div>
-                        <div class="wcs-desc">6–7 tespit + bazı mitigationlar. Cool green tonu <code>rgba(48,165,122,0.20)</code>.</div>
+                        <div class="wcs-desc">Hedefin çoğu karşılanmış. Sarı-yeşil ton.</div>
                       </div>
                     </div>
                     <div class="wcs-item">
-                      <div class="wcs-swatch" style="background:rgba(48,165,122,0.55)"></div>
+                      <div class="wcs-swatch" style="background:rgba(42,155,55,0.20)"></div>
                       <div class="wcs-info">
                         <div class="wcs-score">Skor: 1.00</div>
-                        <div class="wcs-desc">10+ tespit, tüm mitigationlar, 2+ ürün. Güçlü yeşil.</div>
+                        <div class="wcs-desc">Hedef tamamen (veya "gerekli değil" ile) karşılanmış. Koyu yeşil.</div>
                       </div>
                     </div>
                   </div>
@@ -437,13 +464,16 @@
                 <div class="wiki-section">
                   <h2 class="wiki-h2">Hover Tooltip</h2>
                   <div class="wiki-info-box">
-                    <p>Herhangi bir teknik kartın üzerine geldiğinizde bir tooltip açılır ve skor bileşenlerini ayrı ayrı gösterir:</p>
+                    <p>Herhangi bir teknik kartın üzerine geldiğinizde bir tooltip açılır. Skora giren ve girmeyen bilgiler ayrı ayrı gösterilir:</p>
                     <div class="wtt-demo">
-                      <div class="wtt-row"><span class="wtt-lbl">Tespit</span><div class="wtt-bar"><div style="width:60%;background:#4f86c6"></div></div><span>6/10</span></div>
-                      <div class="wtt-row"><span class="wtt-lbl">Mitigation</span><div class="wtt-bar"><div style="width:40%;background:#35c48b"></div></div><span>2/5</span></div>
+                      <div class="wtt-row"><span class="wtt-lbl">Tespit</span><div class="wtt-bar"><div style="width:60%;background:#4f86c6"></div></div><span>3 adet · 1.2/2 etkin</span></div>
                       <div class="wtt-divider"></div>
-                      <div class="wtt-row"><span class="wtt-lbl">Toplam Skor</span><span style="font-weight:600;color:#fff">52</span></div>
+                      <div class="wtt-row"><span class="wtt-lbl">Mitigation ⛨</span><div class="wtt-bar"><div style="width:40%;background:#8a7fd1"></div></div><span>2/5 · skora girmez</span></div>
+                      <div class="wtt-divider"></div>
+                      <div class="wtt-row"><span class="wtt-lbl">Tehdit grubu</span><span>17 grup kullanıyor</span></div>
+                      <div class="wtt-row"><span class="wtt-lbl">Kapsama</span><span style="font-weight:600;color:#35c48b">%60 · hedef 2 tespit</span></div>
                     </div>
+                    <p style="margin-top:8px">Adı olan tespiti olmayıp yalnızca toplu ürün iddiasıyla skor alan tekniklerde ek bir uyarı satırı ("Yalnız ürün iddiası") görünür.</p>
                   </div>
                 </div>
               </div>
@@ -519,8 +549,8 @@
                 <div class="wiki-section">
                   <h2 class="wiki-h2">Entry-Based Takip</h2>
                   <div class="wiki-info-box">
-                    <p>Mitigation takibi <strong>onay kutusu</strong> değil, <strong>kayıt girişi</strong> tabanlıdır. Bir mitigation için kayıt eklediğinizde (ekip + yorum) sistem o mitigationu <em>tamamlandı</em> sayar ve skora yansıtır.</p>
-                    <p>Bu sayede "kim, ne zaman, hangi ekip" gibi bilgiler kayıt altına alınır ve audit trail oluşturulur.</p>
+                    <p>Mitigation takibi <strong>onay kutusu</strong> değil, <strong>kayıt girişi</strong> tabanlıdır. Bir mitigation için en az bir kayıt eklediğinizde (ekip + ürün + yorum) sistem o mitigationu <em>işaretli</em> sayar — ayrı bir "checked" bayrağı yoktur, kayıt varlığının kendisi yeterlidir.</p>
+                    <p>Bu sayede "kim, ne zaman, hangi ekip, hangi ürünle" gibi bilgiler kayıt altına alınır ve audit trail oluşturulur.</p>
                   </div>
                 </div>
 
@@ -533,15 +563,15 @@
                     </div>
                     <div class="wiki-step">
                       <div class="wiki-step-num">2</div>
-                      <div><strong>Mitigation</strong> sekmesine geçin. Teknikle ilişkili MITRE mitigationları listelenir.</div>
+                      <div><strong>Mitigations</strong> sekmesine geçin. Teknikle ilişkili MITRE mitigationları listelenir.</div>
                     </div>
                     <div class="wiki-step">
                       <div class="wiki-step-num">3</div>
-                      <div>Bir mitigation için <strong>Ekip</strong> dropdown'ından sorumlu ekibi seçin (Ayarlar → Ekipler'de tanımlıdır), <strong>Yorum</strong> alanına açıklama girin ve <strong>Kaydet</strong>'e tıklayın.</div>
+                      <div>Bir mitigation için <strong>Ekip</strong> dropdown'ından sorumlu ekibi, <strong>Ürün</strong> dropdown'ından hangi ürünle sağlandığını seçin (ürün yoksa <em>Diğer</em>), <strong>Yorum</strong> alanına nasıl sağlandığını yazın ve <strong>Kaydet</strong>'e tıklayın.</div>
                     </div>
                     <div class="wiki-step">
                       <div class="wiki-step-num">4</div>
-                      <div>Kaydedilen giriş mitigationun altında listelenir. İlk kayıt sonrasında o mitigation <em>tamamlandı</em> sayılır ve teknik skoru artar.</div>
+                      <div>Kaydedilen giriş mitigationun altında listelenir. İlk kayıt sonrasında o mitigation <em>işaretli</em> sayılır ve kartın köşesinde mor "M" rozeti çıkar — teknik skoru <strong>değişmez</strong>.</div>
                     </div>
                   </div>
                 </div>
@@ -555,17 +585,12 @@
                 </div>
 
                 <div class="wiki-section">
-                  <h2 class="wiki-h2">Skor Etkisi</h2>
-                  <div class="wiki-formula" style="padding:14px 16px">
-                    <div class="wf-row">
-                      <div class="wf-term">
-                        <div class="wf-label">Mitigation Skoru</div>
-                        <div class="wf-eq"><code>tamamlanan_mitigation / tekniğin_toplam_mitigationı</code></div>
-                      </div>
-                      <div class="wf-weight" style="color:#35c48b">× 0.30</div>
-                    </div>
+                  <h2 class="wiki-h2">Neden Skora Girmiyor?</h2>
+                  <div class="wiki-warning"><strong>Mitigation skora hiç girmez.</strong> Haritanın cevapladığı soru "bu tekniği görebiliyor muyuz" — mitigation bunu değil, "bu tekniği zorlaştırıyor muyuz"u anlatır. İkisi karışırsa hiçbir tekniğin gerçekten tespit edilip edilmediği anlaşılmaz.</div>
+                  <div class="wiki-info-box">
+                    <p>Ayrıca MITRE'nin mitigation↔teknik eşlemesi çok geniştir ve bu, mitigationu skora katmayı riskli kılar: tek bir mitigation kaydı (örn. <strong>M1018 User Account Management</strong>) MITRE'nin eşlemesi üzerinden <strong>120'den fazla</strong> farklı tekniği aynı anda etkiler. Eğer skora girseydi, o 120 tekniğin hiç tespiti olmayanları da suni şekilde yükselirdi — <em>"bu mitigation bu teknikle ilgilidir"</em> demek, <em>"bu mitigation bu tekniği engeller"</em> demek değildir.</p>
+                    <p>Bu yüzden mitigation, karta ayrı bir mor <strong>"M"</strong> rozeti olarak eklenir; rengi ve skoru hiç etkilemez.</p>
                   </div>
-                  <p class="wiki-p" style="margin-top:10px">Bir tekniğin 5 mitigationundan 5'ini de kayıt altına alırsanız mitigation katkısı maksimum olur ve skor 0.30 puan artar.</p>
                 </div>
               </div>
 
@@ -747,9 +772,8 @@ Mimikatz Detected,T1003.001,QRadar</pre>
                       <li><strong>ID</strong> — Teknik kodu (T1059 gibi)</li>
                       <li><strong>Teknik Adı</strong> — Tıklanabilir; detay modalını açar</li>
                       <li><strong>Taktik</strong> — Tekniğin ait olduğu ATT&amp;CK taktiği</li>
-                      <li><strong>Tespit</strong> — Kayıtlı tespit sayısı</li>
-                      <li><strong>Mitigation</strong> — Tamamlanan / toplam mitigation oranı</li>
-                      <li><strong>Önem</strong> — Atanmış önem seviyesi (1–5)</li>
+                      <li><strong>Tespit</strong> — Etkin tespit / hedef</li>
+                      <li><strong>Mitigation</strong> — İşaretli / toplam mitigation sayısı (skora girmez, bilgi amaçlı)</li>
                     </ul>
                   </div>
                 </div>
@@ -776,24 +800,12 @@ Mimikatz Detected,T1003.001,QRadar</pre>
                 </div>
               </div>
 
-              <!-- Önem & Ekipler -->
+              <!-- Ekipler -->
               <div class="wiki-page" id="w-teams">
-                <h1 class="wiki-page-title">Önem Seviyeleri &amp; Ekipler</h1>
-                <p class="wiki-page-lead">Her tekniğe 1–5 arası önem derecesi atayabilir, mitigation girişlerini sorumlu ekiplere bağlayabilirsiniz.</p>
-
-                <div class="wiki-section">
-                  <h2 class="wiki-h2">Önem Seviyesi</h2>
-                  <div class="wiki-info-box">
-                    <p>Teknik modalı → <strong>Admin</strong> sekmesi → <em>Önem Derecesi</em> alanı. 1–5 arası bir değer girin:</p>
-                    <ul class="wiki-ul">
-                      <li><span class="importance-badge imp-level-1" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(120,120,120,.15);border:1px solid #888;color:#aaa">1 — Düşük</span> — izlemesi yararlı ama öncelikli değil</li>
-                      <li><span class="importance-badge imp-level-2" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(0,120,212,.15);border:1px solid #0078d4;color:#2b88d8">2 — Orta-Düşük</span> — standart takip</li>
-                      <li><span class="importance-badge imp-level-3" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(202,80,16,.15);border:1px solid #ca5010;color:#e07840">3 — Orta</span> — dikkat gerektiren teknikler</li>
-                      <li><span class="importance-badge imp-level-4" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(230,120,0,.15);border:1px solid #e67800;color:#e69000">4 — Yüksek</span> — öncelikli kapsanmalı</li>
-                      <li><span class="importance-badge imp-level-5" style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:11px;background:rgba(209,52,56,.15);border:1px solid #d13438;color:#d13438">5 — Kritik</span> — kapsanmamışsa kırmızı kenarlık gösterilir</li>
-                    </ul>
-                    <p>Seviye 5 atanmış ve skoru &lt; 0.35 olan teknikler matris kartlarında <strong>kırmızı kenarlık (kritik boşluk)</strong> ile işaretlenir.</p>
-                  </div>
+                <h1 class="wiki-page-title">Ekipler</h1>
+                <p class="wiki-page-lead">Mitigation girişlerini sorumlu ekiplere bağlayabilirsiniz.</p>
+                <div class="wiki-info-box">
+                  <p><em>Not:</em> Önceden her tekniğe 1–5 arası elle bir "önem derecesi" atanabiliyor ve kapsanmamış kritik (seviye 5) teknikler kırmızı kenarlıkla işaretleniyordu. Bu kavram kaldırıldı — opak ve yönetilemezdi. Tespitsiz tekniklerin önceliklendirilmesi artık MITRE'nin objektif sinyaline (kaç tehdit grubu kullanıyor) dayanır, bkz. <strong>Puanlama</strong> sayfası.</p>
                 </div>
 
                 <div class="wiki-section">
@@ -813,11 +825,11 @@ Mimikatz Detected,T1003.001,QRadar</pre>
                     </div>
                     <div class="wiki-step">
                       <div class="wiki-step-num">2</div>
-                      <div>Teknik modalı → <strong>Mitigation</strong> sekmesinde, bir mitigation için <strong>Ekip</strong> dropdown'ından sorumlu ekibi seçin.</div>
+                      <div>Teknik modalı → <strong>Mitigations</strong> sekmesinde, bir mitigation için <strong>Ekip</strong> dropdown'ından sorumlu ekibi, <strong>Ürün</strong> dropdown'ından hangi ürünle sağlandığını seçin.</div>
                     </div>
                     <div class="wiki-step">
                       <div class="wiki-step-num">3</div>
-                      <div>Yorum alanını doldurup kaydedin. Girişiniz Mitigation Listesi sayfasındaki Ekip/Yorum kolonunda görünür.</div>
+                      <div>Yorum alanını doldurup kaydedin. Girişiniz Mitigation Listesi sayfasındaki Ekip/Ürün/Yorum kolonlarında görünür.</div>
                     </div>
                   </div>
                 </div>
