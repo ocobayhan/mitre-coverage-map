@@ -1090,6 +1090,55 @@ class AppTestCase(unittest.TestCase):
             ).fetchone()
         self.assertEqual(after["rule_threshold"], 3, "admin override ezilmemis olmali")
 
+    def test_parent_with_subtechniques_own_threshold_defaults_to_zero(self):
+        """Alt tekniği OLAN bir üst tekniğin kendi (doğrudan) tespit hedefi
+        artık varsayılan olarak 0 — tamamen alt tekniklere devrediyor,
+        kendi başına ayrı "2 tespit" talebi kalmıyor.
+
+        Neden: kimse pratikte ana teknik ID'sinin kendisine kural yazmıyor;
+        eski varsayılan (2) neredeyse hiç dolmayan sabit bir tavan gibi
+        davranıp zaten iyi kapsanmış bir aileyi bile %100'e ulaşmaktan
+        alıkoyuyordu. Kullanıcı kararı (2026-07-29).
+
+        Alt tekniği OLMAYAN ana teknikler (T1001 burada) etkilenmez, admin
+        override'ları asla ezilmez.
+        """
+        self.login()
+        fixture = mitre_fixture()
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-one",
+            "name": "Test Subtechnique One",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.001"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        application.MITRE_PATH.write_text(json.dumps(fixture), encoding="utf-8")
+        application.MITRE_CACHE.update({"mtime": None, "data": None})
+        application.init_db()
+
+        cfg = self.client.get("/api/technique-config").get_json()
+        self.assertEqual(cfg["T1000"]["rule_threshold"], 0,
+                          "alt tekniği olan üst teknik kendi hedefinden vazgeçmeli")
+        self.assertEqual(cfg["T1001"]["rule_threshold"], application.DEFAULT_RULE_THRESHOLD,
+                          "alt tekniği olmayan ana teknik etkilenmemeli")
+
+        # Admin T1000 icin kendi esigini elle 3 yapar
+        self.assertEqual(self.client.put(
+            "/api/technique-config/T1000", json={"rule_threshold": 3}
+        ).status_code, 200)
+        with application.app.app_context():
+            db = application.get_db()
+            application.ensure_parent_with_subtechniques_threshold_zero(db)
+            db.commit()
+            after = db.execute(
+                "SELECT rule_threshold FROM technique_config WHERE tech_id=?", ("T1000",),
+            ).fetchone()
+        self.assertEqual(after["rule_threshold"], 3, "admin override ezilmemis olmali")
+
     def test_score_is_detection_only_and_uses_per_technique_threshold(self):
         """Skor = min(etkin tespit / teknik hedefi, 1). Mitigation ve ürün
         çeşitliliği skora girmez; hedef teknik bazında admin tarafından

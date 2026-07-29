@@ -426,6 +426,48 @@ def ensure_subtechnique_default_threshold(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+def ensure_parent_with_subtechniques_threshold_zero(db: sqlite3.Connection) -> None:
+    """Alt tekniği OLAN bir üst tekniğin kendi (doğrudan) tespit hedefini
+    0'a çeker — "gerekli değil" anlamında, rollup toplamına hiç katkı
+    yapmaz. Üst teknik artık tamamen alt tekniklerine devrediyor; kendi
+    başına ayrı bir "2 tespit" talebi kalmıyor.
+
+    Neden: rollup formülü (_compute_gap_analysis) hedef = kendi_hedef +
+    Σ(alt.hedef) şeklinde hesaplıyor. Kimse pratikte ana teknik ID'sinin
+    kendisine doğrudan kural yazmıyor (kurallar hep alt tekniğe yazılıyor),
+    yani "kendi 2"si neredeyse hiç dolmayan sabit bir tavan gibi davranıp
+    zaten iyi kapsanmış bir aileyi bile %100'e ulaşmaktan alıkoyuyordu
+    (örnek: T1552, 8 alt tekniğin çoğu dolu ama üst teknik "kendi 2"si
+    yüzünden %69'da tıkanıyordu). Kullanıcı kararı (2026-07-29): "ana
+    teknikler ayrıca tespit istemesin, alt tekniklerden faydalansın."
+
+    Yalnızca source='auto' satırlar değişir — admin'in elle ayarladığı bir
+    üst teknik eşiği asla ezilmez. Alt tekniği OLMAYAN ana teknikler
+    (çoğunluk) etkilenmez, DEFAULT_RULE_THRESHOLD=2'de kalır. Üst tekniğin
+    kendi DOĞRUDAN kuralı varsa bu hâlâ rollup'a bonus olarak eklenir
+    (effective_rule_count etkilenmiyor, yalnızca rule_threshold).
+
+    build_technique_config() + ensure_subtechnique_default_threshold()'ten
+    HEMEN SONRA çağrılır ve her init_db()'de tekrar uygulanır — MITRE yeni
+    bir alt teknik ekleyip bir tekniği ilk kez "ebeveyn" yaptığında bu
+    fonksiyon onu hemen yakalar.
+    """
+    db.execute(
+        """
+        UPDATE technique_config
+        SET rule_threshold = 0
+        WHERE source = 'auto'
+          AND rule_threshold != 0
+          AND tech_id NOT LIKE '%.%'
+          AND EXISTS (
+              SELECT 1 FROM technique_config sub
+              WHERE sub.tech_id LIKE technique_config.tech_id || '.%'
+          )
+        """
+    )
+    db.commit()
+
+
 def drop_soc_cmm_schema(db: sqlite3.Connection) -> None:
     """SOC-CMM KPI modelini kaldiran temizlik migration'i (idempotent).
 
@@ -952,6 +994,7 @@ def init_db() -> None:
         drop_technique_importance(db)
         build_technique_config(db)
         ensure_subtechnique_default_threshold(db)
+        ensure_parent_with_subtechniques_threshold_zero(db)
         ensure_rule_coverage_level(db)
         ensure_rule_origin(db)
         drop_soc_cmm_schema(db)
