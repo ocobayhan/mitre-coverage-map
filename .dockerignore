@@ -4,7 +4,6 @@
 **/__pycache__
 *.pyc
 .claude
-docs
 tests
 soc.db
 coverage.db
