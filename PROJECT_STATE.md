@@ -598,6 +598,105 @@ istekten (Matris renklendirmesi) ayrı ve daha büyük bir refactor — üçünc
 bağımsız bir kod yolunu `_compute_gap_analysis()`'e taşımak gerekir.
 `docs/ACIK_SORULAR.md`'ye eklenmesi öneriliyor.
 
+## Üst tekniğin kendi hedefi de 0'a çekildi — rollup tamamen alt tekniklere devredildi (2026-07-29)
+
+Rollup şu formülü kullanıyordu: `hedef = kendi_hedef (varsayılan 2) +
+Σ(alt.hedef)`. Kullanıcının gözlemi: kimse pratikte ana teknik ID'sinin
+kendisine doğrudan kural yazmıyor, yani "kendi 2"si neredeyse hiç dolmayan
+sabit bir tavan gibi davranıp zaten iyi kapsanmış bir aileyi bile %100'e
+ulaşmaktan alıkoyuyordu — T1552 örneği tam olarak buydu (%69, 8 alt
+tekniğin çoğu dolu olmasına rağmen). Kullanıcı kararı: *"ana teknikler
+ayrıca tespit istemesin, alt tekniklerden faydalansın."*
+
+Yeni `ensure_parent_with_subtechniques_threshold_zero(db)` migration'ı
+(`app.py`, `ensure_subtechnique_default_threshold()`'ten hemen sonra, her
+`init_db()`'de çalışır): alt tekniği OLAN bir üst tekniğin kendi hedefini
+0'a çeker (`source='auto'` satırlar, admin override'lar dokunulmaz). Rollup
+kodunun kendisi HİÇ değişmedi — zaten `own_threshold + Σsub` formülü 0'ı
+doğru şekilde "hiç katkı yok" olarak işliyordu, yalnızca varsayılan veriyi
+değiştirmek yeterliydi. `static/app.js`'e de dokunmadı (istemci
+`techniqueThreshold()` ile `/api/technique-config`'ten okuyor, DB'deki
+değer 0 olunca otomatik doğru davranıyor).
+
+**Doğrulandı (gerçek veritabanı):** 102 alt tekniği olan üst teknikten
+77'si (`source='auto'`) artık hedef=0; 25'i (`source='admin'`, önceden elle
+ayarlanmış) dokunulmadan kaldı. T1552'nin kendi hedefi 2→0, rollup hedefi
+10→8'e düştü — aynı kapsamayla skoru artık %69 değil ~%99. Yeni test:
+`test_parent_with_subtechniques_own_threshold_defaults_to_zero` (hem
+varsayılan hem admin-override koruması). 46/46 test geçiyor.
+
+## Ürün filtresi: görünürlük kapısından kapsama merceğine (2026-07-29)
+
+Kullanıcının gözlemi: matriste bir ürüne (örn. QRadar) tıklamak, o ürünün
+kapsamadığı teknikleri tamamen **gizliyordu** — matris küçülüyordu.
+İstenen: "QRadar'a basınca QRadar'ın kapsadıklarını göreyim ama
+kapsamadıkları kapanmasın, o ürünün haritası gibi olsun."
+
+**Kök neden:** `matchesProduct(rules)` iki yerde (`renderMatrix()`'in
+üst/alt teknik hide-kararında) bir görünürlük kapısı olarak kullanılıyordu
+— eşleşmeyen teknik kartı DOM'dan tamamen çıkarılıyordu.
+
+**Çözüm:** Ürün filtresi artık ortam (environment) filtresiyle **aynı
+mekanizmayı** paylaşıyor — `rulesInScope(rules, weightMap)` şimdi ortam
+ağırlığının yanı sıra seçili ürün merceğini de uyguluyor (seçili ürüne ait
+olmayan kurallar buradan elenir). Bu, matris içindeki HER çağrı noktasına
+(parentRules, parentOwnRules, familyRollup, updateTechniqueCard,
+updateSubtechCard, tooltip) otomatik yayılıyor — tek bir yerde değişti,
+her yerde tutarlı. `renderMatrix()`'teki hide-kararı artık yalnızca arama
+metnine bakıyor; `matchesProduct()` fonksiyonu tamamen kaldırıldı (ölü kod).
+
+**Ek düzeltme — tıklama etkileşimi:** Eski legend tıklaması çoklu-seçim
+"dışla" modeliydi (Tümü'nden başlayıp tıklanan ürünü ÇIKARIYORDU — tam
+tersi bir davranış). Artık ortam seçiciyle aynı desen: bir ürüne tıklamak
+YALNIZCA onu izole ediyor (`filterProducts = new Set([p.name])`), aynı
+ürüne tekrar tıklamak "Tümü"ne dönüyor, başka bir ürüne tıklamak
+izolasyonu ona kaydırıyor.
+
+**Doğrulandı (gerçek veri, canlı sunucu):** Kart sayısı ürün filtresi
+her durumda **254'te sabit** (hiçbir kart kapanmıyor). QRadar izole
+edilince: Tespit 90/222→79/222, Ort. Skor %61→%21 — tüm panel (hücre
+rengi + üst istatistik çubuğu) "QRadar'ın kendi haritası"na dönüşüyor.
+İkinci kez tıklayınca "Tümü"ne dönüyor. Kod değişmedi (yalnızca
+`static/app.js` + wiki metni), 46/46 test aynen geçiyor. `?v=124`.
+
+## PDF rapor: okunabilirlik + gerçek bir veri gösterim hatası (2026-07-29)
+
+Kullanıcı geri bildirimi: "çok sıkışmış, hiçbir şey anlaşılmıyor" ve ayrıca
+"bilgiler yanlış gibi geldi." İkisi de haklı çıktı, ama farklı sebeplerden:
+
+**1) Okunabilirlik — gerçek sebep font boyutuydu.** Önceki sıkıştırma
+(2026-07-28) hücre fontunu 6-7px'e indirmişti — CSS px'in baskıda ~×0.75
+pt'ye denk geldiği unutulmuş, yani ekranda "sıkışık ama okunur" görünen
+şey kağıtta ~5pt, gerçekten okunaksız çıkıyordu. Sütun genişliği 64px→108px,
+hücre fontu 7px→9px, alt teknik fontu 6.5px→8px, başlık 7px→9.5px oldu.
+Ayrıca mor "M" bayrağı artık hücrenin kendi `padding-right:16px` boşluğuna
+oturuyor — önceden metnin üzerine mutlak konumla biniyordu, şimdi asla
+metinle çakışmıyor. Bedeli: 15 taktik artık 1280px pencerede 2 satıra
+sarıyor (yapay sayfalama değil, doğal taşma — bkz. 2026-07-28 kararı).
+
+**2) Gerçek bir veri gösterim hatası bulundu ve düzeltildi.** Matris
+hücresi tooltip'i ve Tam Teknik Listesi eki, "X/Y etkin tespit" oranını
+`named_rule_count` (doğrudan adı olan kural SAYISI — ham, ağırlıksız,
+rollup'suz) ile `rule_threshold` (artık aile rollup toplamı) birlikte
+gösteriyordu. Bu iki alan birbiriyle hiç ilişkili değil: T1552 örneğinde
+tooltip "%86, 0/8" gösteriyordu — kendisiyle çelişen bir sayı (0/8 = %0
+olması gerekirdi). Skoru gerçekten süren alan `effective_rule_count`
+(ağırlıklı, rollup'lı) idi ama hiçbir yerde gösterilmiyordu. İki alan da
+`t.effective_rule_count | round(1)` olarak düzeltildi — artık "6.9/8"
+gösteriyor, %86 ile tutarlı. Bu hata muhtemelen kullanıcının "veriler
+yanlış" hissinin asıl kaynağıydı — alttaki toplamlar/skorlar
+(`/api/gap-analysis` ile birebir karşılaştırıldı) hep doğruydu, yalnızca
+bu bir gösterim satırı yanlış alanı okuyordu. Matris bölümünün açıklama
+metni de düzeltildi (hâlâ "alt teknikler paydaya girmez" diyordu — Faz
+4c/rollup sonrası artık girdikleri için stale'di).
+
+**Doğrulandı (gerçek veri, canlı sunucu):** T1552 için tooltip artık
+"%86, 6.9/8 etkin", appendix satırı "6.9 / 8" — ikisi de birbiriyle ve
+`/api/gap-analysis`'in `effective_rule_count`/`coverage_score`
+alanlarıyla tutarlı. Genel özet kartları zaten `/api/gap-analysis`
+ile birebir eşleşiyordu (bu hiç bozulmamıştı). 46/46 test geçiyor
+(HTML/CSS/Jinja değişikliği, Python testleri etkilenmedi).
+
 ## Sonraki Öncelikler
 
 1. **Faz 4 — Ürün yetenek şablonları:** DFI/MDO365/MDCA gibi sabit katalogu olan ürünler için hazır teknik eşlemesi (elle giriş yerine).

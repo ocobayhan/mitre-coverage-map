@@ -109,15 +109,20 @@
     .s-done { background: #dff6dd; color: #107c10; }
     .s-cancelled { background: #f3f2f1; color: #605e5c; }
 
-    /* ── Kapsama Haritası (Navigator tarzı, tek parça yoğun ızgara) ── */
-    .rpt-matrix-wrap { display: flex; flex-wrap: wrap; gap: 2px; align-items: flex-start; }
+    /* ── Kapsama Haritası (Navigator tarzı, tek parça yoğun ızgara) ──
+       Not: font-size burada CSS px — yazdırmada ~px*0.75 = pt'ye denk gelir.
+       Önceki sürüm 6-7px (≈5pt) kullanıyordu, kağıtta neredeyse okunaksızdı.
+       Şimdiki 8.5-9.5px (≈6.5-7pt) baskıda hâlâ küçük ama okunabilir asgari.
+       Bunun bedeli: 15 taktik artık tek satıra sığmıyor, 2 satıra sarıyor
+       (yapay sayfalama değil — flex-wrap doğal taşma, bkz. 2026-07-28 notu). */
+    .rpt-matrix-wrap { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
     .rpt-matrix-col {
-      flex: 0 0 auto; width: 64px;
+      flex: 0 0 auto; width: 108px;
       border: 1px solid #d8d6d4; border-radius: 3px; overflow: hidden; background: #fff;
     }
     .rpt-matrix-col-header {
-      background: #003060; color: #fff; font-size: 7px; font-weight: 700; line-height: 1.15;
-      text-align: center; padding: 3px 2px; min-height: 20px;
+      background: #003060; color: #fff; font-size: 9.5px; font-weight: 700; line-height: 1.2;
+      text-align: center; padding: 5px 4px; min-height: 26px;
       display: flex; align-items: center; justify-content: center;
     }
     .rpt-matrix-cell, .rpt-subcell {
@@ -126,22 +131,22 @@
     }
     .rpt-matrix-col > .rpt-matrix-cell:last-child,
     .rpt-matrix-col > .rpt-subcell:last-child { border-bottom: none; }
-    .rpt-matrix-cell { padding: 2px 3px; font-size: 7px; line-height: 1.3; color: #201f1e; }
+    .rpt-matrix-cell { padding: 3.5px 16px 3.5px 5px; font-size: 9px; line-height: 1.4; color: #201f1e; }
     .rpt-subcell {
-      padding: 1.5px 3px 1.5px 6px; font-size: 6.5px; line-height: 1.25; color: #201f1e;
-      border-left: 2px solid rgba(0,0,0,0.15);
+      padding: 3px 16px 3px 9px; font-size: 8px; line-height: 1.35; color: #201f1e;
+      border-left: 3px solid rgba(0,0,0,0.15);
     }
-    .rpt-cell-id { font-family: 'Consolas', monospace; font-weight: 700; color: #003060; margin-right: 2px; }
-    .rpt-subcell .rpt-cell-id { font-size: 6px; }
+    .rpt-cell-id { font-family: 'Consolas', monospace; font-weight: 700; color: #003060; margin-right: 3px; }
+    .rpt-subcell .rpt-cell-id { font-size: 7.5px; }
     .rpt-m-flag {
-      position: absolute; top: 0; right: 0; font-size: 6px; font-weight: 700; color: #fff;
-      background: #5b3fa0; line-height: 1; padding: 1px 2px; border-radius: 0 0 0 3px;
+      position: absolute; top: 0; right: 0; font-size: 7.5px; font-weight: 700; color: #fff;
+      background: #5b3fa0; line-height: 1; padding: 2px 3px; border-radius: 0 0 0 4px;
     }
-    .rpt-matrix-legend { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 10px; color: #605e5c; flex-wrap: wrap; }
+    .rpt-matrix-legend { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 10.5px; color: #605e5c; flex-wrap: wrap; }
     .rpt-legend-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 3px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
     .rpt-legend-flag {
       display: inline-flex; align-items: center; justify-content: center; width: 11px; height: 11px;
-      font-size: 6px; font-weight: 700; color: #fff; background: #5b3fa0; border-radius: 2px;
+      font-size: 6.5px; font-weight: 700; color: #fff; background: #5b3fa0; border-radius: 2px;
       margin-right: 3px; vertical-align: middle;
     }
 
@@ -277,10 +282,12 @@
   <div class="rpt-section rpt-matrix-section">
     <div class="rpt-section-title">Kapsama Haritası</div>
     <div class="rpt-section-note">
-      Renk = etkin tespit / teknik hedefi (ekrandaki harita ile aynı ölçek). Mor bayrak o teknikte
-      kayıtlı bir mitigation olduğunu gösterir, renge karışmaz. Alt teknikler ana tekniğin altında
-      girintili ve daima görünür; kapsama oranının paydasına girmezler. Kesilen isimlerin üzerine
-      gelerek tam adı ve oranı görebilirsiniz; kesin sayılar Tam Teknik Listesi ekindedir.
+      Renk = etkin tespit / teknik hedefi (ekrandaki harita ile aynı ölçek). Alt tekniği olan bir
+      teknik, kendi payı + tüm alt tekniklerinin (kendi hedefinde tavanlanmış) toplamıyla değerlendirilir
+      — bir alt tekniğin kapsanması diğerlerini örtmez ama üst tekniğin "boş" görünmesini engeller.
+      Mor bayrak o teknikte kayıtlı bir mitigation olduğunu gösterir, renge karışmaz. Alt teknikler
+      ana tekniğin altında girintili ve daima görünür. Kesilen isimlerin üzerine gelerek tam adı ve
+      oranı görebilirsiniz; kesin sayılar Tam Teknik Listesi ekindedir.
     </div>
     <div class="rpt-matrix-legend">
       <span><span class="rpt-legend-swatch" style="background:#ecf0f1"></span>0%</span>
@@ -297,7 +304,7 @@
         <div class="rpt-matrix-col-header">{{ col.label }}</div>
         {% for t in col.techniques %}
         <div class="rpt-matrix-cell" style="background:{{ t.color }}"
-             title="{{ t.tech_id }} — {{ t.name }} (%{{ (t.coverage_score * 100) | round | int }}, {% if t.rule_threshold <= 0 %}gerekli değil{% else %}{{ t.named_rule_count }}/{{ t.rule_threshold }}{% endif %})">
+             title="{{ t.tech_id }} — {{ t.name }} (%{{ (t.coverage_score * 100) | round | int }}, {% if t.rule_threshold <= 0 %}gerekli değil{% else %}{{ t.effective_rule_count | round(1) }}/{{ t.rule_threshold }} etkin{% endif %})">
           <span class="rpt-cell-id">{{ t.tech_id }}</span>{{ t.name }}{% if t.mitigation_checked %}<span class="rpt-m-flag">M</span>{% endif %}
         </div>
         {% for c in t.children %}
@@ -381,21 +388,23 @@
     <div class="rpt-section-title">Tam Teknik Listesi (Ek)</div>
     <div class="rpt-section-note">
       Ana tekniklerin tamamı, taktik bazında gruplanmış olarak. Birden fazla taktikte yer alan bir
-      teknik burada tekrar etmez; ait olduğu tüm taktikleri aynı satırda görürsünüz.
+      teknik burada tekrar etmez; ait olduğu tüm taktikleri aynı satırda görürsünüz. <strong>Etkin / Hedef</strong>
+      sütunu alt tekniği olan bir teknikte tüm aileyi (kendi payı + alt tekniklerinin toplamı) yansıtır —
+      bu yüzden hedef çoğu zaman 2'den büyük görünür, bkz. Puanlama sayfası.
     </div>
     {% if full_list_sections %}
       {% for section in full_list_sections %}
       <div class="rpt-subtactic-title">{{ section.label }} ({{ section.techniques | length }})</div>
       <table class="rpt-table">
         <thead>
-          <tr><th>ID</th><th>Ad</th><th>Tespit</th><th>Skor</th><th>Mitigation</th><th>Ürünler</th></tr>
+          <tr><th>ID</th><th>Ad</th><th>Etkin / Hedef</th><th>Skor</th><th>Mitigation</th><th>Ürünler</th></tr>
         </thead>
         <tbody>
           {% for t in section.techniques %}
           <tr>
             <td><strong>{{ t.tech_id }}</strong></td>
             <td>{{ t.name }}</td>
-            <td>{% if t.rule_threshold <= 0 %}<em>gerekli değil</em>{% else %}{{ t.named_rule_count }} / {{ t.rule_threshold }}{% endif %}</td>
+            <td>{% if t.rule_threshold <= 0 %}<em>gerekli değil</em>{% else %}{{ t.effective_rule_count | round(1) }} / {{ t.rule_threshold }}{% endif %}</td>
             <td>%{{ (t.coverage_score * 100) | round | int }}</td>
             <td>{{ 'Var' if t.mitigation_checked else '—' }}</td>
             <td>
