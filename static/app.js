@@ -423,11 +423,6 @@ function matchesSearch(tech) {
   return id.includes(term) || name.includes(term);
 }
 
-function matchesProduct(rules) {
-  if (filterAllProducts || filterProducts.size === 0) return true;
-  return rules.some(r => filterProducts.has(r.source));
-}
-
 function productColorMap() {
   const map = {};
   products.forEach(p => { map[p.name] = p.color; });
@@ -1421,17 +1416,16 @@ function renderLegend() {
     item.setAttribute('data-product', p.name);
     item.innerHTML = `<div class="legend-box" style="background:${p.color}"></div> ${p.name}`;
     item.addEventListener('click', () => {
-      if (filterAllProducts) {
-        filterAllProducts = false;
-        filterProducts = new Set(products.map(x => x.name));
-      }
-      if (filterProducts.has(p.name)) {
-        filterProducts.delete(p.name);
-      } else {
-        filterProducts.add(p.name);
-      }
-      if (filterProducts.size === 0) {
+      // Tek tıkla bu ürünü izole et — "QRadar'a basınca QRadar'ın haritasını
+      // göreyim" (kullanıcı kararı, 2026-07-29). Zaten yalnızca bu ürün
+      // seçiliyse tekrar tıklamak "Tümü"ne döner; başka bir ürüne tıklamak
+      // izolasyonu ona kaydırır (eskisi gibi çoklu seçim/dışlama değil).
+      if (!filterAllProducts && filterProducts.size === 1 && filterProducts.has(p.name)) {
         filterAllProducts = true;
+        filterProducts = new Set();
+      } else {
+        filterAllProducts = false;
+        filterProducts = new Set([p.name]);
       }
       renderLegend();
       renderMatrix();
@@ -1961,10 +1955,18 @@ function scopeWeight(rule, weightMap) {
   return weightMap[rule?.source] ?? 0;
 }
 
-/** Seçili ortamda gerçekten geçerli olan tespitler. */
+/** Seçili ortamda VE seçili ürün merceğinde gerçekten geçerli olan tespitler.
+ * Ürün filtresi artık bir görünürlük kapısı DEĞİL — bir kural o an seçili
+ * ürünlerden birine ait değilse buradan elenir, teknik kartı yine görünür
+ * ama o ürünün kendi haritasıymış gibi boyanır (kapsamadığı teknikler
+ * kapanmaz, sadece dürüstçe boş görünür). Kullanıcı kararı (2026-07-29). */
 function rulesInScope(rules, weightMap) {
-  if (!weightMap) return rules || [];
-  return (rules || []).filter(r => scopeWeight(r, weightMap) > 0);
+  let out = rules || [];
+  if (weightMap) out = out.filter(r => scopeWeight(r, weightMap) > 0);
+  if (!filterAllProducts && filterProducts.size > 0) {
+    out = out.filter(r => filterProducts.has(r.source));
+  }
+  return out;
 }
 
 // "Tespit" kovasi SERT kanit ister: adi olan gercek bir tespit kurali.
@@ -3472,8 +3474,13 @@ function renderMatrix() {
       //
       // parentRules: fold-up'lı (üst teknik + TÜM alt tekniklerine yazılan
       // kurallar). Yalnızca modal içeriği için kullanılır (Direkt + alt
-      // teknik başına gruplanmış görünüm) ve ürün filtresi eşleşmesi için.
-      // parentOwnRules: yalnızca DOĞRUDAN bu tekniğe yazılan kurallar.
+      // teknik başına gruplanmış görünüm). parentOwnRules: yalnızca
+      // DOĞRUDAN bu tekniğe yazılan kurallar. İkisi de rulesInScope()
+      // içinden geçiyor — seçili ürün merceğine uymayan kurallar buradan
+      // otomatik elenir (bkz. rulesInScope() notu): ürün filtresi artık
+      // görünürlüğü değil YALNIZCA rengi/skoru etkiler, o ürünün kendi
+      // haritasıymış gibi — kapsamadığı teknikler kapanmaz, dürüstçe boş
+      // görünür. Kullanıcı kararı (2026-07-29).
       //
       // Hücre rengi/skoru/kova artık ne salt "own" ne salt fold-up: alt
       // tekniği OLAN bir üst teknik "aile" (rollup) değerini kullanır —
@@ -3486,17 +3493,13 @@ function renderMatrix() {
       const parentRules = rulesInScope(enrichedData.filter(r => r.parentId == tech.id), scopeWeights);
       const parentOwnRules = rulesInScope(enrichedData.filter(r => r.tid == tech.id), scopeWeights);
       const parentRollup = familyRollup(tech.id, parentOwnRules, scopeWeights, enrichedData);
-      const parentMatchesProduct = matchesProduct(parentRules);
 
       const subTechs = subTechsByParent[tech.id] || [];
-      const subMatches = subTechs.filter(st => {
-        const rulesForSub = rulesInScope(enrichedData.filter(r => r.tid == st.id), scopeWeights);
-        const subSearch = matchesSearch(st);
-        const subProd = matchesProduct(rulesForSub);
-        return subSearch && subProd;
-      });
+      // Ürün filtresi burada artik gorunurlugu etkilemiyor — yalnizca arama
+      // metni bir alt teknigi/ust teknigi gizleyebilir.
+      const subMatches = subTechs.filter(st => matchesSearch(st));
 
-      if (!(parentMatchesSearch && parentMatchesProduct) && subMatches.length === 0) {
+      if (!parentMatchesSearch && subMatches.length === 0) {
         return;
       }
 
