@@ -25,7 +25,7 @@ copy .env.example .env
 docker compose up -d --build
 ```
 
-Uygulama `http://localhost:8000` uzerinde ayaga kalkar. Ilk calistirmada `soc_data` volume'u bos oldugu icin `init_db()` varsayilan admin/editor/viewer hesaplarini ve seed tespitleri olusturur (bkz. README).
+Uygulama `http://localhost:9293` uzerinde ayaga kalkar (host tarafi port eslemesi `docker-compose.yml` icinde `9293:8000` olarak ayarli — container icinde hala 8000 dinler). Ilk calistirmada `soc_data` volume'u bos oldugu icin `init_db()` varsayilan admin/editor/viewer hesaplarini ve seed tespitleri olusturur (bkz. README).
 
 ## Zamanlanmis Yedekleme
 

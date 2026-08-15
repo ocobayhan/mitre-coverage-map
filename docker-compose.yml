@@ -5,7 +5,7 @@ services:
     container_name: soc-app
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "9293:8000"
     environment:
       SOC_SECRET_KEY: ${SOC_SECRET_KEY:?SOC_SECRET_KEY must be set (see .env.example)}
       SOC_COOKIE_SECURE: ${SOC_COOKIE_SECURE:-0}

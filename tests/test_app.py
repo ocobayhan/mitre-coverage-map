@@ -13,6 +13,26 @@ import app as application
 
 
 def mitre_fixture():
+    # T1000 ve T1001'i 5'er "uses" iliskisiyle group_count=5'e (tier 2,
+    # bkz. app.py _prevalence_tier_threshold) tasir. Boylece rule_threshold
+    # varsayilani coklu testte hala DEFAULT_RULE_THRESHOLD (2) ile ortusur —
+    # tiering'e ozel testler kendi grupsuz (tier 1) veya 20+ gruplu (tier 3)
+    # tekniklerini ayrica ekler.
+    groups = [
+        {"type": "intrusion-set", "id": f"intrusion-set--g{i}", "name": f"Test Group {i}"}
+        for i in range(5)
+    ]
+    uses = [
+        {
+            "type": "relationship",
+            "id": f"relationship--uses-g{i}-{target}",
+            "relationship_type": "uses",
+            "source_ref": f"intrusion-set--g{i}",
+            "target_ref": f"attack-pattern--{target}",
+        }
+        for i in range(5)
+        for target in ("one", "two")
+    ]
     return {
         "type": "bundle",
         "objects": [
@@ -85,7 +105,7 @@ def mitre_fixture():
                 "source_ref": "x-mitre-detection-strategy--one",
                 "target_ref": "attack-pattern--one",
             },
-        ],
+        ] + groups + uses,
     }
 
 
@@ -103,8 +123,6 @@ class AppTestCase(unittest.TestCase):
             json.dumps(mitre_fixture()), encoding="utf-8"
         )
         application.MITRE_CACHE.update({"mtime": None, "data": None})
-        application.THREAT_ACTOR_CACHE.update({"mtime": None, "data": None})
-        application.TTP_LIST_CACHE.update({"data": None, "dirty": True})
         application.LOGIN_ATTEMPTS.clear()
         application.app.config.update(TESTING=True, SECRET_KEY="test-secret")
         application.init_db()
@@ -445,14 +463,20 @@ class AppTestCase(unittest.TestCase):
         self.assertLess(overview["average_score_pct"], 20)
 
     def test_parent_score_rolls_up_from_subtechniques_with_per_sub_cap(self):
-        """Alt tekniği olan bir üst teknik artık kendi payı + TÜM alt
-        tekniklerinin toplamıyla değerlendirilir (kullanıcı kararı,
-        2026-07-29): tek başına boş görünen ama alt teknikleri dolu olan
-        bir üst teknik artık yanlış/saçma görünmüyor.
+        """Rollup (bkz. docs/scoring_methodology.md #3, app.py
+        _compute_gap_analysis): family.hedef = kendi.hedef + Σ alt.hedef
+        (TAM toplam) — üst teknik kendi hedefinden vazgeçer (alt tekniği
+        olduğu için 0'a çekilir, ensure_parent_with_subtechniques_threshold_
+        zero), her alt tekniğin TAM hedefi aileye eklenir (boşluk değil).
 
-        Her alt teknik KENDİ hedefinde tavanlanır — bir alt tekniğin fazla
-        tespiti başka bir kardeşin eksiğini örtmez (muhafazakâr seçim).
-        "Tespit" kovası da aileye genişler.
+        family.etkin = min(cappedSum, dedupedSum): her alt teknik KENDİ
+        hedefinde tavanlanıp toplanır (T1000.001: hedef 1, etkin 2 → katkısı
+        1, fazlası taşmaz; T1000.002: hedef 1, etkin 0 → katkısı 0) — bu
+        cappedSum'u verir. Bu senaryoda paylaşılan kural olmadığı için
+        dedupedSum daha büyük çıkar, cappedSum bağlayıcı olur.
+
+        "Tespit" kovası ayrı bir kural: üst teknik doğrudan kuralı olmasa
+        bile en az bir alt tekniği tespitliyse aileye genişler.
         """
         self.login()
         fixture = mitre_fixture()
@@ -483,12 +507,13 @@ class AppTestCase(unittest.TestCase):
         with application.app.app_context():
             db = application.get_db()
             application.build_technique_config(db)
-            application.ensure_subtechnique_default_threshold(db)
+            application.ensure_parent_with_subtechniques_threshold_zero(db)
             db.commit()
 
-        # T1000 (ust teknik, hedef varsayilan 2) hic dogrudan kural almiyor.
-        # T1000.001'e IKI adi olan kural yaziliyor (hedefi 1'i asiyor: etkin=2).
-        # T1000.002 hic tespit almiyor (hedef varsayilan 1).
+        # T1000 artik alt teknigi oldugu icin kendi hedefi 0'a cekildi, hic
+        # dogrudan kural almiyor. T1000.001 (group_count=0 -> tier 1) IKI adi
+        # olan kural aliyor (hedefi asiyor: etkin=2). T1000.002 (tier 1) hic
+        # tespit almiyor.
         self.client.post("/api/rules", json={
             "name": "Sub A kural 1", "tactic": "execution", "tech": "T1000.001", "source": "QRadar"})
         self.client.post("/api/rules", json={
@@ -497,23 +522,166 @@ class AppTestCase(unittest.TestCase):
         gaps = self.client.get("/api/gap-analysis").get_json()
         techs = {t["tech_id"]: t for t in gaps["techniques"]}
 
-        # Alt tekniklerin KENDI skorlari degismedi (hala kendi hedeflerinde
-        # tavanlaniyor) — yalniz ust teknigin rollup'unda tavanlanarak kullanilir.
+        # Alt tekniklerin KENDI skorlari rollup'tan bagimsiz, hep kendi
+        # hedeflerinde hesaplanir.
         self.assertEqual(techs["T1000.001"]["coverage_score"], 1.0)
         self.assertEqual(techs["T1000.002"]["coverage_score"], 0.0)
 
         parent = techs["T1000"]
-        # Rollup hedef = kendi (2) + .001 (1) + .002 (1) = 4
-        self.assertEqual(parent["rule_threshold"], 4)
-        # Rollup etkin = kendi (0) + min(.001 etkin=2, hedef=1)=1 + min(.002 etkin=0, hedef=1)=0 = 1
+        # Rollup hedef = kendi (0, ebeveyn sifirlamasi) + .001 (1) + .002 (1) = 2
+        self.assertEqual(parent["rule_threshold"], 2)
+        # cappedSum = min(kendi=0,0)=0 + min(.001 etkin=2,hedef=1)=1 + min(.002 etkin=0,hedef=1)=0 = 1
+        # dedupedSum = paylasilmamis 2 kuralin toplami = 2.0 (bagliyici degil, cappedSum kucuk)
         self.assertAlmostEqual(parent["effective_rule_count"], 1.0, places=2)
-        self.assertAlmostEqual(parent["coverage_score"], 0.25, places=2)
+        self.assertAlmostEqual(parent["coverage_score"], 0.5, places=2)
         # Ust teknigin dogrudan kurali olmasa da, bir alt teknigi tespitli
         # oldugu icin "Tespit" kovasina giriyor artik "bos" gorunmuyor.
         self.assertTrue(parent["covered"],
                          "en az bir alt teknik tespitliyse ust teknik de tespitli sayilir")
         self.assertEqual(gaps["overview"]["detected_techniques"], 1,
                           "T1000 artik tespitli, T1001 (alt teknigi yok, hic kurali yok) degil")
+
+    def test_rollup_effective_counts_shared_rule_once_not_per_mapping(self):
+        """Ayni kural hem ust hem alt teknige eslendiginde aile toplaminda
+        YALNIZCA BIR KEZ sayilmali — dedupedSum bunu rule_id kumesiyle
+        garanti eder (bkz. app.py _compute_gap_analysis docstring'i).
+
+        Paylasilan kural hem T1000'e hem T1000.001'e eslenmis: cappedSum
+        naif toplasaydi (kendi 0 + .001 1 + .002 0) 1 verirdi zaten (kendi
+        katkisi 0 hedefte tavanli oldugu icin), ama dedupedSum da AYRICA
+        dogrular — ayni rule_id iki kez gorulse bile set() dogasi geregi
+        bir kez sayilir. T1000.002 hic kural almadigi icin (hedef 1, etkin 0)
+        aile hedefi 2'ye cikiyor ve boylece skor %100 DEGIL %50 olmali —
+        T1000.002'nin tamamen bos olmasi ailenin skorunu gercekten
+        dusurmeli (onceki "bosluk tabanli" formulun tam da kacirdigi nokta).
+        """
+        self.login()
+        fixture = mitre_fixture()
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-a",
+            "name": "Sub A",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.001"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-b",
+            "name": "Sub B",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.002"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        application.MITRE_PATH.write_text(json.dumps(fixture), encoding="utf-8")
+        application.MITRE_CACHE.update({"mtime": None, "data": None})
+        application.init_db()
+
+        self.client.post("/api/rules", json={
+            "name": "Paylasilan kural", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
+        rule_id = self.client.get("/api/rules").get_json()[0]["id"]
+        self.client.post(f"/api/rules/{rule_id}/techniques", json={"tech_id": "T1000.001"})
+
+        gaps = self.client.get("/api/gap-analysis").get_json()
+        parent = {t["tech_id"]: t for t in gaps["techniques"]}["T1000"]
+
+        # Rollup hedef = kendi (0, ebeveyn sifirlamasi) + .001 (1) + .002 (1) = 2
+        self.assertEqual(parent["rule_threshold"], 2)
+        # dedupedSum = {paylasilan_kural} = 1.0 (T1000 VE T1000.001'e eslenmis
+        # olmasina ragmen set() dedup'i sayesinde BIR KEZ) — 2.0 DEGIL.
+        self.assertAlmostEqual(parent["effective_rule_count"], 1.0, places=2)
+        # T1000.002 tamamen bos oldugu icin aile %100 DEGIL, %50 gostermeli.
+        self.assertAlmostEqual(parent["coverage_score"], 0.5, places=2)
+
+    def test_rollup_sub_surplus_does_not_cover_sibling_gap(self):
+        """Bir alt teknikte PAYLASILMAMIS (birbirinden bagimsiz) cok sayida
+        kural varsa, kendi hedefini fazlasiyla asan kismi kardeş alt
+        tekniğin boşluğunu KAPATMAMALI — kullanıcı kararı (2026-07-29):
+        "alt teknikte 10 tane tespit var ama 2 ekleniyorsa fazlalığı üst
+        tekniğe eklemeyelim, kendi yeşil olsun, sorun yok".
+
+        T1000.001'e 3 BAGIMSIZ (paylasilmamis) kural yazilir, kendi hedefi
+        sadece 1 — cappedSum bunu 1'e tavanlar. dedupedSum ise paylasim
+        olmadigi icin 3'te kalir (bagliyici degil). T1000.002 hic kural
+        almaz. cappedSum (kucuk olan) bagliyici olmali: T1000.001'in
+        fazlasi T1000.002'nin eksigini KAPATAMAZ.
+        """
+        self.login()
+        fixture = mitre_fixture()
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-a",
+            "name": "Sub A",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.001"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        fixture["objects"].append({
+            "type": "attack-pattern", "id": "attack-pattern--sub-b",
+            "name": "Sub B",
+            "external_references": [
+                {"source_name": "mitre-attack", "external_id": "T1000.002"}
+            ],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "x_mitre_is_subtechnique": True,
+        })
+        application.MITRE_PATH.write_text(json.dumps(fixture), encoding="utf-8")
+        application.MITRE_CACHE.update({"mtime": None, "data": None})
+        application.init_db()
+
+        for i in range(3):
+            self.client.post("/api/rules", json={
+                "name": f"Sub A kural {i}", "tactic": "execution",
+                "tech": "T1000.001", "source": "QRadar"})
+
+        gaps = self.client.get("/api/gap-analysis").get_json()
+        parent = {t["tech_id"]: t for t in gaps["techniques"]}["T1000"]
+
+        self.assertEqual(parent["rule_threshold"], 2)  # kendi(0) + .001(1) + .002(1)
+        # cappedSum = 0 + min(3,1)=1 + min(0,1)=0 = 1 (bagliyici)
+        # dedupedSum = 3 paylasilmamis kural = 3.0 (bagliyici degil)
+        self.assertAlmostEqual(parent["effective_rule_count"], 1.0, places=2)
+        self.assertAlmostEqual(parent["coverage_score"], 0.5, places=2)
+
+    def test_coverage_level_weights_are_four_tiers(self):
+        """coverage_level agirliklari: low=0.25, half=0.50, good=0.75,
+        full=1.00 (DeTT&CT Visibility Score 1-4, bkz.
+        docs/scoring_methodology.md #1). Tek kural uzerinde 4 seviye de PATCH
+        edilip skor dogrudan olculur (T1000 hedefi bu fixture'da tier 2)."""
+        self.login()
+        self.client.post("/api/rules", json={
+            "name": "Tek kural", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
+        rule_id = self.client.get("/api/rules").get_json()[0]["id"]
+
+        expected = {"low": 0.125, "half": 0.25, "good": 0.375, "full": 0.5}
+        for level, expected_score in expected.items():
+            self.assertEqual(self.client.patch(
+                f"/api/rules/{rule_id}/coverage", json={"coverage_level": level}
+            ).status_code, 200)
+            techs = {t["tech_id"]: t for t in self.client.get("/api/gap-analysis").get_json()["techniques"]}
+            self.assertAlmostEqual(techs["T1000"]["coverage_score"], expected_score, places=3,
+                                    msg=f"coverage_level={level}")
+
+    def test_prevalence_tier_threshold_boundaries(self):
+        """_prevalence_tier_threshold sinir degerleri (docs/scoring_methodology.md
+        #2): <5 -> 1, 5-19 -> 2, 20+ -> 3. Saf fonksiyon, DB/HTTP gerekmez."""
+        self.assertEqual(application._prevalence_tier_threshold(0), 1)
+        self.assertEqual(application._prevalence_tier_threshold(4), 1)
+        self.assertEqual(application._prevalence_tier_threshold(5), 2)
+        self.assertEqual(application._prevalence_tier_threshold(19), 2)
+        self.assertEqual(application._prevalence_tier_threshold(20), 3)
+        self.assertEqual(application._prevalence_tier_threshold(85), 3)
 
     def test_coverage_buckets_are_disjoint_and_sum_to_total(self):
         """Tespit / kapsamsız birbirini dışlar ve toplamları ana teknik
@@ -547,11 +715,11 @@ class AppTestCase(unittest.TestCase):
                 {"name": "Suspicious LDAP enumeration",
                  "product": "Defender for Identity",
                  "techniques": ["T1000", "T1001"],
-                 "coverage_level": "partial", "kind": "builtin"},
+                 "coverage_level": "half", "kind": "builtin"},
             ],
             "product_coverage": [
                 {"product": "Defender for Identity", "techniques": ["T1001"],
-                 "coverage_level": "partial", "note": "built-in alert seti"},
+                 "coverage_level": "half", "note": "built-in alert seti"},
             ],
         }
         payload.update(overrides)
@@ -599,7 +767,7 @@ class AppTestCase(unittest.TestCase):
         builtin_name = f"Defender for Identity — {application._BUILTIN_RULE_SUFFIX}"
         self.assertIn(builtin_name, rules)
         self.assertEqual(rules[builtin_name]["techniques"], ["T1001"])
-        self.assertEqual(rules[builtin_name]["coverage_level"], "partial")
+        self.assertEqual(rules[builtin_name]["coverage_level"], "half")
 
     def test_product_claim_scores_but_does_not_fill_detection_bucket(self):
         """Ürün seviyesi toplu iddia skora katkı yapar ama "Tespit" kovasına
@@ -613,7 +781,7 @@ class AppTestCase(unittest.TestCase):
         self.client.post("/api/import/coverage/apply", json=self._import_payload(
             products=[], rules=[],
             product_coverage=[{"product": "QRadar", "techniques": ["T1000"],
-                               "coverage_level": "partial"}],
+                               "coverage_level": "half"}],
         ))
 
         ov = self.client.get("/api/gap-analysis").get_json()
@@ -627,10 +795,11 @@ class AppTestCase(unittest.TestCase):
         self.assertIn("T1000", gaps, "ürün iddiası tekniği boşluk listesinden çıkarmamalı")
         self.assertEqual(gaps["T1000"]["rule_count"], 1)
         self.assertEqual(gaps["T1000"]["named_rule_count"], 0)
-        # ...skoru var: partial (0.60) x urun iddiasi agirligi (0.75) / hedef 2
-        # = %22.5 -> kart amber, gri degil. (0.75 carpani yoksa bu adi olan
+        # ...skoru var: half (0.50) x urun iddiasi agirligi (0.75) / hedef 2
+        # = %18.75 -> kart amber, gri degil. (0.75 carpani yoksa bu adi olan
         # tespiti hic olmayan teknik %30 gosterirdi; 2026-07-29 karari.)
-        self.assertAlmostEqual(gaps["T1000"]["coverage_score"], 0.225, places=3)
+        # API round(x, 3) donduruyor: 0.1875 -> 0.188.
+        self.assertAlmostEqual(gaps["T1000"]["coverage_score"], 0.188, places=3)
 
         # Adi olan bir tespit eklenince kova dolar
         self.client.post("/api/import/coverage/apply", json=self._import_payload(
@@ -1037,12 +1206,18 @@ class AppTestCase(unittest.TestCase):
         self.assertTrue(preview["ok"], preview["errors"])
         self.assertEqual(preview["warnings"], [])
 
-    def test_subtechniques_default_to_threshold_one_admin_override_preserved(self):
-        """Alt tekniklerin varsayilan tespit hedefi 1'dir (ana teknikler 2'de
-        kalir) — kurallar neredeyse tamamen ana teknige eslendigi icin alt
-        teknik basina 2 ayri kural beklemek gercekci degildi. Kullanici karari
-        (2026-07-29). Admin'in elle ayarladigi bir alt teknik esigi asla
-        ezilmemeli.
+    def test_subtechnique_threshold_tiers_from_own_group_count_admin_override_preserved(self):
+        """Hedef artik "ana=2, alt=1" seklinde sabit degil — her SATIR
+        (ana ya da alt fark etmez) KENDI group_count'una gore 3 dilime
+        ayrilir (_prevalence_tier_threshold, docs/scoring_methodology.md #2).
+        Bu fixture'da T1000 5 grup kullaniyor (tier 2), yeni eklenen
+        T1000.001 hic grup kullanmiyor (tier 1) — ayni ailede ana/alt
+        farkli dilimlere dusebiliyor, cunku ikisi de kendi yayginligina
+        gore degerlendiriliyor.
+
+        Admin'in elle ayarladigi bir esik, build_technique_config() MITRE
+        verisi guncellenip tekrar calistiginda (INSERT OR IGNORE, tech_id
+        PRIMARY KEY) asla ezilmemeli.
         """
         self.login()
         fixture = mitre_fixture()
@@ -1063,26 +1238,24 @@ class AppTestCase(unittest.TestCase):
         with application.app.app_context():
             db = application.get_db()
             application.build_technique_config(db)
-            application.ensure_subtechnique_default_threshold(db)
             db.commit()
             cfg = {r["tech_id"]: r["rule_threshold"] for r in db.execute(
                 "SELECT tech_id, rule_threshold FROM technique_config"
             ).fetchall()}
 
-        self.assertEqual(cfg["T1000.001"], 1, "alt teknik varsayilani 1 olmali")
-        self.assertEqual(cfg["T1000"], application.DEFAULT_RULE_THRESHOLD,
-                          "ana teknik varsayilani degismemeli")
+        self.assertEqual(cfg["T1000.001"], 1, "grupsuz alt teknik tier 1 almali")
+        self.assertEqual(cfg["T1000"], 2, "5 gruplu ana teknik tier 2 almali")
 
         # Admin T1000.001 icin esigi elle 3 yapar
         self.assertEqual(self.client.put(
             "/api/technique-config/T1000.001", json={"rule_threshold": 3}
         ).status_code, 200)
 
-        # Migration tekrar calissa bile (ornek: bir sonraki init_db) admin
-        # override ezilmemeli
+        # build_technique_config tekrar calissa bile (ornek: bir sonraki
+        # init_db) admin override ezilmemeli
         with application.app.app_context():
             db = application.get_db()
-            application.ensure_subtechnique_default_threshold(db)
+            application.build_technique_config(db)
             db.commit()
             after = db.execute(
                 "SELECT rule_threshold FROM technique_config WHERE tech_id=?",

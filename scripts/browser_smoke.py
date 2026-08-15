@@ -58,19 +58,20 @@ def main():
         driver.save_screenshot(str(matrix_path))
         result["screenshots"]["matrix_desktop"] = str(matrix_path)
 
-        # Ortam secici (Faz 2) — matris uzerinde varlik grubu filtresi
-        result["metrics"]["scope_select_options"] = len(
-            driver.find_elements(By.CSS_SELECTOR, "#matrixScopeSelect option")
-        )
+        # Not: ortam secici Matrix panelinden kaldirildi (2026-08-14) — Kapsam
+        # Envanteri ve rapor ekraninda hala var, orada test edilir.
 
-        # Faz 4c: alt teknik agaci acilir/kapanir kaliyor
-        result["metrics"]["subtech_toggles"] = len(
-            driver.find_elements(By.CSS_SELECTOR, "#matrix .technique-card .tc-toggle")
+        # Alt teknigi olan kart sayisi — reveal artik hover-flyout (tc-toggle
+        # butonu kalkti), .has-subtechs class'i hala isaretliyor.
+        result["metrics"]["subtech_cards"] = len(
+            driver.find_elements(By.CSS_SELECTOR, "#matrix .technique-card.has-subtechs")
         )
 
         # Teknik detay modali: Mitigations + Tespitler + Aksiyonlar
-        # (Faz 4c: "Detay" butonu kalkti — kartin govdesine tiklaniyor)
-        driver.find_element(By.CSS_SELECTOR, "#matrix .technique-card .tc-name").click()
+        # (Faz 4c: "Detay" butonu kalkti — kartin govdesine tiklaniyor.
+        # Ana kartlar artik ID-only izgara oldugu icin .tc-name yok —
+        # dogrudan karta tikla, zaten onclick kartin kendisinde.)
+        driver.find_element(By.CSS_SELECTOR, "#matrix .technique-card").click()
         wait.until(conditions.visibility_of_element_located((By.ID, "modalBody")))
         result["metrics"]["modal_tabs"] = len(driver.find_elements(By.CSS_SELECTOR, "#ruleModal .tab-btn"))
         # Duplike mitigation ozeti kaldirildi — 0 olmali

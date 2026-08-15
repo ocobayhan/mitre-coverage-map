@@ -39,8 +39,6 @@ app.secret_key = os.environ.get("SOC_SECRET_KEY", "change-this-in-production")
 
 
 MITRE_CACHE = {"mtime": None, "data": None}
-THREAT_ACTOR_CACHE: dict[str, Any] = {"mtime": None, "data": None}
-TTP_LIST_CACHE: dict[str, Any] = {"data": None, "dirty": True}
 LOGIN_ATTEMPTS: dict[str, deque[float]] = defaultdict(deque)
 LOGIN_ATTEMPTS_LOCK = threading.Lock()
 LOGIN_WINDOW_SECONDS = 300
@@ -320,17 +318,39 @@ def drop_technique_importance(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+def _prevalence_tier_threshold(group_count: int) -> int:
+    """group_count -> rule_threshold dilimi (bkz. docs/scoring_methodology.md #2).
+
+    3 kucuk dilim, gercek veri dagilimiyla kalibre edildi (714 teknik/alt
+    teknik satirinda group_count medyani 2, p90=17): <5 -> 1, 5-19 -> 2,
+    20+ -> 3. Her SATIRA (hem ana hem alt teknik) kendi group_count'una gore
+    ayri ayri uygulanir — aile bazinda TEK bir degere sabitlenmez, cunku o
+    zaman "18 alt teknigi olan ama cogu nadir kullanilan" bir aile, az
+    kullanilan alt tekniklere bile yuksek hedef dayatir ve _compute_gap_analysis
+    rollup'inda (bkz. o fonksiyonun docstring'i) ulasilamaz bir toplam
+    hedefe yol acardi.
+    """
+    if group_count >= 20:
+        return 3
+    if group_count >= 5:
+        return 2
+    return 1
+
+
 def build_technique_config(db: sqlite3.Connection) -> None:
     """Teknik bazli hedef tespit sayisini ve MITRE kullanim sayaclarini kurar.
 
-    Hedef (rule_threshold) her teknik icin ayni degerle (DEFAULT_RULE_THRESHOLD)
-    baslar; admin dilerse teknik bazinda degistirir. Onceden hem bu hedef hem de
-    bir "onem" puani mitre.json'daki grup/arac iliskilerinden otomatik
-    turetiliyordu — opak ve yonetilemez oldugu icin kaldirildi (Faz 4 karari).
+    Hedef (rule_threshold), o teknigi kac tehdit grubunun kullandigina
+    (group_count) gore 3 dilime ayrilarak baslar — bkz. _prevalence_tier_threshold.
+    Admin dilerse teknik bazinda elle degistirir (source='admin', asla ezilmez).
+    Onceden hem bu hedef hem de ayrica bir "onem" puani mitre.json'daki
+    grup/arac iliskilerinden turetiliyordu — o "onem" kavrami opak ve
+    yonetilemez oldugu icin kaldirilmisti (Faz 4 karari); bu tur (2026-08-15)
+    group_count'u DOGRUDAN hedefe baglayarak ayni sinyali daha basit, tek
+    parcali bir mekanizmada geri getirdi (bkz. docs/scoring_methodology.md #2).
 
-    group_count / tool_count bilgi olarak korunur: tespitsiz teknikleri
-    onceliklendirirken "kac tehdit grubu bu teknigi kullaniyor" objektif bir
-    sinyal saglar. Bu bir ayar degildir, siralama icin veridir.
+    group_count / tool_count ayrica ham veri olarak da saklanir (siralama/
+    onceliklendirme icin, orn. Bosluklar panelinde).
 
     Idempotent ama "sadece bir kez calis" DEGIL: MITRE veri seti guncellenip
     (mitre.json degisip) init_db() tekrar calistiginda eksik tech_id'leri
@@ -340,6 +360,11 @@ def build_technique_config(db: sqlite3.Connection) -> None:
     MITRE bir surum atlayip yeni teknik ekledigi zaman (orn. v19'daki
     Defense Impairment/Stealth ayrimi, T1685/T1686) yeni tekniklerin sessizce
     taninmamasina yol aciyordu — kok neden buydu, korumayi kaldirdik.
+
+    ONEMLI: bu INSERT OR IGNORE korumasi, formul DEGISTIGINDE (ornegin bu
+    tiering'in kendisi eklendiginde) onceden var olan satirlarin YENI
+    formule gore yeniden hesaplanmayacagi anlamina da gelir — bkz. hemen
+    altindaki migrate_technique_config_thresholds_to_prevalence_tiers().
     """
     if not MITRE_PATH.exists():
         return  # no mitre data available yet
@@ -388,9 +413,9 @@ def build_technique_config(db: sqlite3.Connection) -> None:
         elif src in tool_stix:
             tool_counts.setdefault(tid, set()).add(src)
 
-    # Her teknik ayni hedefle baslar; grup/arac sayaclari bilgi olarak yazilir.
+    # Her teknik kendi group_count'una gore dilimli bir hedefle baslar.
     rows = [
-        (tid, DEFAULT_RULE_THRESHOLD, "auto",
+        (tid, _prevalence_tier_threshold(len(group_counts.get(tid, set()))), "auto",
          len(group_counts.get(tid, set())), len(tool_counts.get(tid, set())))
         for _stix_id, tid in tech_stix.items()
     ]
@@ -402,26 +427,34 @@ def build_technique_config(db: sqlite3.Connection) -> None:
     db.commit()
 
 
-def ensure_subtechnique_default_threshold(db: sqlite3.Connection) -> None:
-    """Alt tekniklerin varsayilan tespit hedefini 1'e ceker (ana teknikler
-    DEFAULT_RULE_THRESHOLD=2'de kalir).
+def migrate_technique_config_thresholds_to_prevalence_tiers(db: sqlite3.Connection) -> None:
+    """build_technique_config()'un INSERT OR IGNORE'u zaten var olan
+    tech_id satirlarina asla dokunmaz — yani _prevalence_tier_threshold
+    formulu (2026-08-15, bkz. docs/scoring_methodology.md #2) yalnizca
+    YENI eklenen tekniklerde kendiliginden etkili olurdu; onceden
+    populate edilmis (ornegin eski duz DEFAULT_RULE_THRESHOLD donemi
+    veya daha da eski "onem" turetimli) satirlar donmus kalirdi.
 
-    Kurallar neredeyse tamamen ana teknige eslendigi icin (475 alt teknikten
-    yalnizca birkacinin kendi kurali var) alt teknik basina 2 ayri kural
-    beklemek gercekci degildi. Yalnizca source='auto' satirlar degisir —
-    admin'in elle ayarladigi bir alt teknik esigi asla ezilmez. Kullanici
-    karari (2026-07-29).
+    drop_technique_importance()'in bir onceki gecise (Faz 4b) yaptigi
+    aynen: source='auto' satirlarini, halihazirda saklanan group_count
+    uzerinden CASE ile yeniden dilimler. admin override'lari (source=
+    'admin') asla dokunulmaz. SQL'deki esikler _prevalence_tier_threshold
+    ile birebir ayni olmali — biri degisirse digeri de guncellenmeli.
 
-    build_technique_config()'ten HEMEN SONRA cagrilir ve her init_db()
-    calismasinda tekrar uygulanir (yalniz bir kerelik migration DEGIL) —
-    boylece MITRE yeni bir alt teknik ekledikce (build_technique_config
-    onu once DEFAULT_RULE_THRESHOLD=2 ile ekler) bu fonksiyon onu hemen 1'e
-    ceker. Alt teknik tespiti: ATT&CK ID'sinde nokta olmasi ("T1078.001"),
-    technique_config tablosunda ayri bir is_subtechnique sutunu yok.
+    build_technique_config()'ten hemen sonra cagrilir, her init_db()'de
+    tekrar uygulanir (tek seferlik degil — group_count ileride elle
+    degisirse tier kendiliginden senkron kalir).
     """
     db.execute(
-        "UPDATE technique_config SET rule_threshold=1 "
-        "WHERE source='auto' AND rule_threshold != 1 AND tech_id LIKE '%.%'"
+        """
+        UPDATE technique_config
+        SET rule_threshold = CASE
+            WHEN group_count >= 20 THEN 3
+            WHEN group_count >= 5 THEN 2
+            ELSE 1
+        END
+        WHERE source = 'auto'
+        """
     )
     db.commit()
 
@@ -443,14 +476,20 @@ def ensure_parent_with_subtechniques_threshold_zero(db: sqlite3.Connection) -> N
 
     Yalnızca source='auto' satırlar değişir — admin'in elle ayarladığı bir
     üst teknik eşiği asla ezilmez. Alt tekniği OLMAYAN ana teknikler
-    (çoğunluk) etkilenmez, DEFAULT_RULE_THRESHOLD=2'de kalır. Üst tekniğin
+    (çoğunluk) etkilenmez, build_technique_config()'ün kendilerine verdiği
+    tiered değerde (kendi group_count'una göre 1/2/3) kalır. Üst tekniğin
     kendi DOĞRUDAN kuralı varsa bu hâlâ rollup'a bonus olarak eklenir
     (effective_rule_count etkilenmiyor, yalnızca rule_threshold).
 
-    build_technique_config() + ensure_subtechnique_default_threshold()'ten
-    HEMEN SONRA çağrılır ve her init_db()'de tekrar uygulanır — MITRE yeni
-    bir alt teknik ekleyip bir tekniği ilk kez "ebeveyn" yaptığında bu
-    fonksiyon onu hemen yakalar.
+    build_technique_config()'ten HEMEN SONRA çağrılır ve her init_db()'de
+    tekrar uygulanır — MITRE yeni bir alt teknik ekleyip bir tekniği ilk kez
+    "ebeveyn" yaptığında bu fonksiyon onu hemen yakalar.
+
+    NOT (2026-08-15): eskiden ayrıca bir ensure_subtechnique_default_threshold()
+    da vardı (tüm alt teknikleri sabit 1'e çekiyordu) — group_count'a göre
+    dilimli hedef (build_technique_config, docs/scoring_methodology.md #2) bunu
+    gereksiz kıldı: düşük yaygınlıklı bir alt teknik zaten dilimden 1 alıyor,
+    yüksek yaygınlıklıysa artık 1'e sabitlenip önemi gizlenmiyor. Kaldırıldı.
     """
     db.execute(
         """
@@ -962,9 +1001,13 @@ def init_db() -> None:
             -- technique_config: teknik bazlı hedef tespit sayısı.
             -- rule_threshold (0–10): "yeterli kapsama" sayılacak tespit sayısı.
             --   0 = bu teknik icin tespit gerekmiyor (skor otomatik %100).
-            --   Tüm teknikler DEFAULT_RULE_THRESHOLD ile başlar, admin değiştirir.
+            --   Teknikler group_count'a gore dilimli baslar (bkz.
+            --   build_technique_config, docs/scoring_methodology.md #2),
+            --   admin dilerse elle degistirir (source='admin').
             -- group_count / tool_count: mitre.json'dan gelen kullanım sayaçları —
-            --   yalnızca önceliklendirme bilgisi, skoru etkilemez.
+            --   group_count artik rule_threshold'un varsayilanini belirliyor
+            --   (dolayisiyla skoru dolayli etkiliyor); tool_count hala salt
+            --   bilgi/onceliklendirme amacli.
             -- source: 'auto' (mitre.json parse) | 'admin' (el ile override).
             CREATE TABLE IF NOT EXISTS technique_config (
                 tech_id          TEXT PRIMARY KEY,
@@ -993,9 +1036,10 @@ def init_db() -> None:
         migrate_consolidate_rules(db)
         drop_technique_importance(db)
         build_technique_config(db)
-        ensure_subtechnique_default_threshold(db)
+        migrate_technique_config_thresholds_to_prevalence_tiers(db)
         ensure_parent_with_subtechniques_threshold_zero(db)
         ensure_rule_coverage_level(db)
+        migrate_coverage_level_partial_to_half(db)
         ensure_rule_origin(db)
         drop_soc_cmm_schema(db)
     finally:
@@ -1009,6 +1053,21 @@ def ensure_rule_coverage_level(db: sqlite3.Connection) -> None:
             "ALTER TABLE rules ADD COLUMN coverage_level TEXT NOT NULL DEFAULT 'full'"
         )
         db.commit()
+
+
+def migrate_coverage_level_partial_to_half(db: sqlite3.Connection) -> None:
+    """coverage_level 3->4 seviye (2026-08-15, bkz. docs/scoring_methodology.md).
+
+    Eski 'partial' (agirlik 0.60) ikiye bolundu: 'half' (0.50, DeTT&CT
+    Visibility seviye 2/4) ve 'good' (0.75, seviye 3/4). Mevcut 'partial'
+    kayitlarinin HANGI yeni seviyeye ait oldugunu ayirt edecek veri yok —
+    hepsi guvenli tarafta kalinarak 'half'e tasinir (0.60'a 'good'dan daha
+    yakin, ve kapsama araclarinda yanlis-guven vermektense dusuk gostermek
+    tercih edilir). Editorler istedigi kaydi sonradan 'good'a cekebilir.
+    Idempotent: ikinci calistirmada eslesen 'partial' satiri kalmaz.
+    """
+    db.execute("UPDATE rules SET coverage_level='half' WHERE coverage_level='partial'")
+    db.commit()
 
 
 def ensure_rule_origin(db: sqlite3.Connection) -> None:
@@ -1316,31 +1375,42 @@ def _compute_gap_analysis(
     detection_sources = _detection_source_names(db)
 
     rule_stats_by_tech: dict[str, dict[str, Any]] = {}
+    # rule_id -> agirlik ve tech_id -> o teknige eslenen rule_id kumesi —
+    # aile rollup'inin kural-ID bazli dedup'i icin (asagida, "Ust teknik
+    # ailesi"). Eskiden GROUP BY ile SQL'de toplaniyordu; tek tek rule_id'ye
+    # ihtiyac oldugu icin artik gruplamadan cekilip Python'da toplaniyor
+    # (bu olcekte bir uygulama icin performans sorunu yaratmaz).
+    rule_weight: dict[int, float] = {}
+    tech_to_rule_ids: dict[str, set] = {}
     for row in db.execute(
         """
-        SELECT rt.tech_id, r.source, r.coverage_level, r.origin,
-               COUNT(DISTINCT r.id) AS rule_count
+        SELECT rt.tech_id, rt.rule_id, r.source, r.coverage_level, r.origin
         FROM rule_techniques rt
         JOIN rules r ON r.id = rt.rule_id
-        GROUP BY rt.tech_id, r.source, r.coverage_level, r.origin
         """
     ).fetchall():
         weight = 1.0 if scope_weights is None else scope_weights.get(row["source"], 0.0)
         if weight <= 0:
             continue
-        level_weight = {"low": 0.25, "partial": 0.60}.get(row["coverage_level"], 1.00)
+        # DeTT&CT Visibility Score'una (1-4) dayanan 4 kademeli agirlik —
+        # bkz. docs/scoring_methodology.md #1. "full" sozluk disi kalir,
+        # varsayilan 1.00'e dusuyor (asagidaki .get fallback'i).
+        level_weight = {"low": 0.25, "half": 0.50, "good": 0.75}.get(row["coverage_level"], 1.00)
         origin_weight = 1.0 if row["origin"] != "product_claim" else PRODUCT_CLAIM_SCORE_WEIGHT
+        rule_value = level_weight * weight * origin_weight
         stats = rule_stats_by_tech.setdefault(
             row["tech_id"],
             {"rule_count": 0, "named_rule_count": 0, "effective_rule_count": 0.0,
              "_products": set()},
         )
-        stats["rule_count"] += int(row["rule_count"])
+        stats["rule_count"] += 1
         if row["origin"] != "product_claim":
-            stats["named_rule_count"] += int(row["rule_count"])
-        stats["effective_rule_count"] += level_weight * weight * origin_weight * int(row["rule_count"])
+            stats["named_rule_count"] += 1
+        stats["effective_rule_count"] += rule_value
         if row["source"] in detection_sources:
             stats["_products"].add(row["source"])
+        rule_weight[row["rule_id"]] = rule_value  # ayni rule_id her zaman ayni degeri uretir
+        tech_to_rule_ids.setdefault(row["tech_id"], set()).add(row["rule_id"])
     for stats in rule_stats_by_tech.values():
         stats["products"] = sorted(stats["_products"])
         stats["product_count"] = len(stats.pop("_products"))
@@ -1418,28 +1488,54 @@ def _compute_gap_analysis(
     parents = [t for t in all_techs if not t["is_subtechnique"]]
     subs = [t for t in all_techs if t["is_subtechnique"]]
 
-    # ── Üst teknik ailesi (rollup) ───────────────────────────────────────────
-    # Alt tekniği OLAN bir üst teknik artık yalnızca kendi payıyla değil,
-    # kendi payı + TÜM alt tekniklerinin toplamıyla değerlendirilir: skor,
-    # hedef, etkin tespit ve "tespitli mi" (kova) hepsi bu aileyi yansıtır.
-    # Alt tekniği olmayan teknikler etkilenmez (toplam sıfır alt teknikle
-    # "kendi" değerine indirgenir, ayrı bir dal gerekmez).
+    # ── Üst teknik ailesi (rollup) — İKİ AYRI GÜVENCE, KÜÇÜK OLANI ──────────
+    # Tam gerekçe, canlı örnek ve önceki iki denemenin neden yetersiz
+    # kaldığı: docs/scoring_methodology.md #3. Özet:
     #
-    # Her alt teknik KENDİ HEDEFİNDE TAVANLANIR — bir alt tekniğin fazla
-    # tespiti başka bir kardeşin eksiğini örtmez (bilinçli, muhafazakâr
-    # seçim: aile "ortalaması" telafi ile şişmesin). "Gerekli değil" (hedef=0)
-    # işaretli bir alt teknik aileye ne katkı ne yük getirir, tamamen
-    # dışarıda kalır.
+    #   family_hedef = kendi_hedef + Σ alt.hedef        [TAM toplam; kendi_hedef
+    #                                                     genelde 0, bkz.
+    #                                                     ensure_parent_with_
+    #                                                     subtechniques_
+    #                                                     threshold_zero]
+    #   capped_sum   = min(kendi.etkin, kendi.hedef)
+    #                  + Σ min(alt.etkin, alt.hedef)     [her ÜYE kendi hedefinde
+    #                                                     tavanlanır — bir üyenin
+    #                                                     fazlası başkasına akmaz]
+    #   deduped_sum  = ailenin (kendi + tüm altlar) dokunduğu BENZERSİZ
+    #                  kuralların toplam ağırlığı         [aynı kural birden
+    #                                                     fazla üyeye eşliyse
+    #                                                     YALNIZCA BİR KEZ sayılır]
+    #   family_etkin = min(capped_sum, deduped_sum)
+    #   family_skor  = min(family_etkin / family_hedef, 1.0)
     #
-    # "Tespit" kovası da aileye genişler: üst teknik, kendisine doğrudan
-    # yazılmış bir kural VARSA ya da en az bir alt tekniği zaten tespitliyse
-    # tespitli sayılır — böylece skor (kart rengi) ile kova (Boşluklar
-    # listesi) her zaman aynı sonuca varır, birbirini yalanlamaz. Bu, aşağıdaki
-    # "sert kanıt" ilkesini bozmaz — kanıt hâlâ gerekiyor, sadece ailenin
-    # herhangi bir üyesinden gelebiliyor.
+    # Neden İKİSİ BİRDEN gerekiyor — her biri FARKLI bir aşırı-sayma
+    # senaryosunu önler, tek başına hiçbiri yetmiyordu:
+    #   - Yalnızca capped_sum kullanılsaydı: aynı kural hem üste hem birden
+    #     fazla alt tekniğe eşliyse (örn. bir ürünün geniş "built-in motoru")
+    #     her eşlendiği yerde ayrıca sayılır — N kez şişer.
+    #   - Yalnızca deduped_sum kullanılsaydı: bir alt teknikte çok sayıda
+    #     BAĞIMSIZ kural varsa (örn. hedefi 2 iken 10 farklı kural), o
+    #     fazlalık diğer kardeşlerin eksiğini kapatmak için aileye "taşar" —
+    #     kullanıcı kararına (2026-07-29) aykırı: "fazlasını üste taşıma,
+    #     kendi yeşil olsun, sorun yok".
+    #   min() ikisini de aynı anda garanti eder; paylaşılmamış ve tavanı
+    #   aşmayan normal durumda ikisi zaten eşittir, hiçbir fark yaratmaz.
     #
-    # Kullanıcı kararı (2026-07-29, bkz. PROJECT_STATE.md). static/app.js
-    # renderMatrix()/updateTechniqueCard() aynı formülle eşitlenmeli.
+    # Önceki deneme (2026-08-15, "boşluk tabanlı") payda için Σeksik(alt)
+    # kullanıp payı SADECE kendi.etkin'de bırakmıştı — bu, üst teknik
+    # neredeyse hiç doğrudan kural almadığı (kurallar hep alt tekniğe
+    # yazılıyor) için pay hep ~0 kalıp payda pozitif olduğu her an skoru
+    # sıfıra çekiyordu: bir alt teknik %100, diğeri %75 kapsanmış bir aile
+    # bile üst teknik kartında dümdüz "hiç kapsanmamış" görünüyordu (canlı
+    # örnek: T1205, bkz. metodoloji belgesi). Kök neden: payda "kalan
+    # boşluk", pay "tamamen ayrı bir sayı" idi — aynı ölçekte değillerdi.
+    #
+    # "Tespit" kovası aileye genişler: üst teknik, kendisine doğrudan yazılmış
+    # bir kural VARSA ya da en az bir alt tekniği zaten tespitliyse tespitli
+    # sayılır — skor (kart rengi) ile kova (Boşluklar listesi) her zaman aynı
+    # sonuca varır. Bu, rollup formülünden BAĞIMSIZ, değişmedi.
+    #
+    # static/app.js familyRollup() aynı formülle eşitlenmeli.
     children_by_parent: dict[str, list] = {}
     for s in subs:
         pid = s.get("parent_id")
@@ -1450,15 +1546,25 @@ def _compute_gap_analysis(
         kids = children_by_parent.get(p["tech_id"])
         if not kids:
             continue
-        kids_threshold_sum = sum(k["rule_threshold"] for k in kids if k["rule_threshold"] > 0)
-        kids_effective_sum = sum(
+        kids_hedef_sum = sum(k["rule_threshold"] for k in kids if k["rule_threshold"] > 0)
+        rollup_threshold = p["rule_threshold"] + kids_hedef_sum
+
+        capped_sum = min(p["effective_rule_count"], p["rule_threshold"]) if p["rule_threshold"] > 0 else 0.0
+        capped_sum += sum(
             min(k["effective_rule_count"], k["rule_threshold"])
             for k in kids if k["rule_threshold"] > 0
         )
-        rollup_threshold = p["rule_threshold"] + kids_threshold_sum
-        rollup_effective = p["effective_rule_count"] + kids_effective_sum
+
+        family_tech_ids = {p["tech_id"]} | {k["tech_id"] for k in kids}
+        family_rule_ids: set = set()
+        for tid in family_tech_ids:
+            family_rule_ids |= tech_to_rule_ids.get(tid, set())
+        deduped_sum = sum(rule_weight.get(rid, 0.0) for rid in family_rule_ids)
+
+        rollup_effective = min(capped_sum, deduped_sum)
+
+        p["rule_threshold"] = round(rollup_threshold, 2)
         p["effective_rule_count"] = round(rollup_effective, 2)
-        p["rule_threshold"] = rollup_threshold
         p["coverage_score"] = (
             round(min(rollup_effective / rollup_threshold, 1.0), 3)
             if rollup_threshold > 0 else 1.0
@@ -1617,77 +1723,6 @@ def _compute_gap_analysis(
         # (eklemek geriye donuk uyumlu, mevcut alanlarin hicbiri degismedi).
         "techniques": all_techs,
     }
-
-
-def _get_threat_actors() -> list:
-    """Parse mitre.json for intrusion-sets and their technique usage. Cached."""
-    if not MITRE_PATH.exists():
-        return []
-    mtime = MITRE_PATH.stat().st_mtime
-    if THREAT_ACTOR_CACHE["data"] is not None and THREAT_ACTOR_CACHE["mtime"] == mtime:
-        return THREAT_ACTOR_CACHE["data"]  # type: ignore[return-value]
-
-    data = json.loads(MITRE_PATH.read_text(encoding="utf-8"))
-    objects = data.get("objects", [])
-
-    tech_stix_to_ext: dict[str, str] = {}
-    actors: dict[str, dict] = {}
-
-    for obj in objects:
-        t = obj.get("type", "")
-        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
-            continue
-        if t == "attack-pattern":
-            for ref in obj.get("external_references", []):
-                if ref.get("source_name") == "mitre-attack" and ref.get("external_id", "").startswith("T"):
-                    tech_stix_to_ext[obj["id"]] = ref["external_id"]
-                    break
-        elif t == "intrusion-set":
-            stix_id = obj["id"]
-            name = obj.get("name", "")
-            aliases = obj.get("aliases", [name])
-            g_id = ""
-            for ref in obj.get("external_references", []):
-                if ref.get("source_name") == "mitre-attack" and ref.get("external_id", "").startswith("G"):
-                    g_id = ref["external_id"]
-                    break
-            actors[stix_id] = {
-                "id": g_id,
-                "stix_id": stix_id,
-                "name": name,
-                "aliases": aliases,
-                "technique_ids": set(),
-            }
-
-    for obj in objects:
-        if obj.get("type") != "relationship":
-            continue
-        if obj.get("relationship_type") != "uses":
-            continue
-        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
-            continue
-        src = obj.get("source_ref", "")
-        tgt = obj.get("target_ref", "")
-        if src in actors:
-            t_ext = tech_stix_to_ext.get(tgt)
-            if t_ext:
-                actors[src]["technique_ids"].add(t_ext)
-
-    result = [
-        {
-            "id": a["id"],
-            "stix_id": a["stix_id"],
-            "name": a["name"],
-            "aliases": a["aliases"],
-            "technique_ids": sorted(a["technique_ids"]),
-        }
-        for a in actors.values()
-    ]
-    result.sort(key=lambda x: x["name"])
-
-    THREAT_ACTOR_CACHE["mtime"] = mtime
-    THREAT_ACTOR_CACHE["data"] = result
-    return result
 
 
 def _minify_mitre(raw: dict) -> dict:
@@ -1937,7 +1972,6 @@ def rules():
         target_id=str(cur.lastrowid),
         detail=f"name={name};tech={tech or '-'};source={source}",
     )
-    _invalidate_ttp_cache()
     db.commit()
     return jsonify({
         "id": cur.lastrowid, "name": name, "tactic": tactic, "tech": tech,
@@ -2098,7 +2132,7 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
             "name": f"{product} — {_BUILTIN_RULE_SUFFIX}" if product else "",
             "product": product,
             "techniques": item.get("techniques"),
-            "coverage_level": (item.get("coverage_level") or "partial").strip(),
+            "coverage_level": (item.get("coverage_level") or "half").strip(),
             "kind": "builtin",
             "origin": "product_claim",
             "rationale": (item.get("note") or item.get("rationale") or "").strip(),
@@ -2126,10 +2160,10 @@ def _plan_coverage_import(db: sqlite3.Connection, raw: Any) -> dict:
                 "products[] bolumunde de tanimli degil."
             )
             continue
-        if item["coverage_level"] not in ("low", "partial", "full"):
+        if item["coverage_level"] not in ("low", "half", "good", "full"):
             errors.append(
                 f"{label} ({name}): gecersiz coverage_level '{item['coverage_level']}'. "
-                "Gecerli: low, partial, full"
+                "Gecerli: low, half, good, full"
             )
             continue
 
@@ -2365,7 +2399,6 @@ def _apply_coverage_plan(db: sqlite3.Connection, plan: dict) -> dict:
         detail=f"source=import;created={created};updated={updated};"
                f"techniques_added={techs_added};products={len(new_products)}",
     )
-    _invalidate_ttp_cache()
     return {
         "products_created": len(new_products),
         "rules_created": created,
@@ -2507,7 +2540,6 @@ def update_rule(rule_id: int):
         before={"name": row["name"], "source": row["source"]},
         after={"name": new_name, "source": new_source},
     )
-    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"id": rule_id, "name": new_name, "source": new_source})
 
@@ -2517,8 +2549,8 @@ def update_rule(rule_id: int):
 def update_rule_coverage(rule_id: int):
     payload = request.get_json(silent=True) or {}
     level = (payload.get("coverage_level") or "").strip()
-    if level not in ("low", "partial", "full"):
-        return jsonify({"error": "Geçersiz değer: low | partial | full"}), 400
+    if level not in ("low", "half", "good", "full"):
+        return jsonify({"error": "Geçersiz değer: low | half | good | full"}), 400
     db = get_db()
     row = db.execute("SELECT id, coverage_level FROM rules WHERE id=?", (rule_id,)).fetchone()
     if not row:
@@ -2554,7 +2586,6 @@ def delete_rule(rule_id: int):
     write_audit_log(
         db, action="delete", target_type="rule", target_id=str(rule_id), before=before
     )
-    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -2576,7 +2607,6 @@ def add_rule_technique(rule_id: int):
                (rule_id, tech_id))
     write_audit_log(db, action="create", target_type="rule_technique",
                     target_id=str(rule_id), detail=f"tech_id={tech_id}")
-    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -2589,7 +2619,6 @@ def delete_rule_technique(rule_id: int, tech_id: str):
                (rule_id, tech_id.upper()))
     write_audit_log(db, action="delete", target_type="rule_technique",
                     target_id=str(rule_id), detail=f"tech_id={tech_id}")
-    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -2802,7 +2831,6 @@ def mitigation_entries():
             "comment": comment, "product_id": product_id,
         },
     )
-    _invalidate_ttp_cache()
     db.commit()
     row = db.execute(
         _MITIGATION_ENTRY_SELECT + " WHERE e.id = ?", (cur.lastrowid,)
@@ -2828,7 +2856,6 @@ def delete_mitigation_entry(entry_id: int):
         target_id=str(entry_id),
         before=dict(row),
     )
-    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -3339,7 +3366,6 @@ def _run_qradar_sync(db: sqlite3.Connection, connector: sqlite3.Row) -> dict[str
             (finished_at, connector["id"]),
         )
         write_audit_log(db, "sync", "connector", str(connector["id"]), f"qradar;received={stats['received']};created={stats['created']};updated={stats['updated']};rules_created={stats['rules_created']}", after={**stats, "payload_hash": payload_hash})
-        _invalidate_ttp_cache()
         db.commit()
         return {"run_id": run_id, "status": "success", **stats, "payload_hash": payload_hash}
     except Exception as exc:
@@ -3757,7 +3783,7 @@ def _compute_data_quality(db: sqlite3.Connection) -> dict[str, Any]:
                 "entity_id": rule["id"], "value": tactic,
                 "message": "Taktik alanı MITRE Enterprise taktikleriyle eşleşmiyor.",
             })
-        if rule["coverage_level"] not in ("low", "partial", "full"):
+        if rule["coverage_level"] not in ("low", "half", "good", "full"):
             invalid_coverage += 1
             issues.append({
                 "severity": "warning", "type": "invalid_coverage",
@@ -3852,7 +3878,6 @@ def data_quality_repair_api():
         if canonical and row["tactic"] != canonical:
             db.execute("UPDATE rules SET tactic=? WHERE id=?", (canonical, row["id"]))
             repaired["tactics"] += 1
-    _invalidate_ttp_cache()
     after = _compute_data_quality(db)["summary"]
     write_audit_log(
         db, action="repair", target_type="data_quality",
@@ -3867,139 +3892,6 @@ _TACTIC_ORDER = [
     "credential-access", "discovery", "lateral-movement", "collection",
     "command-and-control", "exfiltration", "impact",
 ]
-
-
-def _invalidate_ttp_cache():
-    TTP_LIST_CACHE["dirty"] = True
-
-
-@app.route("/api/ttp-list")
-@role_required("viewer")
-def ttp_list():
-    if not TTP_LIST_CACHE["dirty"] and TTP_LIST_CACHE["data"] is not None:
-        return jsonify(TTP_LIST_CACHE["data"])
-    if not MITRE_PATH.exists():
-        return jsonify({"error": "MITRE data not found"}), 500
-    try:
-        mitre = get_minified_mitre()
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
-
-    db = get_db()
-
-    # Build lookup structures from minified MITRE data
-    tech_by_stix: dict[str, dict] = {}
-    mitigation_stix_to_ext: dict[str, str] = {}
-    tech_to_mitigations: dict[str, set] = {}
-
-    for obj in mitre["objects"]:
-        t = obj.get("type")
-        if obj.get("revoked") or obj.get("x_mitre_deprecated"):
-            continue
-        if t == "attack-pattern":
-            ext_id = next(
-                (
-                    ref["external_id"]
-                    for ref in obj.get("external_references", [])
-                    if ref.get("source_name") == "mitre-attack"
-                    and ref.get("external_id", "").startswith("T")
-                ),
-                None,
-            )
-            if not ext_id:
-                continue
-            tactics = [
-                ph["phase_name"]
-                for ph in obj.get("kill_chain_phases", [])
-                if ph.get("kill_chain_name") == "mitre-attack"
-            ]
-            is_sub = obj.get("x_mitre_is_subtechnique", False)
-            parent_id = ext_id.split(".")[0] if is_sub and "." in ext_id else None
-            tech_by_stix[obj["id"]] = {
-                "external_id": ext_id,
-                "name": obj.get("name", ""),
-                "is_subtechnique": is_sub,
-                "parent_id": parent_id,
-                "tactics": tactics,
-            }
-        elif t == "course-of-action":
-            ext_id = next(
-                (
-                    ref["external_id"]
-                    for ref in obj.get("external_references", [])
-                    if ref.get("source_name") == "mitre-attack"
-                    and ref.get("external_id", "").startswith("M")
-                ),
-                None,
-            )
-            if ext_id:
-                mitigation_stix_to_ext[obj["id"]] = ext_id
-        elif t == "relationship" and obj.get("relationship_type") == "mitigates":
-            mit_ext = mitigation_stix_to_ext.get(obj.get("source_ref", ""))
-            tech_info = tech_by_stix.get(obj.get("target_ref", ""))
-            if mit_ext and tech_info:
-                tech_to_mitigations.setdefault(tech_info["external_id"], set()).add(mit_ext)
-
-    # Rule counts per tech_id
-    rule_rows = db.execute(
-        "SELECT tech_id, COUNT(DISTINCT rule_id) AS cnt FROM rule_techniques GROUP BY tech_id"
-    ).fetchall()
-    rule_count_by_tech = {r["tech_id"]: r["cnt"] for r in rule_rows}
-
-    # Covered mitigations (has entries or globally checked)
-    covered_mits = set(
-        r["mitigation_id"]
-        for r in db.execute(
-            "SELECT DISTINCT mitigation_id FROM mitigation_entries"
-        ).fetchall()
-    )
-
-    # Technique config
-    tc_rows = db.execute(
-        "SELECT tech_id, rule_threshold, group_count FROM technique_config"
-    ).fetchall()
-    technique_config_map = {
-        r["tech_id"]: {"rule_threshold": r["rule_threshold"], "group_count": r["group_count"]}
-        for r in tc_rows
-    }
-
-    # Build tactic groups
-    tactic_techs: dict[str, list] = {}
-    for _stix_id, info in tech_by_stix.items():
-        teid = info["external_id"]
-        tc = technique_config_map.get(teid, {})
-        rule_threshold = tc.get("rule_threshold", DEFAULT_RULE_THRESHOLD)
-        mits_for_tech = tech_to_mitigations.get(teid, set())
-        tech_data = {
-            "tech_id": teid,
-            "name": info["name"],
-            "is_subtechnique": info["is_subtechnique"],
-            "parent_id": info["parent_id"],
-            "rule_count": rule_count_by_tech.get(teid, 0),
-            "mitigation_entry_count": len(mits_for_tech & covered_mits),
-            "total_mitigations": len(mits_for_tech),
-            "rule_threshold": rule_threshold,
-            "group_count": tc.get("group_count", 0) or 0,
-        }
-        for tactic in info["tactics"]:
-            tactic_techs.setdefault(tactic, []).append(tech_data)
-
-    result = []
-    for tactic in _TACTIC_ORDER:
-        if tactic in tactic_techs:
-            result.append({
-                "tactic": tactic,
-                "techniques": sorted(tactic_techs[tactic], key=lambda x: x["tech_id"]),
-            })
-    for tactic, techs in tactic_techs.items():
-        if tactic not in _TACTIC_ORDER:
-            result.append({
-                "tactic": tactic,
-                "techniques": sorted(techs, key=lambda x: x["tech_id"]),
-            })
-    TTP_LIST_CACHE["data"] = result
-    TTP_LIST_CACHE["dirty"] = False
-    return jsonify(result)
 
 
 @app.route("/api/technique-detail/<tech_id>")
@@ -4143,7 +4035,6 @@ def admin_reset():
     db.execute("DELETE FROM mitigation_entries")
     db.execute("DELETE FROM rule_techniques")
     db.execute("DELETE FROM rules")
-    _invalidate_ttp_cache()
     db.commit()
 
     inserted = 0
@@ -4209,7 +4100,6 @@ def update_technique_config(tech_id: str):
         target_id=tech_id.upper(),
         detail=f"rule_threshold={rule_threshold}",
     )
-    _invalidate_ttp_cache()
     db.commit()
     return jsonify({"ok": True})
 
@@ -4234,18 +4124,6 @@ def gap_analysis_api():
         return jsonify({"error": str(exc)}), 500
     result["environment_id"] = environment_id
     return jsonify(result)
-
-
-@app.route("/api/threat-actors")
-@role_required("viewer")
-def threat_actors_api():
-    if not MITRE_PATH.exists():
-        return jsonify({"error": "MITRE data not found"}), 500
-    try:
-        actors = _get_threat_actors()
-        return jsonify(actors)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/action-items", methods=["GET", "POST"])

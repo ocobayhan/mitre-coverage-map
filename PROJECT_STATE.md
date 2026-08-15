@@ -1,6 +1,6 @@
 # Project State
 
-Son güncelleme: 2026-07-19
+Son güncelleme: 2026-08-15
 
 ## Ürün Amacı
 
@@ -718,6 +718,330 @@ ile birebir eşleşiyordu (bu hiç bozulmamıştı). 46/46 test geçiyor
 - Yedekler bilinçli olarak canlı verinin named volume'ünden ayrı, Docker'ın hiç bilmediği bir host klasörüne (bind mount) yazılır — `docker compose down -v` / `docker system prune --volumes` yedekleri etkilemez
 - Zamanlama in-app değil, dışarıdan tetiklenir (`docker exec soc-app python scripts/backup_db.py`, Windows Task Scheduler ile — `scripts/sync_connectors.py` ile aynı model)
 - Ayrıntı ve kurtarma adımları: `docs/backup_restore.md`
+
+## Docker Host Portu 9293'e Alındı (2026-07-29)
+
+- `docker-compose.yml`: `ports:` eşlemesi `"8000:8000"` → `"9293:8000"`. Sadece host tarafı değişti; container içi her şey (`SOC_PORT: 8000`, healthcheck'in hedeflediği `http://localhost:8000/login`, `EXPOSE 8000` Dockerfile'da) aynı kaldı — bunlar container-içi concern, host portundan bağımsız.
+- `docs/backup_restore.md`: Kurulum adımındaki `http://localhost:8000` referansı `http://localhost:9293` olarak güncellendi (bu dosya özellikle bu docker-compose akışını anlatıyor).
+- Kapsam dışı bırakılanlar (bilinçli): `README.md`'deki Waitress örneği (`$env:SOC_PORT='8000'`) Docker dışı, bare-metal `serve.py` senaryosu için genel bir örnek — dokunulmadı. `.claude/launch.json`'daki yerel dev önizleme (`soc-dev`, port 8000) da ayrı bir concern (bu makinede Docker kurulu değil, kullanıcı Docker'ı kendi makinesinde kuruyor) — değiştirilmedi.
+- Not: Değişiklik sadece compose dosyasında olduğu için image yeniden build gerekmiyor, `docker compose up -d` mevcut container'ı yeni port eşlemesiyle yeniden oluşturur.
+- Commit/push yapılmadı — kullanıcı isteyince yapılacak.
+
+## Matrix Görsel Yenileme — Referans Projeden İlham (2026-08-14)
+
+Kullanıcı bir Splunk MITRE ATT&CK heatmap uygulamasını (`alatif113/mitre_attck_heatmap`, gerçek kaynağı incelendi: el yazımı jQuery/DOM, D3 değil) beğendi ve üç değişiklik istedi: görsel/etkileşim dilini ona yaklaştırmak, hücrelerdeki oran metinlerini ve "M" mitigation rozetini kaldırmak (hesaplama arka planda kalıyor, hover tooltip'e taşındı), "Tehdit Aktörü" overlay özelliğini tamamen kaldırmak. Plan dosyası: `C:\Users\Oguzhan\.claude\plans\gentle-leaping-riddle.md`.
+
+- **Tehdit Aktörü kaldırıldı** — `app.py` (`THREAT_ACTOR_CACHE`, `_get_threat_actors()`, `/api/threat-actors`), `app.js` (6 fonksiyon + çağrı noktaları), `index.html` (`#threatActorBar`), `styles.css` (`.threat-actor-bar`, `.threat-match`/`.threat-dim`), `test_app.py`, `docs/rbac.md`.
+- **Hücre yüzü sadeleşti** — `fillTechniqueCell()` artık yalnızca ad+ID basıyor (`.tc-marks`/`.tc-shield`/`.tc-env`/`.tc-count` CSS'i silindi). Tüm sayısal detay (oran, mitigation, ürünler, ortam, tehdit grubu) zaten var olan hover tooltip'te (`wireScoreTooltip()`) toplandı — `applyTechniqueVisuals()`'a hiç dokunulmadı, `card.dataset.scoreData` zaten her alanı taşıyordu.
+- **Alt teknik: tıkla-aç → hover-flyout** (kullanıcı onaylı karar, referans projeye sadık). Kritik nokta: `subContainer` artık `card`'ın DOM ÇOCUĞU (`col`'un kardeşi değil) — CSS `:hover`'ın torunlarda sürmesi ve `position:absolute`'in doğru karta göre konumlanması bunu gerektiriyor. Yön aşağı (`top:100%`, sıfır boşluk — "ölü bölge" hover bug'ından kaçınmak için), `opacity/visibility/transform` ile geçiş (`display` geçiş yapamaz). "Hepsini Aç" toplu butonu kaldırıldı (kullanıcı onaylı — hover-only modelde karşılığı yok).
+- **Kart hover "pop" efekti** — `scale(1.06) translateY(-2px)` + shadow + `z-index:5` (referansın `scale(1.2)`'sinden bilinçli düşük, dar kolonlarda taşmayı önlemek için).
+- **Statik skor lejantı eklendi** — `renderScoreLegend()`, `_SCORE_STOPS`/`scoreToColor()`'ın kendisinden türetiliyor (ayrı bir palet elle kopyalanmadı). Referansın interaktif sürükle-vurgula ve otomatik "sweep" animasyonu bilinçli olarak PORT EDİLMEDİ (kullanıcının "basit" hedefiyle çelişiyor).
+- **`.score-tooltip` iyileştirmeleri** — kenar-farkında konumlama (sol/sağ/alt clamp+flip), dolgu çubukları artık `width:0%` render edilip `requestAnimationFrame` içinde gerçek yüzdeye set ediliyor (CSS `transition` eklendi — öncesinde geçilecek "önceki değer" yoktu).
+- **Tutarlılık** — `docs.html`, `README.md`, `scripts/browser_smoke.py` (`subtech_toggles` → `subtech_cards`, `.tc-toggle` artık yok) güncellendi. `styles.css?v=121`, `app.js?v=125`.
+- **Doğrulama**: 46/46 test geçti. Tarayıcıda DOM/CSSOM üzerinden doğrulandı (bu ortamda Browser pane compositing yapmadığı için ekran görüntüsü alınamadı — `document.hidden===true` ile teyit edildi): `.subtech-container`'ın `card`'ın direkt çocuğu olduğu, kapalı/açık CSS kurallarının doğru ayrıştığı, tooltip'in tam sayısal dökümü gösterdiği, karta tıklamanın hâlâ doğru modalı açtığı, mouseleave'de tooltip'in temizlendiği, konsol hatası olmadığı. `requestAnimationFrame` bazlı dolgu animasyonu bu spesifik non-composited ortamda tetiklenemedi (rAF, `document.hidden` sayfalarda tarayıcı tarafından durduruluyor — izole test ile doğrulandı) ama bu ortam kısıtı; gerçek kullanıcı hover'ı yalnızca görünür/foreground bir sayfada mümkün olduğu için pratikte sorun değil.
+- Commit/push yapılmadı — kullanıcı isteyince yapılacak.
+
+### Düzeltme: Hover flyout kartın altında kayboluyordu (2026-08-14, devam)
+
+Kullanıcı geri bildirimi: ana teknik kartı, altında açılan alt teknik flyout'unun üzerine biniyor, göremiyor. Kök neden `document.elementsFromPoint()` ile ölçülerek doğrulandı (ekran görüntüsü bu ortamda alınamadığı için): `.technique-card:hover`'daki `transform: scale(1.06)` merkezden büyüdüğü için kartın alt kenarı ~1px aşağı taşıyor, tam o noktada başlayan `.subtech-container`'ın (`top:100%`) üzerine biniyordu.
+
+- **Kök neden düzeltmesi:** `transform-origin: center bottom` eklendi — artık scale kartın alt kenarını hiç aşağı itmiyor (üstten büyüyor), `translateY(-3px)` ile de yukarı çekiliyor.
+- **Asıl algı sorunu için daha güçlü çözüm:** referans projedeki `.mtr-tactic-col:hover .mtr-technique-container{opacity:.25}` fikri port edildi — `.tactic-column:has(.technique-card:hover) .technique-card:not(:hover) { opacity:.35; filter:grayscale(.4); }`. Aynı kolondaki diğer kartlar donuklaşınca "hangisi üstte" belirsizliği tamamen kalkıyor. `:has()` bu stylesheet'te zaten kullanılıyordu (`.wiki-nav-*`), yeni bir tarayıcı desteği riski değil.
+- Kart pop efekti bu vesileyle biraz güçlendirildi: `scale(1.06→1.08)`, `brightness(1.18→1.22)`, gölge derinleştirildi. Flyout de karttan biraz taşan (-4px sağ/sol), üstte vurgu renkli kenarlıklı, daha "referans projedeki gibi belirgin bir panel" hissi verecek şekilde güçlendirildi.
+- Doğrulama notu: bu ortamda CSS transition'lar `document.hidden=true` olduğu için compositor hiç çalışmadığından ilerlemiyor (izole `requestAnimationFrame` testiyle doğrulandı) — bu yüzden gerçek `:hover` yerine `transition:none !important` ile geçici debug class'ları uygulanıp `elementsFromPoint` ile geometri/stacking ölçüldü, sonra debug class'ları temizlendi.
+
+### Asıl çakışma bulundu: score-tooltip ile subtech-flyout, ikisi de kartın ALTINDA (2026-08-14, devam 2)
+
+Önceki iki düzeltme (transform-origin, kolon içi donuklaştırma) kartın kendi kutusuyla ilgili küçük bir sorunu gerçekten çözdü ama kullanıcının asıl gördüğü şey farklıydı: `wireScoreTooltip()`'in ürettiği `.score-tooltip` (numara dökümü — `z-index:2100`, opak arka plan) ve `.subtech-container` flyout'u (alt teknik listesi — `z-index:5`) **ikisi de kartın altında aynı bölgeye** konumlanıyordu — biri `rect.bottom + 4px`'te, diğeri `top:100%`'te. Alt tekniği olan HER kart hover'landığında ikisi birden açılıyor, tooltip çok daha yüksek z-index'i sayesinde flyout'u tamamen örtüyordu. `document.elementsFromPoint()` + eksen-hizalı dikdörtgen kesişim testiyle doğrulandı.
+
+**Çözüm:** `wireScoreTooltip()`'teki konumlama mantığı köküne kadar değişti — tooltip artık kartın ALTINA değil YANINA (sağına, sığmazsa soluna) yerleşiyor, dikeyde kartın üst kenarına hizalanıp ekrana clamp'leniyor. Böylece flyout'un yaşadığı bölgeye hiç girmiyor — iki panel de aynı anda, çakışmadan görünebiliyor. Ayrıca kullanıcının "işe yaramıyor" dediği pasif `▸` ipucu oku (`.tc-foot::after`) tamamen kaldırıldı.
+
+Doğrulandı: `rectanglesOverlap: false` (gerçek `mouseenter` ile açılan tooltip + `transition:none` ile zorla açılan flyout, iki dikdörtgen kesişmiyor).
+
+### Tooltip'te de sayısal detay kaldırıldı — "artık sadece renkler konuşacak" (2026-08-14, devam 3)
+
+Kullanıcı kararı: hover tooltip'i de sadeleştir. Kaldırılanlar: tespit sayısı/hedef satırı + ilerleme çubuğu, "yalnız ürün iddiası" uyarısı, mitigation satırı + çubuğu, ortam oranı, tehdit grubu sayısı, son "Kapsama %X" satırı — hepsi sayısaldı. Ürün isimleri de metin olarak kaldırıldı, kartlardaki `.product-dots` ile aynı dilde **sadece renkli nokta** oldu (isim istenirse noktanın üzerinde native `title` tooltip'i var). Referans projedeki "hover'da rengin gradyanda nerede olduğunu göster" fikri **`.tt-spectrum`** ile eklendi: `_SCORE_STOPS`'tan türeyen aynı degrade (`_scoreGradientStops()` — `renderScoreLegend()` ile paylaşılan tek kaynak) bir çubukta çizilip üzerine skorun konumunda beyaz bir işaretçi konuyor. `wireScoreTooltip()`'teki artık kullanılmayan `requestAnimationFrame` dolgu-animasyonu bloğu silindi (o veri kaynağı da kalktığı için). İşe yaramadığı söylenen pasif `▸` ipucu oku (`.tc-foot::after`, önceki round'da eklenmişti) da tamamen kaldırıldı.
+
+Bilinçli olarak ERTELENEN bir öneri: kullanıcı "belki teknik için bir açıklama metni olabilir" dedi (referans projenin `description` alanı gibi). Bunu hover'da göstermek ya (a) her hover'da yeni bir `/api/technique-detail/<id>` çağrısı gerektirir — hızlı fare hareketinde istek yağmuruna yol açar, ya da (b) `techDetailsMap`'i mitre.json'daki açıklama metniyle önceden doldurmak gerekir — bu da `/api/mitre-min` yükünü büyütür (700+ teknik × açıklama metni). Kullanıcının kendi ifadesi de "belki" ile hedge'liydi; büyük bir performans/boyut tradeoff'u olan bir ekleme olduğu için onaylarını almadan uygulanmadı — kullanıcıya sorulacak.
+
+`styles.css?v=123`, `app.js?v=127`. 46/46 test, konsol hatası yok, gerçek `mouseenter` ile tooltip içeriği doğrulandı (`tooltipTextOnly` yalnızca ID+ad döndürüyor, hiç başka metin yok).
+
+### Kendi kendine özeleştiri + referansa daha yakın görsel dil (2026-08-14, devam 4)
+
+Kullanıcı, referans projenin görsellik dosyalarını (`visualization.css`) tekrar incelememi ve kendi kodumla dürüstçe karşılaştırmamı istedi. Bulgular ve düzeltmeler:
+
+1. **Matrix tam ekran modu (yeni özellik)** — `#btnMatrixFullscreen`, `.ms-shell.matrix-fullscreen` sınıfı `.ms-topbar`+`.sidebar`'ı gizler, `.content` boşalan alanı otomatik doldurur (zaten `flex:1`). Gerçek Fullscreen API değil — kullanıcı özellikle "chrome sayfasının tamamı heatmap olsun, sekme/adres çubuğu değil, bizim navigasyonumuz" dedi. Esc ile çıkılıyor, `wireMatrixFullscreen()`.
+2. **Stat-bar + arama çubuğu kompaktlaştırıldı** — `.matrix-stat-bar` min-height 55px→34px, `.filter-bar` padding/margin küçültüldü, arama input'u scoped override ile küçültüldü (global `input{height:30px}`'a dokunulmadı).
+3. **Ortam seçici Matrix panelinden kaldırıldı** — `#matrixScopeSelect`+`#matrixScopeNote` HTML'den silindi. Tüm JS tüketicileri zaten `if (!el) return` ile korunuyordu (doğrulandı, sıfır hata) — `matrixScopeEnvId` artık hep `null`, panel her zaman birleşik modda. **Backend, Kapsam Envanteri, `/report?environment_id=` hiç dokunulmadı** — kullanıcı özellikle "tüm üründen çıkarmayı sonra yaparız" dedi. `docs/ACIK_SORULAR.md` madde 8'e not düşüldü (ürün genelinde kaldırma kararı ileride). README.md'deki artık yanlış olan "matrisin üstündeki Ortam seçicisi" cümlesi düzeltildi.
+4. **Opak/doygun renk dolgusu** — `scoreToColor()`/`scoreToSubColor()` artık `rgba(...,0.20/0.13)` değil opak `rgb(...)` döndürüyor (ikisi artık aynı — referansta da ana/alt teknik farklı saydamlık almıyor). Yeni `scoreTextColor()` luminance hesaplayıp otomatik siyah/beyaz metin seçiyor (referansın `_getColor()`'ı ile birebir aynı formül: `0.299r+0.587g+0.114b`, eşik 0.65). `applyTechniqueVisuals()`'ın 3 çağrı noktasında `card.style.color` de set ediliyor artık. `.tc-id`'nin sabit rengi (`var(--d-text-3)`) `color:inherit`'e çevrildi — yoksa opak/parlak arka planlarda ID metni okunmaz kalırdı. `buildSubtechContainer()`'daki eski `scoreToSubColor` override'ı kaldırıldı (artık `scoreToColor` ile aynı değeri üretip gereksiz hale geldi). Legend ve tooltip gradyanı `scoreToColor()`'ı zaten paylaştığı için otomatik olarak da opak/doygun oldu.
+5. **Hover "pop" büyütüldü** — `scale(1.08)→1.18`, `translateY(-3px→-5px)`, gölge `0 10px 22px/.5→0 7px 30px/.75` (referansın `scale(1.2)`sine kullanıcı onayıyla yaklaşıldı, komşu karta geçici taşma artık kabul ediliyor). `filter: brightness` 1.22→1.1'e düşürüldü — opak/doygun dolgu üzerinde aşırı parlaklık artık gerekmiyor, taşma+gölge zaten yeterince dramatik.
+
+Doğrulandı (DOM/CSSOM, bu ortamda ekran görüntüsü yok): ortam seçici DOM'dan tamamen gitti, kart arka planı `rgb(218,147,48)` gibi tam opak, otomatik seçilen metin rengi luminance hesabıyla tutarlı (`rgb(255,255,255)` — hesaplanan luminance 0.615 < 0.65 eşiği), tam ekran butonu sidebar+topbar'ı gerçekten gizliyor/geri getiriyor, Esc tuşu çalışıyor, hover kuralı yeni değerlerle stylesheet'te doğru. 46/46 test. `styles.css?v=124`, `app.js?v=128`.
+
+### Opak renk geri alındı — kullanıcı gerçek referans ekran görüntüleri paylaştı (2026-08-14, devam 5)
+
+Yukarıdaki "opak/doygun renk" değişikliği kullanıcıya kaynak koddan (renk sabitleri) çıkarımla önerilmişti — gerçek referans ekran görüntüsü görülmeden. Kullanıcı bu kez referans projenin GERÇEK render edilmiş ekran görüntülerini paylaştı: kartlar aslında soluk/pastel tonlarda (yumuşak yeşil, krem, toz pembe, lacivert) — benim uyguladığım canlı/doygun kırmızı-turuncu-yeşil değil. "Eski saydam hali daha iyiydi" geri bildirimiyle **tamamen geri alındı**:
+
+- `scoreToColor()` → `rgba(...,0.20)`'ye, `scoreToSubColor()` → `rgba(...,0.13)`'e (ayrı fonksiyonlar, eskisi gibi) döndü.
+- `scoreTextColor()` (luminance bazlı otomatik siyah/beyaz metin) tamamen silindi, 3 çağrı noktasındaki `card.style.color=...` satırları kaldırıldı — metin rengi yine CSS class'ları (`var(--d-text-2)`/`.covered{var(--d-text-1)}`) üzerinden geliyor.
+- `.tc-id`'nin rengi `color:inherit` → sabit `var(--d-text-3)`/`#9ba39d`'ye geri döndü.
+- `buildSubtechContainer()`'daki alt-teknik-daha-soluk override'ı geri eklendi (scoreToSubColor tekrar ayrı bir değer ürettiği için gerekli).
+
+**Ders:** Renk sabitlerini (hex kodları) okuyup "opak + doygun" çıkarımı yapmak, gerçek render edilmiş görüntüyü görmekle aynı şey değilmiş — CSS'teki `#53a051` gibi değerler koddan bakınca "canlı" görünebilir ama gerçek uygulamada (muhtemelen Splunk'ın kendi tema/palet ayarlarıyla) çok daha yumuşak render oluyor. Doğrulanan (rgba tonlar): `styles.css?v=125`, `app.js?v=129`, 46/46 test, konsol hatası yok.
+
+### Pastel palet — kullanıcının paylaştığı gerçek ekran görüntülerinden gözle tahmin (2026-08-14, devam 6)
+
+Kullanıcı "o görsellerdeki gibi tutturamıyor musun" dedi — bu sefer geri almak yerine gerçekten paylaşılan ekran görüntülerine bakıp (yumuşak deniz yosunu yeşili, krem, toz pembe, koyu lacivert) `_SCORE_STOPS`'u bu tonlara yakın **pastel** değerlerle değiştirdim: `rgb(61,69,86)` → `rgb(201,137,120)` → `rgb(224,212,168)` → `rgb(168,194,160)` → `rgb(111,168,140)`. Bu kez OPAK dolgu doğru seçim (önceki opak denemenin sorunu doygunluktu, opaklık değil — pastel renkler zaten yumuşak, saydamlığa gerek yok). `scoreToColor`/`scoreToSubColor` tekrar opak+aynı, `scoreTextColor()` (luminance bazlı) tekrar eklendi, `.tc-id` tekrar `color:inherit`.
+
+**Açıkça belirtildi (kullanıcıya da söylenecek):** Bu renkler ekran görüntüsünden göz kararı tahmin edildi, piksel-hassas bir renk seçici kullanılmadı — birebir eşleşme garantisi yok, kullanıcı geri bildirimiyle ince ayar gerekebilir.
+
+Doğrulandı: en yaygın 8 benzersiz arka plan rengi + karşılık gelen otomatik metin rengi örneklendi (`rgb(111,168,140)` → açık metin, `rgb(210,165,138)` → koyu metin gibi, luminance eşiğine göre tutarlı). 46/46 test, konsol hatası yok. `styles.css?v=126`, `app.js?v=130`.
+
+### Yapısal migrasyon: sarmalanan ID-only ızgara (2026-08-14, devam 7)
+
+Kullanıcı: "istediğim renkler değil direkt görsel yapı" — referans projenin tam kaynağını `example/mitre_attck_heatmap-master/` klasörüne koyup "görsel dil olarak tamamen buraya migrate etmek istiyorum" dedi. İki ajan (Explore doğrulama + Plan stres testi) ile bulunan kök yapısal fark: referansta taktik kolonu içinde teknikler `display:flex;flex-wrap:wrap` ile satırda 2-3 tane yan yana sarmalanıyor; bizde `.tactic-column` hep `flex-direction:column` — tek sütun. Kullanıcı onayıyla: kart yüzü artık **yalnızca ID** gösteriyor (referansın varsayılan modu), bu da kutucukları küçültüp sarmalamayı mümkün kılıyor. Plan dosyası: `C:\Users\Oguzhan\.claude\plans\gentle-leaping-riddle.md`.
+
+- **`fillTechniqueCell()`**: ana kartlar artık tek `<span class="tc-id">` (isSub=false dalı); alt teknik kartları (flyout içinde) ad+ID ile değişmedi. Ad kaybolmasın diye `cell.dataset.techName = name` (ham, `_esc` değil — çifte kaçış riski Plan ajanı tarafından bulundu).
+- **`applyTechniqueVisuals()`**: tooltip'in adı artık `card.dataset.techName`'den okunuyor (eskiden `.tc-name` DOM'undan kazınıyordu, kalkınca boş dönerdi). `applySourceDots()` artık yalnızca `.technique-card` OLMAYAN kartlarda (yani alt teknik kartlarında) çağrılıyor — 44px'lik ID-only kutuda ürün noktaları sığmazdı (Plan ajanı bulgusu); ürün bilgisi zaten hover tooltip'inin `.tt-dots-row`'unda var.
+- **`renderMatrix()`**: yeni `techWrap` (`.tactic-techniques`, flex-wrap) sarmalayıcısı — kartlar `col`'a değil `techWrap`'e ekleniyor, `techWrap` boş değilse `col`'a ekleniyor (subContainer'daki koşullu-ekleme deseniyle aynı). `visibleColumns` sayacı buna göre güncellendi.
+- **CSS**: `.technique-card` artık sabit `44×24px` (`flex:0 0 auto`, tek satır ortalı ID) — MITRE ana teknik ID'leri hep tam 5 karakter olduğu için sabit boyut güvenli, referansın "placeholder" hilesine gerek yok. `.subtech-container` artık üst kartla aynı genişlikte değil (`left:-4px;right:-4px` kalktı) — sabit `min-width:170px;left:0`, çünkü alt teknik kartları hâlâ tam ad+ID gösteriyor. Yeni `.technique-card.flyout-left > .subtech-container { left:auto; right:0 }` — sağ kenara yakın kartlarda flyout komşu taktik kolonuna taşmasın diye `mouseenter`'da JS ile ölçülüp class ekleniyor (tooltip'in kenar-farkında konumlama mantığının hafif versiyonu).
+- **`scripts/browser_smoke.py`**: satır 72'deki `.tc-name` seçicisi (artık DOM'da yok, script'in geri kalanını hiç çalıştırmadan çökerdi) `#matrix .technique-card`'a düzeltildi — kartın tamamı zaten tıklanabilir.
+- Renk paleti bilinçli olarak KAPSAM DIŞI bırakıldı (zaten bilinen-iyi `rgba(...,0.20/0.13)` tonlamasında duruyor).
+
+**Doğrulandı (DOM/CSSOM, bu ortamda ekran görüntüsü yok):** aynı taktik kolonunda 3 kart gerçekten aynı satırda (`T1589/T1590/T1591` aynı `top:415`, sonraki 3'ü `top:442`), kart genişliği 44px, ana kartın flyout hariç görünür metni yalnızca ID (`"T1589"`), ana kartlarda doğrudan çocuk `.product-dots` yok (0/12), hover tooltip'i doğru tam adı gösteriyor (`dataset.techName` üzerinden), sağ kenara yakın bir kart (`T1055`, `left:1254` / viewport `1280px`) hover'da gerçekten `flyout-left` class'ı alıp flyout'u sola çeviriyor, karta tıklamak hâlâ doğru modalı açıyor. 46/46 test, konsol hatası yok. `styles.css?v=127`, `app.js?v=131`.
+
+### Yapısal migrasyon + pastel renkler geri alındı — kullanıcı "eski hal + canlı renk + biraz saydamlık" istedi (2026-08-14, devam 8)
+
+Bir önceki yapısal migrasyon (sarmalanan ID-only ızgara) VE pastel renk denemesi kullanıcı tarafından bir arada geri istendi: "kutucukları eski haline getir bide eski renklendirme yap yani çok cırtlak renkler biraz saydamlık ekle tamamdır".
+
+**Yapı — tamamen eski hale (tek sütun, ad+ID):**
+- `fillTechniqueCell()`: `isSub` dallanması kaldırıldı, ana+alt teknik yine aynı ad+ID düzenini kullanıyor. `cell.dataset.techName` mekanizması KORUNDU (daha sağlam, geriye dönük uyumlu — görünüşü etkilemiyor).
+- `applyTechniqueVisuals()`: `applySourceDots()` çağrısı tekrar koşulsuz (ana kartlarda da ürün noktaları geri geldi).
+- `renderMatrix()`: `.subtech-container` sağ-kenar taşma önleme `mouseenter` dinleyicisi kaldırıldı (kart tekrar geniş olduğu için `.subtech-container`'ın kartla eş genişlikte olması taşmayı zaten yapısal olarak engelliyor).
+- CSS: `.tactic-techniques` `flex-wrap:wrap` → `flex-direction:column` (yeni wrapper div DOM'da kalıyor ama artık eski tek-sütun görünümünü üretiyor — ekstra bir sarmalayıcı div dışında hiçbir davranış farkı yok, hiçbir seçici buna bağımlı değildi). `.technique-card` eski `min-height:38px` + ad/ID iki satırlı düzenine döndü (44×24px sabit boyut kalktı). `.subtech-container` eski `left:-4px;right:-4px`'e döndü (`min-width:170px` kalktı), `.technique-card.flyout-left` kuralı silindi.
+
+**Renk — canlı durak renkleri + orta saydamlık:**
+- `_SCORE_STOPS` orijinal doygun değerlere döndü (koyu→kırmızı→turuncu→sarı-yeşil→koyu yeşil — `#CD3232` vb.), pastel tahminler (`rgb(201,137,120)` vb.) tamamen kaldırıldı.
+- `scoreToColor`/`scoreToSubColor`: tam opak (`rgb`) değil, çok soluk `rgba(...,0.20/0.13)` de değil — **orta nokta: `rgba(...,0.55/0.35)`**. "Tam opak + canlı" daha önce reddedilmişti ("gözüm kanadı"); bu sefer aynı canlı renkler ama saydamlıkla yumuşatılmış hali deneniyor.
+- `scoreTextColor()` (luminance bazlı otomatik kontrast) tamamen silindi — üç çağrı noktası da temizlendi. `.tc-id` eski sabit `var(--d-text-3)`/`#9ba39d` rengine döndü.
+
+Doğrulandı: kartlar tekrar tek sütun (`T1589→T1590→T1591` aynı `left:250`, artan `top` 412/452/492/532, 164px genişlik, 38px yükseklik), arka plan `rgba(218,147,48,0.55)` (canlı turuncu + orta saydamlık), ana kartta doğrudan `.tc-name` VE `.product-dots` tekrar var. 46/46 test, konsol hatası yok. `styles.css?v=128`, `app.js?v=132`.
+
+### Saydamlık ince ayarı %55→%38 + gizli kalmış bir bug (2026-08-14, devam 9)
+
+Kullanıcı: "az daha uygun yap, yine cırtlak, biraz daha saydamlaştır ama çok değil" — `scoreToColor` %55→%38, `scoreToSubColor` %35→%24 (aynı ~1.55 oranı korunarak).
+
+Bu ince ayarı doğrularken **gerçek bir bug** bulundu: `buildSubtechContainer()`'daki alt-teknik-daha-soluk-göster override'ı (`subCard.style.backgroundColor = scoreToSubColor(subScore)`), bir önceki "devam 8" turunda yapı+renk geri alma işlemi sırasında yanlışlıkla geri eklenmemişti — `applyTechniqueVisuals()` her zaman `scoreToColor` (ana kart alfası) kullandığı için flyout içindeki alt teknik kartları da ana kartla AYNI alfada görünüyordu, fark edilmeden. Restore edildi; artık alt teknik kartları gerçekten daha soluk (`rgba(...,0.24)` vs ana `rgba(...,0.38)`).
+
+Doğrulandı: ana kart `rgba(218,147,48,0.38)`, alt teknik kartı `rgba(42,155,55,0.24)` — iki farklı alfa doğru uygulanıyor. 46/46 test, konsol hatası yok. `styles.css?v=128`, `app.js?v=134`.
+
+### Renk + kart yapısı, kullanıcının yüklediği çalışır HTML örneğine göre yeniden yapıldı (2026-08-14, devam 10)
+
+Önceki turlarda (devam 5-9) renk ekran görüntüsünden göz kararı tahmin ediliyordu — kullanıcı bu sefer *"Sana örnek bir tane html dosyası upload ediyorum çünkü genel arayüzü böyle istiyorum... html dosyasını çalıştır bak istiyorsan"* diyerek çalışan, tam kaynağı okunabilir bir referans dosyası (`gemini-code-1786730524519.html`) verdi — tahmine son vermek için. Dosyanın `getHeatColor()` algoritması birebir okunup uyarlandı (bizim skorumuz yüksek=iyi=yeşil, örneğin tam tersi yüksek=kötü=kırmızı olduğu için yön ters çevrildi, algoritmanın kendisi aynı):
+
+- **Renk** — `_ZERO_COLOR` (`#31373E`, hiç tespit yok → düz gri) + `_SCORE_STOPS` (0.00 yumuşak kırmızı → 0.45 turuncu → 0.70 sarı → 1.00 yeşil) + `_scoreRgb()` (parçalı doğrusal enterpolasyon) örnekteki yapıyı birebir izliyor. `scoreToColor`/`scoreToSubColor` artık aynı (örnekte ana/alt ayrımı yok), opak `rgb(...)`. `scoreTextColor()` luminance eşiği 0.55.
+- **Kart içeriği** — `fillTechniqueCell()` ana+alt teknik için TEK kod yoluna indirgendi: `<span class="tc-label">ID Ad</span>` (tek satır, taşarsa `…`). Eski `.tc-name`/`.tc-foot`/`.tc-id` üçlüsü CSS'ten de silindi (`.subtech-card .tc-label` ile alt teknikte küçültülüyor).
+- **Hover pop** — `.technique-card:hover` örneğe yaklaştırıldı: `scale(1.18)`/`translateY(-5px)` gibi dramatik değerler yerine `scale(1.04) translateY(-2px)` + `box-shadow: 0 8px 25px rgba(0,0,0,.9)` + `filter:brightness(1.08)`.
+- **Lejant imleç (canlı)** — `renderScoreLegend()`'in ürettiği `.score-legend-bar` içine `#scoreLegendCursor` eklendi (varsayılan `opacity:0`). `wireScoreTooltip()`'in zaten var olan `mouseenter`/`mouseleave` dinleyicileri genişletildi — yeni dinleyici eklemek yerine tooltip'in zaten hesapladığı `d.score` değeriyle `left:%` set edip `.active` class'ı ekleyip/kaldırıyor. Tooltip'in kendi `.tt-spectrum-marker`'ı ile aynı kaynaktan geldiği için ikisi hep aynı pozisyonu gösteriyor.
+
+**Doğrulama sırasında bulunup düzeltilen 3 bug (kullanıcı bildirmedi, kendi taramamda çıktı):**
+1. `_scoreGradientStops()` — `_SCORE_STOPS`'u `scoreToColor()`'dan geçirerek üretiyordu, ama `scoreToColor(0)` artık HER ZAMAN `_ZERO_COLOR`'a düşüyor (yeni `score<=0` özel durumu yüzünden) — ilk durak olan "yumuşak kırmızı" gradyanda hiç görünmüyordu. Düzeltme: gradyan artık elle kuruluyor — `%0-2` düz gri "kapak", ardından gerçek duraklar `%2`'den başlıyor (CSS, bir sonraki durağın nominal `%0` pozisyonunu önceki duraktan geriye gidemeyeceği için otomatik `%2`'ye sabitliyor — spec-garantili davranış, keskin gri→kırmızı geçişi bu şekilde oluşuyor).
+2. Öksüz kalmış **ikinci bir** `.technique-card:hover` kuralı (satır ~361, bu turun üstündeki temel kart kuralının hemen altında, muhtemelen çok önceki bir turdan kalma) `border-color`/`color` set ediyordu — `filter` bu turun yeni kuralı tarafından ezilse de (dosyada sonra geldiği için kazanıyor), `border-color` hiçbir yerde ezilmediği için hover'da istenmeyen mavi kenarlık gerçekten görünüyordu. Silindi.
+3. Aynı desen `.subtech-card:hover`'da da vardı (satır ~438, `filter:brightness(1.4);color:...` — asıl kullanılan kural çok daha aşağıda, satır ~2849'da `brightness(1.18)+box-shadow`). Bu ikisi şu an aktif çakışma yaratmıyordu (her iki özellik de ya ezilmiş ya inline stille örtülmüştü) ama aynı kök nedenden (redesign turlarında kart temel kuralı güncellenirken hemen altındaki eski hover kuralı hiç dokunulmadan kalmış) kaynaklandığı için tutarlılık adına o da silindi.
+
+Doğrulandı (DOM/CSSOM, bu ortamda ekran görüntüsü yok — `javascript_tool` ile): gerçek `mouseenter` sonrası kart etiketi `"T1589 Gather Victim Identity Information"` (tek satır), `.tc-name` DOM'da yok, `#scoreLegendCursor.style.left` (`"53%"`) `.tt-spectrum-marker`'ınkiyle birebir aynı, `mouseleave`'de `.active` kalkıyor; sıfır skorlu kart tam `rgb(49,55,62)` + beyaz metin; alt teknik kartları da aynı paleti kullanıyor (`scoreToSubColor===scoreToColor`); stylesheet'te `.technique-card`/`.technique-card:hover`/`.subtech-card:hover` artık kesin 1'er kez tanımlı, `.tc-name`/`.tc-foot`/`.tc-id` kesin 0 kez. 46/46 test. `scripts/browser_smoke.py` bu ortamda çalıştırılmadı (selenium `requirements.txt`'te yok, önceki turlarda da aynı sebeple atlandı) — yukarıdaki DOM/CSSOM doğrulaması daha hassas olduğu için yeterli görüldü. `styles.css?v=129`, `app.js?v=135`.
+
+Bilinçli olarak kapsam dışı bırakıldı (kullanıcı istemedi, örnek dosyada var ama bu turda konuşulmadı): taktik başlığı hover'ında toplam istatistik paneli (`.mtr-stats-container` benzeri), arama'da soluklaştırma (`.focused`/`.defocused`) — şu an aramada eşleşmeyenler tamamen gizleniyor, örnekte soluklaşıyor.
+
+### Kart içeriği geri alındı + taktik kolonları kutudan çıktı + başlık hover istatistik paneli (2026-08-15)
+
+Kullanıcının 3 ayrı geri bildirimi:
+
+1. **Kart içeriği eski hale (ad üstte, ID altta hafif saydam)** — "devam 10"da uygulanan tek satır "ID Ad" (`.tc-label`) beğenilmedi: *"öncesinde isim altında teknik no yazıyorduya hafif saydam şekilde bundan önce onun gibi yapabilirsen"*. Git HEAD'deki (bu redesign zincirinin başladığı, hiç commit'lenmemiş taban) orijinal `.tc-name`/`.tc-foot`/`.tc-id` CSS'i aynen geri getirildi — kritik detay: `.tc-id`'nin `opacity:0.85`'i tam olarak "hafif saydam" dediği şey. **Bilinçli olarak GERİ GETİRİLMEYEN** kısım: HEAD'deki `fillTechniqueCell()` ayrıca `tc-count` (X/hedef), `tc-shield` (M rozeti), `tc-env` (ortam oranı) da basıyordu — bunlar çok daha ERKEN bir turda kullanıcı kararıyla kaldırılmıştı ("artık sadece renkler konuşacak"), o karar hâlâ geçerli, sadece ad+ID yerleşimi geri alındı. `.technique-card`/`.subtech-card` tekrar `flex-direction:column` (iki satır) oldu; bu turun renk algoritması (Task #53), hover pop (Task #55), lejant imleç (Task #56) DOKUNULMADI.
+2. **Taktik kolonları "kutu" görünümünden çıktı** — *"o columnları iptal edelim tek bir column olsun... küçük kutuların içinde olması tüm taktikler dümdüz olsun bg nin üstünde"*. `.tactic-column`'ın kendi `background`/`border`/`padding`'i kaldırıldı (+ aynı özellikleri tekrar basan bir tema-override satırı da silindi — bu turun kendi taramasında bulunan, önceki turdaki hover-rule ikilisiyle AYNI kalıp: temel kural güncellenirken hemen yanındaki eski satır fark edilmeden kalmış). Kartlar artık taktik başına gruplu ama her taktik ayrı panelmiş gibi görünmüyor — hepsi ortak arka plan üzerinde. Yapısal `display:flex;flex-direction:column` grupla(y)ma aynen kaldı, sadece görsel kutu kalktı.
+3. **Taktik başlığı hover istatistik paneli (yeni özellik)** — kullanıcı referans görsel gönderdi (Total / Unique Techniques +% / Average per Technique). `renderMatrix()`'in taktik döngüsünde her teknik için zaten hesaplanan `parentRollup` (kartın rengini belirleyenin AYNISI, tutarlılık için) `tacticTotal`/`tacticCovered` biriktiriyor — **arama filtresinden bağımsız** (erken-dönüş satırından ÖNCE biriktiriliyor), çünkü panel taktiğin gerçek durumunu göstermeli, kullanıcı ne ararsa arasın. Sonuç `header.dataset.tacticStats` JSON'una yazılıyor; yeni `wireTacticStatsTooltip()` (renderMatrix() sonunda `wireScoreTooltip()` ile birlikte çağrılıyor) `.tactic-header`'a mouseenter/mouseleave bağlıyor, `.score-tooltip` ile aynı görsel dili kullanan ama kendi class'ı (`.tactic-stats-tooltip`) olan, başlığın ALTINA (yana değil — başlık zaten en üstte) konumlanan, sağ kenara taşarsa clamp'lenen bir popup gösteriyor. Ortalama = Toplam/Tespitli teknik sayısı (Toplam kaydedilmeden ÖNCEKİ ham float'tan hesaplanıyor, yuvarlama hatası birikmesin diye).
+
+Doğrulandı (DOM/CSSOM + gerçek `mouseenter`, bu ortamda ekran görüntüsü yok): kart `innerHTML`'i `<div class="tc-name">...</div><div class="tc-foot"><span class="tc-id">...</span></div>`, ID `opacity:0.85`; `.tactic-column` computed `background:rgba(0,0,0,0)`, `border-style:none`, `padding:0px` (eski tema-override satırı da doğrulandı — dosyada artık yok); taktik başlığı hover'ında ör. "Reconnaissance" → `{total:10.35, covered:5, techCount:12}` → panelde "10.4 / 5 (%42) / 2" (5/12=%41.7→42, 10.35/5=2.07→2, hepsi doğru); popup mouseleave'de kalkıyor; en sağdaki taktik başlığında (`left:2792`, viewport `1280px`) popup sağa taşmadan `right:1272px`'e clamp'leniyor; kart hover'ındaki `.score-tooltip` regresyona uğramadan çalışmaya devam ediyor; `.tactic-header`'ın iki (çakışmayan, tamamlayıcı) kuralı yeni bulgu değil, mevcut ve zararsız. 46/46 test, konsol hatası yok. `styles.css?v=130`, `app.js?v=136`.
+
+### Kart küçültme + taktik başlığı animasyonu + Matrix üst alan temizliği (2026-08-15, devam 2)
+
+Kullanıcının 4 maddelik geri bildirimi (renk hariç — bkz. altta):
+
+1. **Kart/alt-kart boyutu küçültüldü** — `.technique-card` min-height 38→30px, `.subtech-card` 30→25px, `.tc-name` 11.5→10.5px, `.tc-foot`/`.tc-id` 9.5→8.5px (sub daha da küçük: 9.5/8px). Amaç: "ekrana daha çok harita gibi sığdırma" — aynı taktik kolonunda dikeyde daha fazla teknik görünüyor.
+2. **`.tc-id` kontrast bugu düzeltildi** — kullanıcı "orda sıkıntı var" dedi, haklıydı: ID sabit `var(--d-text-3)` (gri) kullanıyordu, kartın otomatik siyah/beyaz kontrastını (`scoreTextColor`, `.tc-name`'in `color:inherit` ile zaten kullandığı) TAKİP ETMİYORDU — bazı arka plan renklerinde okunaksız kalabilirdi. `color:inherit` yapıldı (artık `.tc-name` ile birebir aynı, garanti kontrastlı renk), hiyerarşi `opacity:0.7` ile korunuyor.
+3. **Taktik başlığı hover pop + panel animasyonlu açılış** — kullanıcı: "az aksiyon kat". `.tactic-header:hover` artık `.technique-card:hover` ile tutarlı bir dille (`scale(1.04)`, `brightness(1.25)`, gölge) tepki veriyor. `.tactic-stats-tooltip` artık JS ile eklenir eklenmez görünür olmuyor — başlangıç durumu `opacity:0;transform:translateY(-6px) scale(0.96)`, JS bir reflow zorlayıp `.visible` class'ı ekliyor, CSS transition ile "büyüyerek" açılıyor. (Bu ortamda rAF çalışmıyor — geçiş bizzat GÖRÜLEMEDİ ama `transition:none!important` debug override'ıyla hem başlangıç hem hedef durumun doğru CSS değerlerine sahip olduğu doğrulandı.)
+4. **Matrix üst alanı sadeleştirildi** — dört ayrı kaldırma:
+   - `#matrixStatBar` (Teknik/Tespit/Kapsamsız/Mitigation/Ort.Skor/Alt Teknik şeridi) HTML'den silindi. `updateMatrixStats()`/`setMatrixStatLabels()` JS'i BİLEREK SİLİNMEDİ — ikisi de zaten `getElementById`/`querySelectorAll` ile güvenli no-op'a düşüyor (element yoksa sessizce çıkıyor), kullanıcı "daha sonra daha sade biçimde ekleriz" dediği için hesaplama mantığı sıcak tutuluyor.
+   - `#matrixModeDescription` ("Renk = kapsama skoru...") ipucu metni HTML'den silindi — hiçbir JS referansı yoktu, tek satırlık temiz kaldırma.
+   - **"Liste Görünümü" (ttpPanel) tamamen söküldü** — `SECTIONS.map.tabs`'tan sekme kaldırıldı (`renderSectionTabs()` zaten "tek sekmeli bölümde çubuk gereksiz gürültü" mantığıyla çubuğu otomatik gizliyor, ekstra kod gerekmedi), `templates/index.html`'den `#ttpPanel` bloğu, `static/app.js`'den `loadTtpList`/`renderTtpList`/`_ttpRowBg`/`ttpToggle`/`openTechDetail`/`_TTP_TACTIC_LABELS`/`_ttpData`/`PANEL_LOADERS.ttpPanel` (152 satır), `static/styles.css`'den tüm `.ttp-*` kuralları (3 ayrı bölgede dağınık, 175 satır) silindi. Bu arada bulunan ilgisiz ama bariz ölü kod da temizlendi: `.importance-badge`/`.imp-level-*` (Faz 4b'de `importance` sütunu kaldırıldığında unutulmuş, hiçbir HTML/JS referansı yoktu).
+     - **Backend'e BİLEREK dokunulmadı** — `/api/ttp-list`, `ttp_list()`, `TTP_LIST_CACHE`, `_invalidate_ttp_cache()` hâlâ `app.py`'de duruyor ama artık kesin öksüz; `_invalidate_ttp_cache()`'in 13 farklı yazma endpoint'indeki çağrısı riskli/geniş bir değişiklik olduğu için ayrı bir arka plan görevine (`task_915f910e`) devredildi. `docs/ACIK_SORULAR.md` madde 7 güncellendi (bu tutarsızlık zaten KARAR BEKLİYOR olarak işaretliydi — 2026-07-29'dan beri).
+   - **"ATT&CK Coverage Matrix" başlık alanı daraltıldı** — matrise dikeyde daha çok yer açmak için `#matrixPanel .ms-page-header`/`#matrixPanel .ms-page-title` scope'lu override eklendi (margin/padding ~%50 küçüldü, font 20→15px). Diğer panellerin başlığı (paylaşılmıyor — `.ms-page-title` sadece Matrix'te kullanılıyordu) etkilenmedi. Artık boş kalan `.matrix-title-block > span` kuralı da silindi (ipucu metniyle birlikte gitti).
+
+**Renk paleti (madde 1'in orijinal listesi) henüz UYGULANMADI** — kullanıcı "çok cırtlak... istersen beraber palet bakalım" dedi, doğrudan tahmin etmek yerine `mcp__visualize` ile 4 aday palet (soluk/pastel/soğuk-profesyonel/mevcut-tonlar-saydamlaştırılmış) örnek kartlar üzerinde gösterilip kullanıcının seçimi bekleniyor — bu turun geri kalanı (2-4) bağımsız olduğu için o beklerken tamamlandı.
+
+Doğrulandı: `ttpPanelExists:false`, `matrixStatBarExists:false`, `matrixModeDescExists:false`, Harita bölümünün alt-sekme çubuğu artık boş+`.hidden` (tek sekme kaldığı için), kart `min-height:30px`, `.tc-id` rengi karttakiyle birebir aynı (hem açık hem koyu metin durumunda test edildi), taktik başlığı hover'ında `.visible` class'ı doğru ekleniyor, `#matrixPanel .ms-page-title` computed `font-size:15px`. 46/46 test, konsol hatası yok. `styles.css?v=131`, `app.js?v=137`.
+
+### Öksüz `ttp-list` backend kodu kaldırıldı — `task_915f910e` tamamlandı (2026-08-15, devam 3)
+
+Yukarıdaki notta ("Backend'e BİLEREK dokunulmadı") ayrı bir arka plan görevine devredilen temizlik yapıldı. `app.py`'den silindi:
+- `@app.route("/api/ttp-list")` / `def ttp_list()` (~130 satır, kendi bağımsız STIX-parse + kural-sayma mantığı — `_compute_gap_analysis()`'i hiç çağırmıyordu)
+- `TTP_LIST_CACHE` global dict (satır 42) ve `def _invalidate_ttp_cache()`
+- `_invalidate_ttp_cache()`'in 12 çağrı sitesi (rules/mitigation CRUD, QRadar connector sync, data-quality repair, admin reset, technique-config update — hepsi `db.commit()`'ten hemen önceydi)
+
+`_TACTIC_ORDER` (app.py:3792) BİLİNÇLİ OLARAK KORUNDU — `_compute_gap_analysis()` ve rapor/export kodu hâlâ kullanıyor; sadece `ttp_list()` içindeki 2 kullanımı gitti. `tests/test_app.py`'deki `TTP_LIST_CACHE` reset satırı ve `docs/rbac.md`'deki `ttp-list` yetki satırı da kaldırıldı. `docs/ACIK_SORULAR.md` madde 7 silindi (bu not onun yerini alıyor, dosyanın kendi "çözülenler buradan silinir" kuralına göre).
+
+Doğrulandı: proje genelinde (`example/` ve `data/mitre.json` hariç) `ttp_list|ttp-list|TTP_LIST_CACHE|_invalidate_ttp_cache` için sıfır kod referansı kaldı — sadece bu geçmiş kayıtlar (yukarıdaki iki not) tarihsel referans olarak duruyor. `.venv\Scripts\python.exe -m unittest discover -s tests -v`: 46/46 test geçti, hata yok.
+
+### Teknik detay modalı sadeleştirildi + matrix daha da daraldı (2026-08-15, devam 4)
+
+Kullanıcının mesajı üç ayrı bağlamı art arda kapsıyordu: Matrix kart genişliği → **"kartlara tıklayınca açılan kutucuk"** (= teknik detay modalı, `openModal()`) → tekrar Matrix. Modalın kendi üç sekmesi (Mitigations/Tespitler/Aksiyonlar) kullanıcının 3 maddesiyle birebir eşleşiyordu; standalone Envanter/Boşluklar ekranlarıyla (Mitigation Listesi, Tespitler, Aksiyon Planı panelleri) karıştırılmadı, onlara HİÇ dokunulmadı.
+
+1. **Matrix kartları yatayda daraltıldı** — `.matrix-container` grid-auto-columns 176-208px→142-168px, `.tactic-column` min-width aynı oranda. Tüm 15 taktik hâlâ sığmıyor (matematiksel olarak imkansız, ~2130px gerekir) ama kaydırma azaldı.
+2. **Modal: "Teknik Yapılandırması" (admin rule_threshold override'ı) kaldırıldı** — kullanıcı: "başka yerden ayarlayalım bu ekranda olmasın artık". `openModal()`'daki `if (hasRole('admin'))` bloğu (41 satır) + `.tech-config-admin`/`.cfg-source-tag` CSS'i silindi. Backend (`PUT /api/technique-config/<id>`) DOKUNULMADAN kaldı — kullanıcı "kaldır" dedi, "sil" demedi; yeniden nereye konacağı henüz belirsiz, bu yüzden yeni bir ekran İNŞA EDİLMEDİ, sadece mevcut modal'dan çıkarıldı.
+3. **Modal: "Aksiyonlar" sekmesi kaldırıldı** — üçüncü tab butonu + panel + `renderModalActions()` çağrısı gitti; fonksiyonun kendisi de (tek çağrı sitesiydi) silindi. `openNewActionForTech()` KORUNDU — GAP panelindeki "+ Aksiyon" butonu (`gap-critical-add`) hâlâ kullanıyor, çapraz bağımlılık önceden doğrulandı.
+4. **Modal: Mitigations sekmesi kart görselliğine kavuştu** — `.mitigation-row` (eskiden 2 kolonlu grid + alt çizgi) artık matrix kartlarıyla aynı dilde (`border:1px solid rgba(0,0,0,.2);border-radius:3px;background:var(--d-bg)`) küçük bir kart. İç içe geçen `.mitigation-entry`/`.mitigation-entry-form`'un arka planı da `var(--d-bg)`'den `var(--d-surface)`'e çekildi — yoksa yeni kart rengiyle aynı tona düşüp görünmez olacaklardı (kendi taramamda bulunan bir regresyon, kullanıcı bildirmeden önce yakalandı). Fontlar 12→11px.
+5. **Modal: Tespitler sekmesi sadeleştirildi + gerçek bir mojibake bug'ı düzeltildi** — `.sub-tech-group`/`.table` padding-font küçültüldü. Ayrıca "DoÄŸrudan EÅŸleÅŸmeler" diye render olan (gerçek, uzun süredir orada duran bir çift-kodlama hatası — tahmin değil, `fetch` ile canlı sunucudan doğrulandı) metin "Doğrudan Eşleşmeler" olarak düzeltildi.
+6. **Modal: akıcı açılış animasyonu** — CSS `@keyframes` ile `display:none→flex` geçişinde otomatik tetiklenen fade+scale-in (JS'in çoklu `style.display` çağrı noktalarına dokunmadan). **İlk denemede yanlış hedefe uygulandı**: `.tech-detail-modal`/`.tech-detail-backdrop` (ve 12 kardeş selector, 196 satır — `.td-section`, `.td-mit-item` vb.) tamamen ÖLÜ CSS çıktı, gerçek modal `#ruleModal.modal > .modal-content` kullanıyor. Kendi doğrulamamda (canlı DOM'da `getComputedStyle(...).animationName` kontrolü) yakalandı; animasyon doğru sınıflara taşındı, 196 satırlık ölü blok da silindi (Faz 4b'den kalma `.tech-detail-importance-row` bunun parçasıydı — modal daha önce en az bir kez baştan yazılmış, eski CSS hiç temizlenmemiş).
+7. **Matrix: ürün filtresi (lejant) küçültüldü, arama command-bar'a taşındı** — `.legend-box` 10→8px, `.legend-item` 12→11px. Ayrı `.filter-bar` satırı (yalnızca Matrix'in kullandığı, doğrulanmış) tamamen kaldırıldı; `#techSearch` artık `.ms-command-bar` içinde küçük bir `.ms-inline-search` (150px, 24px yükseklik, placeholder-only, label yok). Aynı ID korunduğu için mevcut arama JS'i (wireActions) hiç değişmeden çalışmaya devam etti. `.matrix-stat-bar`'ın (bilerek sıcak tutulan) CSS'i bu temizlikte YANLIŞLIKLA silinmesin diye ayrıca ayrıştırıldı.
+
+**Renk paleti hâlâ kullanıcının seçimini bekliyor** (bkz. bir önceki round) — bu turdaki hiçbir değişiklik ona dokunmadı.
+
+Doğrulandı (gerçek tıklama/etkileşimle): modal 2 sekmeli (Mitigations/Tespitler) açılıyor, Teknik Yapılandırması ve Aksiyonlar DOM'da yok; `.mitigation-row` kartları hem checked hem unchecked durumda doğru renk/boyutta, iç içe `.mitigation-entry` arka planı satırdan ayrışıyor; "Doğrudan Eşleşmeler" doğru render oluyor; modal/backdrop/tab-panel'in `animationName`'i doğru CSS sınıflarına bağlı; arama hâlâ 254→1 filtreliyor, `.filter-bar` DOM'da yok, lejant tıkla-izole hâlâ çalışıyor; 6 standalone panel (Mitigation/Tespitler/Aksiyon Planı/GAP/Kapsam/Ayarlar) hiç dokunulmamış, hepsi normal açılıyor. 46/46 test, konsol hatası yok. `styles.css?v=132`, `app.js?v=138`.
+
+### Bug: uzun taktik adları başlığı 2 satıra sarıp kart yığınını kaydırıyordu (2026-08-15, devam 5)
+
+Kullanıcı: *"Resource Development kutucuğu aşşa taşmış"*. Kök neden: bir önceki turda `.tactic-column`/`.matrix-container` yatayda daraltıldı (min 176→142px) ama `.tactic-header`'ın font/padding'i buna göre küçültülmedi — 15 taktikten 2'si ("Resource Development", "Command and Control") artık 142px'e tek satırda sığmıyordu, 2 satıra sarıp o kolonun başlığını (44.78px) diğer 13 kolonunkinden (31px) uzun yapıyordu; sonuç o iki kolonun kart yığını komşularına göre ~14px aşağı kaymış görünüyordu (üst üste binme değil, hizasızlık).
+
+Canlı DOM'da ölçülerek doğrulandı: en uzun 2 ad, en dar kolon genişliğinde (142px − padding) `font-size:10px` ile tek satıra sığıyor (11px'te sığmıyordu). `.tactic-header`: `font-size` 11→10px, `padding` 6px 8px→5px 6px, artı savunma amaçlı `white-space:nowrap` (ölçüm yanlışsa sessizce sarıp hizasızlığı geri getirmesin, bunun yerine yatayda taşar — fark edilir, hizasızlık gibi sessiz değil).
+
+Doğrulandı: `.venv` testleri bu turda çalıştırılmadı (salt CSS, testlerle kesişmiyor) ama canlı DOM'da 15 başlığın hepsi artık tam `height:31px` (tek yükseklik) ve hiçbiri `scrollWidth>clientWidth` değil (yatay taşma da yok). Konsol hatası yok. `styles.css?v=133`.
+
+### Skorlama metodolojisi araştırıldı ve belgelendi — kod DEĞİŞMEDİ (2026-08-15, devam 6)
+
+Kullanıcı ile uzun bir araştırma turu: mevcut renklendirmenin ("kaç tespit
+hangi renk") hangi metodolojiye dayandığı sorgulandı. DeTT&CT, MITRE ATT&CK
+Navigator layer formatı, MITRE INFORM (Center for Threat-Informed Defense),
+ve çeşitli akademik/pratisyen kaynaklar tarandı — sonuç `docs/scoring_methodology.md`'ye
+yazıldı. Özet kararlar (tam gerekçe ve kaynaklar belgede):
+
+1. `coverage_level` 3→4 seviye (`düşük`/`yarım`/`iyi`/`tam` = 0.25/0.50/0.75/1.00) —
+   DeTT&CT'nin Visibility Score'unun (1-4) birebir karşılığı.
+2. `rule_threshold` tekdüze değil, `technique_config.group_count`'a (MITRE'nin
+   kendi yaygınlık verisi) göre 3 dilim — gerçek veriyle doğrulandı: T1078
+   Valid Accounts bizim en yüksek group_count'lu tekniğimiz VE Red Canary
+   2026 raporunun "2 yıldır #1" bulgusuyla örtüşüyor.
+3. Rollup formülü Navigator/DeTT&CT'nin `sum` varsayılanına dayanıyor ama ham
+   etkin sayı yerine **"karşılanmamış boşluk" toplanıyor** (`eksik = max(0,
+   hedef−etkin)`, alt teknik hedefini aşarsa fazlası üste taşınmaz) — bu hem
+   çifte sayım bug'ını (aynı kural üst+birden fazla alt tekniğe eşliyse)
+   hem de "çok alt tekniği olan aile = imkansız hedef" sorununu (gerçek
+   veride T1027/T1546 18'er alt teknikle, DB'de sadece 323 kural/254 teknik
+   varken eski toplama modeliyle asla yeşillenemezlerdi) tek mekanizmayla
+   çözüyor.
+
+Süreçte kendi kendine yakalanıp düzeltilen 2 hata (şeffaflık için not):
+araştırmanın ilk turunda "DeTT&CT'de `max` yaygın" dendi, birincil kaynağa
+(DeTT&CT'nin kendi `navigator_layer.py` kodu) bakılınca gerçekte `sum`
+olduğu görüldü, düzeltildi. Aynı şekilde CISA "Best Practices for MITRE
+ATT&CK Mapping" belgesi kaynak listesine alelacele eklenmişti — içeriği
+kontrol edilince bunun skorlama değil eşleme-doğruluğu rehberi olduğu
+anlaşıldı, kapsam dışı bırakıldı.
+
+**Kod tarafında HENÜZ değişiklik yok** — bu tur salt araştırma+belgeleme.
+Uygulama sırası ve dilim sınırları netleşince `familyRollup()` (app.js) ve
+`_compute_gap_analysis()` (app.py) güncellenecek, ikisi senkron kalmalı.
+
+### Skorlama metodolojisi uygulandı: 4 seviye + satır bazlı tiering + boşluk-tabanlı rollup (2026-08-15, devam 7)
+
+Bir önceki turun ("devam 6") belgelediği metodoloji koda geçirildi. Kullanıcı: *"tamamdır artık kod tarafına girebiliriz. Tüm değişiklikleri yapalım"*.
+
+1. **`coverage_level` 3→4 seviye.** Şema/validasyon (3 ayrı liste: import planlayıcı, Veri Kalitesi, `PATCH /api/rules/<id>/coverage`) `low/half/good/full` = 0.25/0.50/0.75/1.00'e genişledi. `migrate_coverage_level_partial_to_half()` mevcut `partial` (0.60) satırlarını `half`'a taşıdı — daha yakın sayısal komşu + "yanlış özgüvenden kaçınma" gerekçesiyle (kullanıcı: "kafana göre ayır"). Frontend: ağırlık sözlüğü, `COV_LABEL`, slider `snapLevel`/`levelColor` (4'e bölündü), bulk seçici, import-önizleme etiketi. Ölü `COV_CYCLE` silindi.
+2. **`rule_threshold` tiering — planla FARK.** "devam 6"da "aile bazlı MAX group_count" olarak belgelenmişti; kodu yazarken (kullanıcıya danışılmadan, teknik gerekçeyle) SATIR bazlı tiering'e çevrildi: her teknik (ana/alt fark etmez) KENDİ `group_count`'una göre dilimlenir (`_prevalence_tier_threshold`: <5→1, 5-19→2, 20+→3). Gerekçe: aile-genel MAX, "18 alt tekniği olan ama çoğu nadir" bir ailede nadir alt tekniklere de yüksek hedef dayatırdı. Gerçek dağılımla kalibre edildi (714 satır: medyan 2, p90=17 → 508/145/61 satır dağılımı).
+3. **Rollup boşluk-tabanlı model.** `eksik(alt)=max(0,hedef-etkin)`, `üst.hedef=kendi_hedef+Σeksik(alt)`, `üst.etkin=SADECE kendi` — `_compute_gap_analysis` (app.py) ve `familyRollup()` (app.js) senkron yeniden yazıldı. İki somut bug çözüldü: aynı kuralın üst+alt tekniğe eşliyse çifte sayılması, ve alt teknik SAYISIYLA (kapsanma durumuyla değil) orantılı büyüyen gerçekçi olmayan hedef.
+4. **Kritik ek bug (uygulama sırasında bulundu, planda yoktu): geriye dönük veri geçişi eksikti.** `build_technique_config()`'in `INSERT OR IGNORE`'u var olan `tech_id` satırlarına asla dokunmaz — yeni tiering formülü, taze bir DB'de çalışır ama bu projenin aylardır biriken canlı `soc.db`'sinde (714 satırın hepsi zaten vardı) SESSİZCE hiç etkisi olmazdı. Canlı sunucuda `fetch('/api/gap-analysis')` ile T1546 ailesi kontrol edilirken yakalandı (T1546.008: group_count=6, ama threshold hâlâ eski değerdeydi). `drop_technique_importance()`'ın (Faz 4b) aynı sorunu çözdüğü desen tekrarlandı: yeni `migrate_technique_config_thresholds_to_prevalence_tiers()`, `source='auto'` satırlarını saklı `group_count` üzerinden `CASE` ile yeniden dilimler, `source='admin'` asla dokunulmaz; `build_technique_config(db)`'den hemen sonra çağrılır (`init_db()` zinciri).
+5. **Doküman taraması** — `coverage_level` eski 3 değerine (`partial`) kalan referanslar: `docs/mitre_mapping_prompt.md` (KRİTİK — LLM içe aktarım prompt'u, örnek JSON + skor hesap örneği; ayrıca önceden hep yanlış olan bir örnek hesap da bu sırada düzeltildi: `PRODUCT_CLAIM_SCORE_WEIGHT` çarpanı eksikti), `README.md` (Kapsama Puanlaması bölümü baştan yazıldı), `templates/docs.html` (4 ayrı nokta: CSV alan tablosu, "Etkin tespit" bilgi kutusu + "Hedef" paragrafı — flat 2/1 varsayımından tiered açıklamaya çevrildi, 2 worked-example kartının sayıları). `monitoring_status` alanının (tamamen ayrı bir kavram) "partial" değeri kasıtlı olarak dokunulmadı.
+6. **Testler: 46→49.** 3 bozuk çağrı sitesi (silinen `ensure_subtechnique_default_threshold`) temizlendi; rollup testi ve tiering testi yeni formüle göre yeniden hesaplanıp yeniden yazıldı (`test_parent_score_rolls_up_from_subtechniques_with_per_sub_cap`, `test_subtechnique_threshold_tiers_from_own_group_count_admin_override_preserved`). Paylaşılan `mitre_fixture()`'a T1000/T1001 için group_count=5 (tier 2) eklendi — `DEFAULT_RULE_THRESHOLD` varsayımına dolaylı bağımlı onlarca testi sıfır değişiklikle kurtardı. 3 yeni test: `test_rollup_effective_counts_shared_rule_once_not_per_mapping` (çifte sayım kanıtı), `test_coverage_level_weights_are_four_tiers` (4 ağırlık), `test_prevalence_tier_threshold_boundaries` (dilim sınırları, saf fonksiyon).
+
+Doğrulandı: 49/49 test geçti. Canlı sunucuda (`fetch` ile gerçek `/api/technique-config` + `/api/gap-analysis`): 714 teknikten 9'u admin override (dokunulmadı, doğru), kalan 705'i doğru dilime taşındı; T1546 ailesi (18 alt teknik) gap-based rollup ile makul bir skor üretiyor (`rule_threshold=5.5`, eskiden sabit toplamla ulaşılamaz olurdu). Slider DOM'da 4 seviye render ediyor (`half`: `#ca8a04`/"Yarım" canlı veriyle doğrulandı; `low`/`good`'un DB'de henüz örneği yok ama CSS+bulk seçici doğrulandı), konsol hatası yok. `docs/scoring_methodology.md`'nin "Uygulama durumu" bölümü güncellendi. `styles.css?v=134`, `app.js?v=139`.
+
+### `/docs` bilgilendirme wiki'si baştan taranıp güncellendi (2026-08-15, devam 8)
+
+Kullanıcı: *"bilgilendirme sayfaını ogüncelle. çıakrdığımız şeyleri sil bide bu metodolojiyi falan ekleyelim oraya geeksiz fazlalaıları temizle"*. `templates/docs.html` (930 satır, /docs route) aylardır biriken görsel yeniden tasarım turlarından (Faz 4c'den bu yana ~20 tur) sonra hiç taranmamıştı — kod değişiklikleriyle wiki metni arasında ciddi bir makas açılmıştı. Her iddia canlı DOM/CSSOM'da veya ilgili backend fonksiyonunda doğrulanmadan düzeltilmedi (sadece task başlıklarından tahmin YOK).
+
+**Kaldırılmış özelliklere ait dead dokümantasyon silindi:**
+- **TTP Listesi** — nav butonu, overview kartı, Hızlı Başlangıç adımı, tüm `w-ttp` sayfası. Backend zaten "devam 3"te silinmişti (`/api/ttp-list`, `TTP_LIST_CACHE`); wiki hiç güncellenmemiş.
+- **Teknik modalının "Admin" sekmesi** (rule_threshold override UI'ı) — modal'dan kaldırılalı uzun süre olmuş (bkz. yukarıda "devam 4"), API (`PUT /api/technique-config/<id>`) hâlâ çalışıyor ama ekranda hiçbir yolu yok; 2 ayrı bölüm bunu var gibi anlatıyordu, düzeltildi + "Teknik Bazlı Yapılandırma" adlı ayrı bölüm (fazlalıktı, Formül bölümündeki Hedef paragrafıyla örtüşüyordu) tamamen kaldırıldı.
+- **Kapsam Envanteri "Varlık Grubu" seviyesi** — Faz 4a'da (`flatten_asset_groups`, `asset_groups` tablosu DROP) Ortam>Varlık Grubu>Ürün üç seviyeden Ortam>Ürün iki seviyeye indirilmişti; wiki hâlâ üç seviyeli sınıflandırma tablosu gösteriyordu, "Yetki ve Audit" paragrafı da "varlık grupları" yönetiminden bahsediyordu.
+
+**Kod değiştiği halde hiç güncellenmemiş açıklamalar düzeltildi (canlı doğrulamayla):**
+- **Renk sistemi tamamen yeniden yazıldı.** Wiki hâlâ eski RGBA-saydamlık modelini (5 durak: 0/0.30/0.50/0.70/1.00, ana kart %20 / alt kart %13 opaklık) anlatıyordu — gerçek sistem (`app.js` `_SCORE_STOPS`/`_ZERO_COLOR`, canlı DOM'da `getComputedStyle` ile doğrulandı) tamamen OPAK, 4 durak (0/0.45/0.70/1.00), ana/alt kart aynı renk, otomatik siyah/beyaz metin kontrastı. Hem "Renk Kodu" sayfası hem Matris sayfasındaki kısa özet hem de `styles.css`'teki `.wgb-track`'in kendi gradient CSS'i (bu da eski renklerle hardcode'lanmıştı) düzeltildi.
+- **Kart göstergeleri tablosu** — "sağ altta ok, alt teknik var demek" iddiası yanlıştı (CSS/JS'de hiç ok yok, keşif salt hover ile); "sol renkli şerit" iddiası da yanlıştı (`.source-stripe` CSS'i var ama `app.js` hiçbir yerde kullanmıyor — dead code, dokunulmadı çünkü kapsam dışıydı, sadece dokümantasyonu düzeltildi). Gerçek: ad üstte + ID altta (kart yüzü), ürün noktaları sağ üst köşede (sağ ALT değil).
+- **Veri Kalitesi kontrol listesi** — mevcut 4 madde ("kanıtsız doğrulamalar", "sahipsiz telemetry", "data component eşleşmesi") SOC-CMM döneminden kalma dead içerikti, `_compute_data_quality()` (app.py) bunların HİÇBİRİNİ kontrol etmiyor. Gerçek 7 kontrol + ağırlıklı Kalite Skoru formülüyle değiştirildi.
+- **İçe Aktarım doğrulama tablosu** — "tanınmayan teknik ID'si hata üretir" artık yanlış; CLAUDE.md'deki düzeltmeye göre bu artık sadece UYARI (satır atlanır, kural yine oluşturulur, dosya bloklanmaz).
+- **15 taktik / 220+ teknik** — "14 taktik / 200+" eskiydi (Defense Evasion → Stealth + Defense Impairment ayrımından sonra 15 oldu), canlı `/api/gap-analysis` ile sayıldı.
+
+**Eklenen:** Puanlama sayfasına "Bu Yöntemin Dayanağı" bölümü — `docs/scoring_methodology.md`'nin özeti (DeTT&CT Visibility Score, MITRE Navigator/DeTT&CT'nin `sum` agregasyonu, T1078/Red Canary doğrulaması, MITRE INFORM'un "mühendislik kararı, uyarla" felsefesi), tam belgeye link.
+
+**Not (kapsam dışı bırakıldı, sadece kayıt için):** `app.py`'deki `_score_to_report_color()` (PDF rapor renkleri) docstring'i hâlâ "uygulamanın koyu temadaki `scoreToColor()` ile aynı 5 duraklı gradyanı kullanır" diyor — bu artık yanlış (canlı gradyan 4 durak), ama raporun kendi renk paleti (açık/pastel, print için) BİLİNÇLİ olarak farklı tutulmuş, sadece docstring'deki "aynı" iddiası yanlış. Küçük, düşük öncelikli, bu turun kapsamı dışında.
+
+Doğrulandı: `.venv\Scripts\python.exe -m unittest discover -s tests -v` 49/49 (docs/CSS değişikliği testleri etkilemedi ama regresyon kontrolü yapıldı). Canlı `/docs`'ta: nav'da 12 madde (TTP Listesi yok), `.wgb-track` computed background yeni gradyanla birebir, "Bu Yöntemin Dayanağı" başlığı DOM'da, konsol hatası yok. `styles.css?v=135` (hem `index.html` hem `docs.html`).
+
+### Rollup formülü hibrit modele düzeltildi — bug kullanıcı tarafından ekran görüntüsüyle yakalandı (2026-08-15, devam 9)
+
+Kullanıcı bir Matrix ekran görüntüsü paylaştı: T1205 (Traffic Signaling) ailesinde T1205.001 (Port Knocking) yeşil, T1205.002 (Socket Filters) sarı, ama üst teknik kartı dümdüz koyu (kapsanmamış) görünüyordu. Soru: *"biz böyle mi olsun istemiştik... metodolojimiz doğru mudur?"*
+
+Canlı `/api/gap-analysis` ile doğrulandı: T1205.001 hedef=1/etkin=1.75 (skor 1.0), T1205.002 hedef=1/etkin=0.75 (skor 0.75), ama üst teknik hedef=0.25/etkin=**0**/skor=**0**. Bir önceki turun ("devam 7") "boşluk tabanlı" rollup formülü gerçek bir hataydı: payda (`kendi_hedef + Σ max(0,alt_hedef-alt_etkin)`) alt tekniklerin ilerlemesiyle küçülüyordu ama pay (`SADECE kendi doğrudan kuralı`) bunu hiç yakalamıyordu — üst teknikler pratikte neredeyse hiç doğrudan kural almadığı için (kurallar hep alt tekniğe yazılıyor), tek bir alt teknik bile %100 mükemmel değilse oran `0/pozitif=0`'a çöküyordu. Payda "kalan boşluk", pay "ayrı bir sayı" idi — ölçek uyuşmazlığı.
+
+**Kullanıcının talimatı: "iki türlü sorun çıkarmayacak bir çözüm yap... çakışmayı da halledecek bu sorunu da çözecek bir yöntem bulacaksın"** — yani hem YENİ bulunan bug (T1205) hem ORİJİNAL motivasyon (T1027/T1546, 18 alt teknikli aileler "boşluk tabanlı" formülden ÖNCEKİ "ham toplama" modelinde asla yeşillenemiyordu) aynı anda çözülecekti, ödünleşim kabul edilmedi.
+
+**Çözüm: `family_etkin = min(cappedSum, dedupedSum)`.**
+- `cappedSum = min(kendi_etkin,kendi_hedef) + Σ min(alt_etkin,alt_hedef)` — her üye kendi hedefinde tavanlanıp TAM toplanır (eski "ham toplama" modelinin payı, tek başına çifte-sayıma açık).
+- `dedupedSum` = ailenin (kendi+tüm altlar) dokunduğu BENZERSİZ `rule_id`'lerin toplam ağırlığı — aynı kural birden fazla üyeye eşliyse (built-in motor senaryosu) yalnızca bir kez sayılır.
+- `family_hedef = kendi_hedef + Σ alt_hedef` (TAM toplam, boşluk değil — pay ile aynı ölçekte olması için şart).
+- İki güvence FARKLI aşırı-sayma senaryosunu önler (cappedSum: paylaşılan tek kural N kez sayılmasın; dedupedSum: bir alt teknikteki bağımsız fazlalık kardeşe taşmasın), `min()` ikisini birden garanti eder.
+
+**Implementasyon:** `rule_stats_by_tech`'i besleyen SQL sorgusu `GROUP BY` kaldırılıp ungrouped çekildi (rule_id'yi kaybetmemek için — dedup'a ihtiyaç var); Python'da hem eski per-tech toplamlar hem yeni `rule_weight`/`tech_to_rule_ids` sözlükleri tek geçişte kuruluyor. `familyRollup()` (app.js) aynı mantıkla `Map`-tabanlı dedup kullanacak şekilde yeniden yazıldı.
+
+**Canlı doğrulama:**
+| Aile | Eski (boşluk-tabanlı) | Yeni (hibrit) |
+|---|---|---|
+| T1205 (2 alt teknik) | %0 ← hatalı | **%87.5** |
+| T1546 (18 alt teknik) | asla ulaşılamaz hedef | **%19.4** — ve gerçekten `dedupedSum` bağlayıcı: çoğu alt teknik aynı 0.75 değerini taşıyor (paylaşılan tek bir toplu ürün iddiası), `cappedSum` (14.5) değil `dedupedSum` (3.88) skoru belirliyor — tam tasarlandığı gibi çalışıyor. |
+
+Frontend/backend senkronu canlı DOM'da doğrulandı: T1205 kartı artık `rgb(146,175,95)` (sarı-yeşil, %88) gösteriyor, `data-score-data` içindeki `weightedRuleCount`/`threshold`/`score` backend API'siyle birebir eşleşiyor.
+
+Testler: `test_parent_score_rolls_up_from_subtechniques_with_per_sub_cap` ve `test_rollup_effective_counts_shared_rule_once_not_per_mapping` yeni sayılarla yeniden hesaplandı; yeni `test_rollup_sub_surplus_does_not_cover_sibling_gap` eklendi (cappedSum'un bağlayıcı olduğu, dedupedSum'un DEĞİL, senaryoyu doğrular — önceki testler yanlışlıkla hep dedupedSum'un bağlayıcı olmadığı veya iki değerin eşit çıktığı senaryolardı, bu boşluğu kapatır). `docs/scoring_methodology.md` #3 tamamen yeniden yazıldı — iki başarısız ara deneme de (ham toplama, boşluk-tabanlı) şeffaflık için belgede tutuluyor.
+
+Doğrulandı: 50/50 test geçti. `app.js?v=140` (styles.css değişmedi, `v=135` kalıyor).
+
+### Kullanıcının 6 maddelik geri bildirimi — UI düzeltmeleri ve yeni özellikler (2026-08-15, devam 10)
+
+1. **Kapsam slider "buglı" bulundu — gerçek kök neden bulundu.** Slider'ın kendisi (CSS `[data-level]`, PATCH kaydı) doğru çalışıyordu — canlı DOM'da tavan testiyle (`transition:none` + zorla reflow) doğrulandı, PATCH de gerçekten kaydediyordu. Asıl bug: satır bazlı slider `renderMatrix()`'i hiç çağırmıyordu — kaydediyordu ama Harita ekranına dönünce renk eskiden kalıyordu, kullanıcı bunu "çalışmıyor" olarak yorumladı (toplu değiştirme butonu zaten `renderMatrix()` çağırıyordu, satır bazlı slider çağırmıyordu — tutarsızlık). `persistLevel()`'a `renderMatrix()` eklendi.
+2. **"Kapsam" adı ve sarı kesikli çerçeve (`.claim-only`)** — kullanıcıya soruldu, cevap bekleniyor (aşağıda not).
+3. **Viewer rolü artık sadece Harita'yı görüyor.** `applyRoleUI()`'a `.nav-item[data-section="inventory"|"gaps"]` için `!hasRole('editor')` kontrolü eklendi. Ayarlar bilinçli olarak HERKESE açık kalıyor (self-servis parola değişimi, önceden de böyleydi). Canlı test: gerçek viewer girişiyle doğrulandı (nav'da Envanter/Boşluklar `hidden`, Harita/Ayarlar değil).
+4. **Modal: varsayılan sekme Tespitler oldu, açılış "yavaşlığı" asıl nedeni bulundu.** Animasyon süresi zaten hızlıydı (150-180ms) — asıl sorun `display:flex`'in fonksiyonun EN SONUNDA (tüm asenkron mitigation fetch'inden SONRA) atanmasıydı; kullanıcı tıklayınca hiçbir şey görünmeden bir süre bekliyordu, sonra her şey birden açılıyordu. `display:flex` artık fonksiyonun EN BAŞINA taşındı — modal anında açılır animasyonuyla belirir, içerik arkadan asenkron dolar. Tab sırası da değişti (Tespitler önce/varsayılan, Mitigations sonra). Bu değişikliği yaparken bir kopyala-yapıştır hatası (mitigationsTab hiç `body`'ye eklenmiyordu, rulesTab iki kez ekleniyordu) fark edilip aynı turda düzeltildi.
+5. **PDF/yönetici raporu — somut bir sorun bulunup düzeltildi, tam yenileme değil.** Bu ortamda ekran görüntüsü alınamadığı için körü körüne "güzelleştirme" yapmak yerine DOM/CSSOM üzerinden ölçülebilir bir sorun arandı: dense matrix'teki hücrelerin **%79'unda** mor "M" (mitigation) rozeti vardı — canlı haritada Faz 4'te ZATEN terk edilmiş olan "mitigation kart yüzünü boğuyor" durumunun aynısı, rapora hiç yansıtılmamıştı. Rozet dense matrix'ten kaldırıldı (Tam Teknik Listesi ekindeki "Mitigation: Var/—" sütunu zaten bilgiyi taşıyor, kaybolmuyor), dead CSS (`.rpt-m-flag`, `.rpt-legend-flag`) silindi. Kullanıcıdan sayfayı kendi gözüyle görüp varsa BAŞKA somut sorunları işaret etmesi istendi — kör tahminle tam yenileme yapılmadı.
+6. **Modal: Tespitler sekmesinden teknik eşlemesi kaldırma eklendi.** Her kural satırına "Bu Teknikten Kaldır" butonu — `DELETE /api/rules/<id>/techniques/<tech_id>` zaten vardı (backend değişikliği gerekmedi), yeni `unlinkRuleTechnique()` `deleteRule()`'un aynı düzenini izliyor (modal kapanır, liste+harita yenilenir). Canlı uçtan uca test edildi (gerçek bir eşleme kaldırılıp API'den doğrulandı, sonra test verisine zarar vermemek için geri eklendi).
+
+**Açık kalan (kullanıcı cevabı bekleniyor):** "Kapsam" adının neye değişeceği, ve `.claim-only` sarı kesikli çerçevenin (yalnızca toplu ürün iddiasıyla kapsanmış, adı olan tespiti olmayan teknikleri işaretliyor — T1205 sohbetindeki tam konu) kaldırılıp kaldırılmayacağı.
+
+Doğrulandı: `.venv\Scripts\python.exe -m unittest discover -s tests -v` 50/50 (tüm değişiklikler frontend/template, backend testi etkilemedi ama regresyon kontrolü yapıldı). Canlı doğrulama: slider→renderMatrix, gerçek viewer girişiyle nav gizleme, modal tab sırası+DOM bütünlüğü (mitigationsTab kaybı fark edilip düzeltildi), unlink→API round-trip, rapor M-flag sayısı 79%→0. `app.js?v=141`.
+
+**Açık kalan 2 madde de kullanıcı cevabıyla kapatıldı (aynı gün, devam):**
+- **"Kapsam" → "Tespit Gücü"** — Tespitler ekranındaki kolon başlığı, toplu değiştirme butonu/mesajları, içe aktarım önizleme tablosu ve `docs.html`'deki karşılık gelen madde. Yalnızca GÖRÜNEN Türkçe etiket değişti — `coverage_level` API/şema alan adı, CSV sütun adı ve `COV_LABEL` içindeki seviye adları (Düşük/Yarım/İyi/Tam) aynı kaldı, kapsam bilinçli olarak dar tutuldu.
+- **`.claim-only` sarı kesikli çerçeve kaldırıldı** — kullanıcı anlamını öğrendikten sonra yine de kaldırılmasını istedi. CSS kuralı (`styles.css`) ve JS `classList.toggle('claim-only', ...)` (`app.js`) birlikte silindi — kalan tek referans olmadığı grep ile doğrulandı. Bu sinyal artık hiçbir yerde yok (hover tooltip'teki "Yalnız ürün iddiası" uyarı satırı ayrı bir mekanizma, ondan etkilenmedi).
+
+Doğrulandı: 50/50 test. Canlı: kolon başlığı "Tespit Gücü", buton "Tespit Gücünü Değiştir", `.claim-only` DOM'da sıfır kart (T1205.002 örneğiyle özellikle kontrol edildi — `borderStyle:solid`, sarı yok). `styles.css?v=136`, `app.js?v=142`.
+
+### Rapordan "hedef" gösterimi kaldırıldı + yeni "Teknik Hedefleri" admin ekranı (2026-08-15, devam 11)
+
+Kullanıcı: *"Raporda tekniklerdeki hedef kısmını çıkar... hiçbir yerde yöneticiye falan hedef göstermeyelim"* + *"hangi tekniğe kaç tespit lazım olur — liste görünümü... admin görsün sadece envanter kısmına koyarız matrixde bulunmasın"*.
+
+1. **`templates/report.html`'den TÜM "hedef" (rule_threshold) gösterimleri kaldırıldı** — kart altyazısı, matris notu ve hücre tooltip'i (artık sadece `%X`), Tam Teknik Listesi ekindeki **"Etkin / Hedef" sütunu tamamen silindi** (yanındaki "Skor" sütunu zaten yüzdeyi veriyordu, ikinci bir yüzde sütunu eklemek yerine var olanı yeterli görüldü — kullanıcının "yüzde koy" isteği zaten karşılanmış durumdaydı). `t.rule_threshold`/`t.effective_rule_count` backend'de hesaplanmaya devam ediyor (başka yerlerde kullanılıyor), sadece template'te render edilmiyor.
+2. **Yeni "Teknik Hedefleri" ekranı — Envanter bölümünde, admin-only.** `SECTIONS.inventory.tabs`'a `{panel:'targetsPanel', role:'admin'}` eklendi (Audit'in `role:'admin'` deseniyle birebir aynı mekanizma — `visibleTabs()` zaten `role` alanına göre filtreliyor, yeni bir RBAC dalı gerekmedi). Liste görünümü: `techDetailsMap`'teki tüm teknikler (ana+alt, 697 satır), varsayılan `group_count` azalana göre sıralı (en yaygın/öncelikli önce), arama kutusu (ID/ad), her satırda düzenlenebilir "Hedef" input'u (`PUT /api/technique-config/<id>` — zaten vardı, Faz 4c'de modal'dan kaldırılan admin sekmesiyle aynı backend, yeni bir endpoint gerekmedi). Kaydedince kısa yeşil flaş + `renderMatrix()` (açıksa Matrix'teki kart hemen güncellensin diye). Alt tekniklerin "Taktik" sütunu üst tekniğin taktiğinden miras alınır (MITRE STIX verisinde alt tekniklerin kendi `kill_chain_phases`'ı `prepareMitreLookup()`'ta hiç işlenmiyor).
+3. **Matrix'e KESİNLİKLE eklenmedi** — ayrı bir panel/tab, `renderMatrix()`'e hiç dokunulmadı, kullanıcının açık isteğiyle uyumlu.
+
+Doğrulandı: 50/50 test. Canlı: rapor gövdesinde "hedef" kelimesi sıfır, ek tablo başlıkları `[ID, Ad, Skor, Mitigation, Ürünler]`. Yeni ekran: 697 satır render, T1205 ailesi üzerinden gerçek düzenleme testi (T1205.002 hedefini 1→2 değiştirip kaydettim, `/api/technique-config` üzerinden `source:"admin"` olarak doğruladım, T1205'in rollup skorunun buna göre değiştiğini gördüm — sonra gerçek veriye zarar vermemek için `sqlite3` ile satırı `rule_threshold=1, source='auto'` olarak eski haline döndürdüm). Editor girişiyle sekmenin görünmediği doğrulandı (sadece Tespitler/Ortam & Kapsam/Mitigation görünüyor). `app.js?v=143`, `styles.css?v=137`.
 
 ## Connector Yol Haritası
 

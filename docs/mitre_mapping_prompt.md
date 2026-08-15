@@ -84,15 +84,17 @@ alanına yazma. `**DFE (built-in)**` başlığı → `product: "DFE"`.
 
 ## coverage_level nasıl seçilir
 
-Kuralın tekniği ne kadar iyi gördüğünü anlatır:
+Kuralın tekniği ne kadar iyi gördüğünü anlatır (DeTT&CT Visibility Score'unun
+4 kademeye sadeleştirilmiş hali — bkz. docs/scoring_methodology.md #1):
 
-| Değer | Ne zaman |
-|---|---|
-| `full` | Kural tekniğin ana uygulama biçimini güvenilir şekilde yakalıyor |
-| `partial` | Tekniğin yalnızca bazı varyantlarını veya dolaylı izlerini yakalıyor |
-| `low` | Zayıf sinyal; ancak başka kanıtla birlikte anlamlı |
+| Değer | Ağırlık | Ne zaman |
+|---|---|---|
+| `full` | 1.00 | Tekniğin bilinen tüm yönlerini/varyantlarını güvenilir şekilde yakalıyor |
+| `good` | 0.75 | Tekniğin neredeyse tüm bilinen yönlerini yakalıyor, birkaç varyant hariç |
+| `half` | 0.50 | Tekniğin birden fazla yönünü/varyantını yakalıyor ama eksik parçalar var |
+| `low` | 0.25 | Yalnızca tek bir yönü/varyantı yakalıyor; zayıf sinyal |
 
-Built-in ürün kapsamaları için varsayılan olarak `partial` kullan — bir ürünün
+Built-in ürün kapsamaları için varsayılan olarak `half` kullan — bir ürünün
 "bu tekniği kapsıyorum" demesi, o teknik için tam görünürlük anlamına gelmez.
 
 ## Çıktı formatı
@@ -127,7 +129,7 @@ dosyasına kaydedilebilir olmalı.
     {
       "product": "Defender for Endpoint",
       "techniques": ["T1055", "T1003.001", "T1547.001"],
-      "coverage_level": "partial",
+      "coverage_level": "half",
       "note": "P2 built-in alert seti"
     }
   ]
@@ -212,7 +214,7 @@ fonksiyonundadır.
 | `name` | evet | Kuralın adı; eşleştirme anahtarının yarısı |
 | `product` | evet | Katalogda **veya** aynı dosyanın `products[]` bölümünde olmalı |
 | `techniques` | evet | En az bir geçerli ATT&CK ID'si içeren dizi |
-| `coverage_level` | hayır | `low` / `partial` / `full` (varsayılan `full`) |
+| `coverage_level` | hayır | `low` / `half` / `good` / `full` (varsayılan `full`) |
 | `kind` | hayır | `custom` / `builtin` — audit kaydına yazılır |
 | `confidence`, `rationale` | hayır | Audit kaydına yazılır, karar izini korur |
 
@@ -220,19 +222,19 @@ fonksiyonundadır.
 
 `rules[]` ile aynı alanlar, ama `name` yerine ürün adından türetilir:
 `"<Ürün> — Built-in kapsama"`. `note` alanı `rationale` yerine geçer.
-Varsayılan `coverage_level` burada `partial`.
+Varsayılan `coverage_level` burada `half`.
 
 Oluşan kayıt `rules.origin = 'product_claim'` ile işaretlenir. Etkisi:
 
 | | İsimli kural (`rules[]`) | Ürün iddiası (`product_coverage[]`) |
 |---|---|---|
 | "Tespit" kovası | **girer** | girmez |
-| Kapsama skoru | girer | **girer** (varsayılan `partial` = 0.60) |
+| Kapsama skoru | girer | **girer** (varsayılan `half` = 0.50, ayrıca ürün iddiası olduğu için `PRODUCT_CLAIM_SCORE_WEIGHT`=0.75 ile bir kez daha çarpılır) |
 | Harita | dolgu rengi + normal çerçeve | dolgu rengi + **kesikli amber çerçeve** |
 
-Yani `partial` bir ürün iddiası, hedefi 2 olan bir teknikte 0.60/2 = **%30**
-skor üretir — kart griden ambere döner ama asla yeşile ulaşmaz. Yeşil için
-isimli tespit gerekir.
+Yani `half` bir ürün iddiası, hedefi 2 olan bir teknikte (0.50 × 0.75) / 2 =
+**%19** skor üretir — kart griden ambere döner ama asla yeşile ulaşmaz. Yeşil
+için isimli tespit gerekir.
 
 **Uyarı:** bir LLM'in bir ürünün built-in kural setine dair bilgisi
 yaklaşıktır; senin tenant'ındaki gerçek alert kataloğu değildir. Mümkünse

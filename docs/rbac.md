@@ -50,10 +50,10 @@ Sayısal karşılaştırma kullanılır: bir rolün yetkisi olup olmadığı `RO
 | `environments` (CRUD) | — | admin |
 | `environments/<id>/monitoring` | — | editor |
 | `data-quality` | viewer | admin (repair) |
-| `ttp-list`, `technique-detail` | viewer | — |
+| `technique-detail` | viewer | — |
 | `admin/reset` | — | admin |
 | `technique-config` | viewer | admin |
-| `gap-analysis` (`?environment_id=` ile ortam bazlı), `threat-actors` | viewer | — |
+| `gap-analysis` (`?environment_id=` ile ortam bazlı) | viewer | — |
 | `action-items` | viewer | editor |
 
 Genel kural: **viewer** her şeyi okuyabilir (audit, connector, kullanıcı yönetimi hariç), **editor** operasyonel veriyi (tespit, mitigation, aksiyon, kapsam anketi) yazabilir, **admin** yapısal/yönetsel şeyleri (kullanıcı, ürün, ekip, connector, ortam, teknik config) değiştirir.

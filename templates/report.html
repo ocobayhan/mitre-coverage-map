@@ -138,17 +138,8 @@
     }
     .rpt-cell-id { font-family: 'Consolas', monospace; font-weight: 700; color: #003060; margin-right: 3px; }
     .rpt-subcell .rpt-cell-id { font-size: 7.5px; }
-    .rpt-m-flag {
-      position: absolute; top: 0; right: 0; font-size: 7.5px; font-weight: 700; color: #fff;
-      background: #5b3fa0; line-height: 1; padding: 2px 3px; border-radius: 0 0 0 4px;
-    }
     .rpt-matrix-legend { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 10.5px; color: #605e5c; flex-wrap: wrap; }
     .rpt-legend-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 3px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
-    .rpt-legend-flag {
-      display: inline-flex; align-items: center; justify-content: center; width: 11px; height: 11px;
-      font-size: 6.5px; font-weight: 700; color: #fff; background: #5b3fa0; border-radius: 2px;
-      margin-right: 3px; vertical-align: middle;
-    }
 
     /* ── Tam teknik listesi eki ── */
     .rpt-fulllist-section .rpt-subtactic-title {
@@ -255,7 +246,7 @@
       <div class="rpt-card">
         <div class="rpt-card-val">%{{ gap.overview.average_score_pct }}</div>
         <div class="rpt-card-lbl">Ortalama Skor</div>
-        <div class="rpt-card-sub">Etkin tespit / teknik hedefi</div>
+        <div class="rpt-card-sub">Tespit kalitesi ve kısmi kapsamaların ağırlıklı ortalaması</div>
       </div>
     </div>
 
@@ -282,12 +273,11 @@
   <div class="rpt-section rpt-matrix-section">
     <div class="rpt-section-title">Kapsama Haritası</div>
     <div class="rpt-section-note">
-      Renk = etkin tespit / teknik hedefi (ekrandaki harita ile aynı ölçek). Alt tekniği olan bir
-      teknik, kendi payı + tüm alt tekniklerinin (kendi hedefinde tavanlanmış) toplamıyla değerlendirilir
-      — bir alt tekniğin kapsanması diğerlerini örtmez ama üst tekniğin "boş" görünmesini engeller.
-      Mor bayrak o teknikte kayıtlı bir mitigation olduğunu gösterir, renge karışmaz. Alt teknikler
-      ana tekniğin altında girintili ve daima görünür. Kesilen isimlerin üzerine gelerek tam adı ve
-      oranı görebilirsiniz; kesin sayılar Tam Teknik Listesi ekindedir.
+      Renk = kapsama skoru (ekrandaki harita ile aynı ölçek). Alt tekniği olan bir teknik, kendi
+      payı ve tüm alt tekniklerinin birleşik durumuyla değerlendirilir — bir alt tekniğin kapsanması
+      diğerlerini örtmez ama üst tekniğin "boş" görünmesini engeller. Alt teknikler ana tekniğin
+      altında girintili ve daima görünür. Kesilen isimlerin üzerine gelerek tam adı ve oranı
+      görebilirsiniz; kesin oranlar ve mitigation durumu Tam Teknik Listesi ekindedir.
     </div>
     <div class="rpt-matrix-legend">
       <span><span class="rpt-legend-swatch" style="background:#ecf0f1"></span>0%</span>
@@ -295,7 +285,6 @@
       <span><span class="rpt-legend-swatch" style="background:#fde3c8"></span>~50%</span>
       <span><span class="rpt-legend-swatch" style="background:#eef2c1"></span>~70%</span>
       <span><span class="rpt-legend-swatch" style="background:#d1eed8"></span>%100</span>
-      <span><span class="rpt-legend-flag">M</span>Mitigation kayıtlı</span>
     </div>
     {% if matrix_tactics %}
     <div class="rpt-matrix-wrap">
@@ -304,14 +293,14 @@
         <div class="rpt-matrix-col-header">{{ col.label }}</div>
         {% for t in col.techniques %}
         <div class="rpt-matrix-cell" style="background:{{ t.color }}"
-             title="{{ t.tech_id }} — {{ t.name }} (%{{ (t.coverage_score * 100) | round | int }}, {% if t.rule_threshold <= 0 %}gerekli değil{% else %}{{ t.effective_rule_count | round(1) }}/{{ t.rule_threshold }} etkin{% endif %})">
-          <span class="rpt-cell-id">{{ t.tech_id }}</span>{{ t.name }}{% if t.mitigation_checked %}<span class="rpt-m-flag">M</span>{% endif %}
+             title="{{ t.tech_id }} — {{ t.name }} (%{{ (t.coverage_score * 100) | round | int }})">
+          <span class="rpt-cell-id">{{ t.tech_id }}</span>{{ t.name }}
         </div>
         {% for c in t.children %}
         {% set c_parts = c.tech_id.split('.') %}
         <div class="rpt-subcell" style="background:{{ c.color }}"
              title="{{ c.tech_id }} — {{ c.name }} (%{{ (c.coverage_score * 100) | round | int }})">
-          <span class="rpt-cell-id">{{ '.' + c_parts[1] if c_parts|length > 1 else c.tech_id }}</span>{{ c.name }}{% if c.mitigation_checked %}<span class="rpt-m-flag">M</span>{% endif %}
+          <span class="rpt-cell-id">{{ '.' + c_parts[1] if c_parts|length > 1 else c.tech_id }}</span>{{ c.name }}
         </div>
         {% endfor %}
         {% endfor %}
@@ -388,23 +377,22 @@
     <div class="rpt-section-title">Tam Teknik Listesi (Ek)</div>
     <div class="rpt-section-note">
       Ana tekniklerin tamamı, taktik bazında gruplanmış olarak. Birden fazla taktikte yer alan bir
-      teknik burada tekrar etmez; ait olduğu tüm taktikleri aynı satırda görürsünüz. <strong>Etkin / Hedef</strong>
-      sütunu alt tekniği olan bir teknikte tüm aileyi (kendi payı + alt tekniklerinin toplamı) yansıtır —
-      bu yüzden hedef çoğu zaman 2'den büyük görünür, bkz. Puanlama sayfası.
+      teknik burada tekrar etmez; ait olduğu tüm taktikleri aynı satırda görürsünüz. <strong>Skor</strong>
+      sütunu alt tekniği olan bir teknikte tüm aileyi (kendi payı + alt tekniklerinin birleşik durumu)
+      yansıtır.
     </div>
     {% if full_list_sections %}
       {% for section in full_list_sections %}
       <div class="rpt-subtactic-title">{{ section.label }} ({{ section.techniques | length }})</div>
       <table class="rpt-table">
         <thead>
-          <tr><th>ID</th><th>Ad</th><th>Etkin / Hedef</th><th>Skor</th><th>Mitigation</th><th>Ürünler</th></tr>
+          <tr><th>ID</th><th>Ad</th><th>Skor</th><th>Mitigation</th><th>Ürünler</th></tr>
         </thead>
         <tbody>
           {% for t in section.techniques %}
           <tr>
             <td><strong>{{ t.tech_id }}</strong></td>
             <td>{{ t.name }}</td>
-            <td>{% if t.rule_threshold <= 0 %}<em>gerekli değil</em>{% else %}{{ t.effective_rule_count | round(1) }} / {{ t.rule_threshold }}{% endif %}</td>
             <td>%{{ (t.coverage_score * 100) | round | int }}</td>
             <td>{{ 'Var' if t.mitigation_checked else '—' }}</td>
             <td>

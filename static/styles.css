@@ -59,6 +59,17 @@ h1, h2, h3 { margin: 0; }
   overflow: hidden;
 }
 
+/* Matrix tam ekran modu — sadece kendi CSS'imizdeki menu/ust cubuk gizlenir
+   (gercek Fullscreen API degil, kullanicinin istegi buydu: "chrome
+   sayfasinin tamami heatmap olsun" — sekme/adres cubugu degil, bizim
+   navigasyonumuz). .content zaten flex:1 oldugu icin bosalan alani
+   otomatik doldurur. */
+.ms-shell.matrix-fullscreen .ms-topbar,
+.ms-shell.matrix-fullscreen .sidebar {
+  display: none;
+}
+#btnMatrixFullscreen.active { background: var(--d-blue); color: #fff; border-color: var(--d-blue); }
+
 .ms-topbar {
   height: 48px;
   flex-shrink: 0;
@@ -274,6 +285,22 @@ h1, h2, h3 { margin: 0; }
   flex-shrink: 0;
 }
 
+/* Ayrı .filter-bar satırı kaldırıldı, arama command-bar'a küçük ve sade
+   biçimde taşındı (kullanıcı kararı, 2026-08-15) — dikeyde yer kazanır. */
+.ms-inline-search {
+  height: 24px;
+  width: 150px;
+  background: var(--d-bg);
+  border: 1px solid var(--d-border);
+  color: var(--d-text-1);
+  border-radius: 3px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.ms-inline-search::placeholder { color: var(--d-text-3); }
+.ms-inline-search:focus { outline: none; border-color: var(--d-blue); }
+
 /* ── Matrix ─────────────────────────────────────────────── */
 .ms-matrix-wrap {
   flex: 1;
@@ -284,72 +311,95 @@ h1, h2, h3 { margin: 0; }
 .matrix-container {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(176px, 208px);
-  gap: 6px;
+  grid-auto-columns: minmax(142px, 168px);
+  gap: 5px;
   padding: 4px 4px 16px;
   align-content: start;
 }
 
+/* Kolon artik kendi arka plani/kenarligi olan ayri bir "kutu" degil —
+   kullanici karariyla kaldirildi, kartlar ortak matrix arka plani
+   uzerinde dumduz duruyor (2026-08-15). Sadece yapisal gruplama kaldi. */
 .tactic-column {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 176px;
-  background: var(--d-surface);
-  border: 1px solid var(--d-border);
-  border-radius: 4px;
-  padding: 5px;
+  min-width: 142px;
 }
 
+/* font-size/padding: en uzun 2 taktik adı ("Resource Development",
+   "Command and Control") en dar kolon genişliğinde (142px) TEK SATIRA
+   sığacak şekilde ölçüldü (canlı DOM'da metin genişliği ölçülerek) —
+   yoksa o kolonun başlığı 2 satıra sarıp diğer kolonlara göre daha
+   uzun oluyor, kart yığını aşağı kayıyor gibi görünüyordu (kullanıcı:
+   "Resource Development kutucuğu aşağı taşmış", 2026-08-15). */
 .tactic-header {
   color: var(--d-text-1);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   background: var(--d-surface-alt);
-  padding: 6px 8px;
+  padding: 5px 6px;
   text-align: center;
   border-radius: 3px;
   border-bottom: 2px solid var(--d-blue);
   position: sticky;
   top: 0;
   z-index: 10;
+  white-space: nowrap;
+  transition: filter 0.15s, transform 0.15s cubic-bezier(.65,.05,.36,1), box-shadow 0.15s;
+  cursor: default;
+}
+/* Teknik kartlarındaki pop efektiyle tutarlı, hafif bir hover tepkisi —
+   kullanıcı: "az aksiyon kat". z-index yükseltilir ki komşu sticky
+   başlıkların üzerine gölge düşürsün. */
+.tactic-header:hover {
+  filter: brightness(1.25);
+  transform: scale(1.04);
+  box-shadow: 0 6px 18px rgba(0,0,0,.6);
+  z-index: 11;
+}
+
+/* Taktik kolonu icindeki teknik kartlarini tutan sarmalayici — tek sutun
+   (kullanici karariyla referanstaki sarmalanan izgaradan geri donuldu,
+   2026-08-14). col'un .tactic-header'dan sonraki tek DOM cocugu. */
+.tactic-techniques {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 /* ── Technique Cards ────────────────────────────────────────
-   Navigator tarzi yogun izgara: her hucre esit yukseklikte,
-   ad tek satir (tasarsa …), kimlik ve sayaclar tek alt satirda.
-   Dolgu rengi = kapsama skoru; mitigation dolguyu degil kosedeki
-   kalkani etkiler.                                             */
+   İki satır: ad üstte, ID altta hafif saydam (kullanıcı kararı —
+   tek satır "ID Ad" denemesi geri alındı, bkz. PROJECT_STATE.md).
+   Dolgu rengi = kapsama skoru (opak — bkz. scoreToColor), metin rengi
+   luminance'a göre otomatik siyah/beyaz (bkz. scoreTextColor). Kompakt
+   boyut — daha fazla teknik ekrana sığsın diye küçültüldü (2026-08-15).*/
 .technique-card {
   background: var(--d-bg);
-  border: 1px solid var(--d-border);
+  border: 1px solid rgba(0,0,0,0.2);
   border-radius: 3px;
-  padding: 4px 6px 3px;
-  min-height: 38px;
+  padding: 3px 5px 2px;
+  min-height: 30px;
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 1px;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, filter 0.2s, opacity 0.2s,
+              transform 0.2s cubic-bezier(.65,.05,.36,1),
+              box-shadow 0.2s cubic-bezier(.65,.05,.36,1);
   color: var(--d-text-2);
   cursor: pointer;
 }
 
-.technique-card:hover {
-  filter: brightness(1.4);
-  border-color: var(--d-blue-light);
-  color: var(--d-text-1);
-}
 .technique-card.covered { opacity: 1; color: var(--d-text-1); border-color: var(--d-border-strong, #4a5568); }
-.technique-card.has-subtechs { padding-left: 16px; }
 
 .tc-name {
   font-weight: 500;
-  font-size: 11.5px;
-  line-height: 1.25;
+  font-size: 10.5px;
+  line-height: 1.2;
   color: inherit;
   white-space: nowrap;
   overflow: hidden;
@@ -360,65 +410,18 @@ h1, h2, h3 { margin: 0; }
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 9.5px;
+  font-size: 8.5px;
   line-height: 1;
 }
 
+/* color:inherit ile kartın otomatik siyah/beyaz kontrastını (scoreTextColor)
+   TAKİP EDER — sabit bir gri (eskiden var(--d-text-3)) her arka plan renginde
+   okunaklı olamıyordu (kullanıcı: "orda sıkıntı var"). opacity ile ad'dan
+   daha soluk kalıp hiyerarşi korunuyor, kontrast garanti. */
 .tc-id {
   font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
-  color: var(--d-text-3);
-  opacity: 0.85;
-}
-
-.tc-marks { display: flex; align-items: center; gap: 3px; }
-
-/* Mitigation isareti — skora girmez, yalnizca "onlemi var" bilgisi.
-   Ozel bir sembol yerine harf rozeti: her Windows fontunda ayni cizilir. */
-.tc-shield {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 11px;
-  height: 11px;
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
-  border-radius: 3px;
-  color: #cfc6f5;
-  background: rgba(138,127,209,0.32);
-  border: 1px solid rgba(138,127,209,0.55);
-}
-
-/* Birlesik modda kac ortamda tespit var */
-.tc-env {
-  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
-  font-size: 9px;
-  padding: 0 3px;
-  border-radius: 6px;
-  background: rgba(0,0,0,0.35);
-  border: 1px solid rgba(255,255,255,0.14);
-}
-.tc-env.full { color: #7ee2a8; }
-.tc-env.partial { color: #f0c674; }
-
-/* Etkin tespit / hedef — kartin sag alt kosesinde */
-.tc-count {
-  margin-left: auto;
-  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
-  color: var(--d-text-2);
-  opacity: 0.9;
-  padding-right: 2px;
-}
-.tc-count.zero { color: var(--d-text-3); opacity: 0.6; }
-.tc-count.na {
-  margin-left: auto;
-  font-family: inherit;
-  font-style: italic;
-  font-size: 9px;
-  color: var(--d-text-3);
-  opacity: 0.75;
-  padding-right: 2px;
-  white-space: nowrap;
+  color: inherit;
+  opacity: 0.7;
 }
 
 /* Urun noktalari ust satira tasindi — alt satir artik sayaca ait */
@@ -429,58 +432,65 @@ h1, h2, h3 { margin: 0; }
   right: 5px;
 }
 
-/* Alt teknik ac/kapa oku */
-.tc-toggle {
-  position: absolute;
-  left: 3px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 12px;
-  height: 16px;
-  padding: 0;
-  background: none;
-  border: none;
-  color: var(--d-text-3);
-  font-size: 10px;
-  line-height: 1;
-  cursor: pointer;
-  font-family: inherit;
-  transition: transform 0.15s, color 0.15s;
-}
-.tc-toggle:hover { color: var(--d-text-1); }
-.technique-card.expanded .tc-toggle { transform: translateY(-50%) rotate(90deg); }
-
-/* ── Subtechniques (acilir/kapanir agac) ────────────────── */
+/* ── Subtechniques: hover-flyout ────────────────────────────
+   Kartin DOM COCUGU olarak eklenir (renderMatrix() bkz.) — hover'in
+   karttan flyout'a gecerken kopmamasi (CSS :hover torunlarda surer,
+   kardeslerde surmez) ve position:absolute'in dogru karta gore
+   konumlanmasi icin sart. Yon ASAGI (yana degil): taktik kolonlari dar
+   (176-208px, 6px bosluk) — yana acilan bir flyout komsu kolonla
+   cakisir ve en sagdaki kolonun tasacak yeri yoktur. top:100% ile SIFIR
+   bosluk bilinclidir — aradaki bosluk "olu bolge" hover bug'i yaratir
+   (fare karttan flyout'a gecerken hover kopar). Kapaliyken
+   pointer-events:none sart — yoksa gorunmez kutu altindaki baska bir
+   kartin hover/click'ini yer. display:none/block gecis yapamaz, o yuzden
+   opacity/visibility/transform kullanilir. Karttan biraz daha genis
+   (-4px sag/sol tasma) ve ust kenarda vurgu rengiyle "karta bagli"
+   okunuyor — referans projedeki flyout'un gorsel agirligina yaklasmak
+   icin. */
 .subtech-container {
-  display: block;
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.2s ease;
-  margin-left: 9px;
-  border-left: 1px solid var(--d-blue-tint);
-  padding-left: 5px;
+  position: absolute;
+  top: 100%;
+  left: -4px;
+  right: -4px;
+  z-index: 5;
+  background: var(--d-surface-alt);
+  border: 1px solid var(--d-border);
+  border-top: 2px solid var(--d-blue-light);
+  border-radius: 0 0 6px 6px;
+  padding: 4px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.55);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity .16s ease, transform .16s ease, visibility 0s linear .16s;
 }
-.subtech-container.open { max-height: 1600px; }
+.technique-card:hover > .subtech-container {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: opacity .16s ease, transform .16s ease, visibility 0s;
+}
 
 .subtech-card {
   background: var(--d-bg);
-  border: 1px solid var(--d-border);
+  border: 1px solid rgba(0,0,0,0.2);
   border-radius: 3px;
-  padding: 3px 5px 2px;
+  padding: 2px 4px 1px;
   margin: 2px 0;
-  min-height: 30px;
+  min-height: 25px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 1px;
   position: relative;
-  transition: background 0.15s;
+  transition: background 0.15s, filter 0.2s, box-shadow 0.2s;
   color: var(--d-text-2);
   cursor: pointer;
 }
-.subtech-card:hover { filter: brightness(1.4); color: var(--d-text-1); }
-.subtech-card .tc-name { font-size: 10.5px; font-weight: 400; }
-.subtech-card .tc-foot { font-size: 9px; }
+.subtech-card .tc-name { font-size: 9.5px; font-weight: 400; }
+.subtech-card .tc-foot { font-size: 8px; }
 
 /* ── Source stripe & dots ───────────────────────────────── */
 .source-stripe {
@@ -573,20 +583,8 @@ h1, h2, h3 { margin: 0; }
 .mstat-val.bad   { color: #d13438; }
 .mstat-val.muted { color: var(--d-text-3); }
 
-/* ── Filter Bar ─────────────────────────────────────────── */
-.filter-bar {
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  background: var(--d-surface);
-  border: 1px solid var(--d-border);
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
+/* ── Filter Bar (Ortam/Audit panelleri kullanıyor — Matrix kendi
+   .ms-inline-search'üne geçti, bkz. yukarıda) ──────────────── */
 .filter-group { display: flex; flex-direction: column; gap: 4px; }
 .filter-group label { font-size: 11px; color: var(--d-text-3); }
 
@@ -657,10 +655,33 @@ button.action-btn {
 .stats span { color: var(--d-text-1); font-weight: 600; }
 .session-box { display: flex; align-items: center; gap: 8px; }
 
-/* ── Legend ─────────────────────────────────────────────── */
-.legend { display: flex; gap: 8px; flex-wrap: wrap; }
-.legend-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--d-text-2); cursor: pointer; }
-.legend-box { width: 10px; height: 10px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.2); }
+/* ── Score Legend (degrade statik — bir kez cizilir; imleç
+   wireScoreTooltip'in hover mekanizmasiyla kayar, bkz. #scoreLegendCursor) ─ */
+.score-legend { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.score-legend-bar { width: 100px; height: 8px; border-radius: 4px; border: 1px solid var(--d-border); position: relative; }
+.score-legend-lbl { font-size: 11px; color: var(--d-text-3); white-space: nowrap; }
+.score-legend-cursor {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 2px;
+  height: 12px;
+  background: #fff;
+  border-radius: 1px;
+  transform: translateX(-1px);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: left 0.1s, opacity 0.15s;
+}
+.score-legend-cursor.active { opacity: 1; }
+
+/* ── Legend (= ürün filtresi, tıkla-izole et) ──────────────
+   Kullanıcı kararıyla küçültüldü (2026-08-15) — command-bar'da arama
+   ile aynı satırı paylaştığı için daha az yer kaplamalı. */
+.legend { display: flex; gap: 6px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--d-text-2); cursor: pointer; }
+.legend-box { width: 8px; height: 8px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.2); }
 .legend-item--off { opacity: 0.35; filter: grayscale(0.7); }
 .legend-box--all {
   background: linear-gradient(135deg, var(--d-blue) 0%, var(--d-green) 100%);
@@ -694,6 +715,7 @@ button.action-btn {
   overflow: auto;
   padding: 40px 20px;
   backdrop-filter: blur(2px);
+  animation: techModalBackdropIn 0.15s ease;
 }
 
 .modal-content {
@@ -706,6 +728,7 @@ button.action-btn {
   flex-direction: column;
   border-radius: 4px;
   box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  animation: techModalPopIn 0.18s cubic-bezier(.2,.8,.35,1);
 }
 
 .modal-header {
@@ -752,8 +775,9 @@ button.action-btn {
 }
 .tab-btn.active { background: var(--d-blue-tint); border-color: var(--d-blue); color: var(--d-text-1); }
 .tab-btn:hover:not(.active) { background: var(--d-hover); color: var(--d-text-1); }
+@keyframes techModalTabFadeIn { from { opacity: 0; } to { opacity: 1; } }
 .tab-panel { display: none; }
-.tab-panel.active { display: block; }
+.tab-panel.active { display: block; animation: techModalTabFadeIn 0.12s ease; }
 
 /* ── Info Card ──────────────────────────────────────────── */
 .info-card {
@@ -1029,6 +1053,19 @@ button.action-btn {
 .audit-table th:nth-child(4) { width: 170px; }
 .audit-table th:nth-child(6) { width: 145px; }
 
+.targets-table th:nth-child(1) { width: 82px; }
+.targets-table th:nth-child(2) { width: auto; }
+.targets-table th:nth-child(3) { width: 200px; }
+.targets-table th:nth-child(4) { width: 110px; }
+.targets-table th:nth-child(5) { width: 90px; }
+.tt-sub-id { padding-left: 20px; color: var(--d-text-3); font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace; }
+.targets-threshold-input { width: 60px; text-align: center; }
+@keyframes targetsSavedFlash {
+  0% { background: rgba(87,163,0,.35); }
+  100% { background: transparent; }
+}
+.targets-saved-flash { animation: targetsSavedFlash 0.8s ease; }
+
 .severity-badge,
 .integrity-badge,
 .audit-action-badge {
@@ -1135,10 +1172,10 @@ button.action-btn {
 .delete-btn:hover { background: var(--d-red); color: white; border-color: var(--d-red); }
 
 /* ── Sub-tech Groups (modal) ────────────────────────────── */
-.sub-tech-group { margin-bottom: 14px; background: var(--d-surface-alt); border-radius: 4px; overflow: hidden; border: 1px solid var(--d-border); }
-.sub-tech-header { background: var(--d-bg); padding: 6px 14px; font-weight: 600; color: var(--d-blue-light); font-size: 12px; border-bottom: 1px solid var(--d-border); }
+.sub-tech-group { margin-bottom: 8px; background: var(--d-surface-alt); border-radius: 3px; overflow: hidden; border: 1px solid var(--d-border); }
+.sub-tech-header { background: var(--d-bg); padding: 5px 10px; font-weight: 600; color: var(--d-blue-light); font-size: 11px; border-bottom: 1px solid var(--d-border); }
 .table { width: 100%; border-collapse: collapse; }
-.table td { padding: 7px 14px; border-bottom: 1px solid var(--d-border); font-size: 12px; vertical-align: middle; }
+.table td { padding: 5px 10px; border-bottom: 1px solid var(--d-border); font-size: 11px; vertical-align: middle; }
 .table tr:last-child td { border-bottom: none; }
 
 /* ── Tree Sections ──────────────────────────────────────── */
@@ -1150,15 +1187,28 @@ button.action-btn {
 .tree-item { display: flex; justify-content: space-between; padding: 4px 0; color: var(--d-text-2); font-size: 12px; }
 .tree-item span { opacity: 0.8; }
 
-/* ── Mitigation Section ─────────────────────────────────── */
-.mitigation-section { margin-bottom: 14px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; padding: 10px 12px; }
+/* ── Mitigation Section ─────────────────────────────────────
+   Satırlar artık matrix kartlarıyla aynı görsel dilde küçük
+   kutular (border+radius+bg) — eskiden düz alt-çizgili liste
+   satırıydı, kullanıcı "matrixdeki kutucukların görselliğine
+   yaklaştır, daha küçük olsun" dedi (2026-08-15).                */
+.mitigation-section { margin-bottom: 14px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; padding: 8px; }
 .mitigation-title { font-weight: 600; color: var(--d-blue-light); margin-bottom: 6px; font-size: 13px; }
-.mitigation-row { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--d-border); }
-.mitigation-row:last-child { border-bottom: none; }
-.mitigation-row.checked { background: rgba(87,163,0,0.08); }
+.mitigation-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--d-bg);
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 3px;
+  padding: 6px 8px;
+  margin-bottom: 5px;
+}
+.mitigation-row:last-child { margin-bottom: 0; }
+.mitigation-row.checked { background: rgba(87,163,0,0.08); border-color: rgba(87,163,0,0.35); }
 .mitigation-row.checked .mitigation-name { color: #c5e8a0; }
-.mitigation-name { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.mitigation-fields { display: flex; flex-direction: column; gap: 6px; }
+.mitigation-name { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.mitigation-fields { display: flex; flex-direction: column; gap: 5px; }
 /* ── Mitigation kayitlari ────────────────────────────────
    Kayit = kart (ekip + urun rozeti ustte, aciklama altta, sil kosede).
    Form  = tek satirlik giris seridi. Izgara TEK yerde tanimli; daha once
@@ -1167,14 +1217,14 @@ button.action-btn {
 
 .mitigation-entry {
   position: relative;
-  background: var(--d-bg);
+  background: var(--d-surface);
   border: 1px solid var(--d-border);
   border-left: 2px solid var(--d-blue-tint);
   border-radius: 4px;
-  padding: 7px 30px 7px 9px;
+  padding: 6px 28px 6px 8px;
 }
 .entry-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
-.entry-team { font-weight: 600; color: var(--d-text-1); font-size: 12px; }
+.entry-team { font-weight: 600; color: var(--d-text-1); font-size: 11px; }
 .entry-product {
   font-size: 10px;
   padding: 1px 7px;
@@ -1183,7 +1233,7 @@ button.action-btn {
   background: var(--d-surface-alt);
   color: var(--d-text-2);
 }
-.entry-comment { color: var(--d-text-2); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.entry-comment { color: var(--d-text-2); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 .entry-delete {
   position: absolute;
   top: 5px;
@@ -1211,10 +1261,10 @@ button.action-btn {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 6px;
   align-items: start;
-  background: var(--d-bg);
+  background: var(--d-surface);
   border: 1px dashed var(--d-border);
   border-radius: 4px;
-  padding: 7px;
+  padding: 6px;
 }
 .mitigation-entry-form .mitigation-entry-comment { grid-column: 1 / 3; }
 .mitigation-entry-form .mitigation-entry-add {
@@ -1386,15 +1436,18 @@ button.action-btn {
   transition: color 0.18s;
 }
 /* Snap positions & colors */
-.cov-slider[data-level="low"]     .cov-fill  { width: 12.5%; background: #c42b1c; }
-.cov-slider[data-level="low"]     .cov-thumb { left: 12.5%;  background: #c42b1c; }
-.cov-slider[data-level="low"]     .cov-lbl   { color: #c42b1c; }
-.cov-slider[data-level="partial"] .cov-fill  { width: 50%;   background: #ca8a04; }
-.cov-slider[data-level="partial"] .cov-thumb { left: 50%;    background: #ca8a04; }
-.cov-slider[data-level="partial"] .cov-lbl   { color: #ca8a04; }
-.cov-slider[data-level="full"]    .cov-fill  { width: 87.5%; background: #2d7d32; }
-.cov-slider[data-level="full"]    .cov-thumb { left: 87.5%;  background: #2d7d32; }
-.cov-slider[data-level="full"]    .cov-lbl   { color: #2d7d32; }
+.cov-slider[data-level="low"]  .cov-fill  { width: 12.5%; background: #c42b1c; }
+.cov-slider[data-level="low"]  .cov-thumb { left: 12.5%;  background: #c42b1c; }
+.cov-slider[data-level="low"]  .cov-lbl   { color: #c42b1c; }
+.cov-slider[data-level="half"] .cov-fill  { width: 37.5%; background: #ca8a04; }
+.cov-slider[data-level="half"] .cov-thumb { left: 37.5%;  background: #ca8a04; }
+.cov-slider[data-level="half"] .cov-lbl   { color: #ca8a04; }
+.cov-slider[data-level="good"] .cov-fill  { width: 62.5%; background: #65a30d; }
+.cov-slider[data-level="good"] .cov-thumb { left: 62.5%;  background: #65a30d; }
+.cov-slider[data-level="good"] .cov-lbl   { color: #65a30d; }
+.cov-slider[data-level="full"] .cov-fill  { width: 87.5%; background: #2d7d32; }
+.cov-slider[data-level="full"] .cov-thumb { left: 87.5%;  background: #2d7d32; }
+.cov-slider[data-level="full"] .cov-lbl   { color: #2d7d32; }
 
 /* ── Product group accordion ────────────────────────────── */
 .rule-product-group { margin-bottom: 4px; }
@@ -1565,31 +1618,65 @@ button.action-btn {
 .tac-id { font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace; color: var(--d-blue-light); white-space: nowrap; min-width: 72px; }
 .tac-name { color: var(--d-text-2); }
 
+/* ── Tactic Stats Tooltip (başlık hover'ı) ─────────────────
+   Kullanıcının paylaştığı referans görseldeki gibi: Total / Unique
+   Techniques (+%) / Average per Technique. .score-tooltip ile aynı
+   görsel dil, ayrı class — konumlanması başlığın ALTI (yana değil,
+   .score-tooltip'in aksine), çünkü taktik başlığı zaten en üstte. */
+.tactic-stats-tooltip {
+  position: fixed; z-index: 2100; min-width: 160px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; padding: 8px 10px; font-size: 12px; color: var(--d-text-2); box-shadow: 0 8px 24px rgba(0,0,0,0.5); pointer-events: none;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+  transition: opacity 0.15s ease, transform 0.15s cubic-bezier(.65,.05,.36,1);
+}
+/* JS bir reflow zorlayip .visible ekliyor (wireTacticStatsTooltip) — "aksiyon
+   kat" istegi: popup aninda degil, buyuyerek/belirerek aciliyor. */
+.tactic-stats-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.tactic-stats-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--d-text-1);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 7px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--d-border);
+}
+.tst-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 2px 0; }
+.tst-lbl { color: var(--d-text-3); font-size: 11px; white-space: nowrap; }
+.tst-val { color: var(--d-text-1); font-weight: 600; font-size: 13px; }
+
 /* ── Score Tooltip ──────────────────────────────────────── */
-.score-tooltip { position: fixed; z-index: 2100; min-width: 190px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; padding: 8px 10px; font-size: 12px; color: var(--d-text-2); box-shadow: 0 8px 24px rgba(0,0,0,0.5); pointer-events: none; }
-.score-tooltip-row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
-.score-tooltip-label { color: var(--d-text-3); }
-.score-tooltip-val { color: var(--d-text-1); font-weight: 600; }
-.score-tooltip-bar { height: 4px; background: var(--d-bg); border-radius: 2px; margin-bottom: 6px; }
-.score-tooltip-fill { height: 100%; border-radius: 2px; }
-.score-tooltip-divider { border-top: 1px solid var(--d-border); margin: 6px 0; }
+.score-tooltip { position: fixed; z-index: 2100; min-width: 170px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; padding: 8px 10px; font-size: 12px; color: var(--d-text-2); box-shadow: 0 8px 24px rgba(0,0,0,0.5); pointer-events: none; }
 .score-tooltip-title {
   font-size: 11px;
   font-weight: 600;
   color: var(--d-text-1);
-  margin-bottom: 6px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--d-border);
+  margin-bottom: 8px;
 }
-
-/* ── Tech Config (Admin Modal) ──────────────────────────── */
-.tech-config-admin { margin-top: 16px; padding: 12px 14px; background: var(--d-surface-alt); border: 1px solid var(--d-border); border-radius: 4px; font-size: 12px; }
-.tech-config-title { font-size: 12px; font-weight: 600; color: var(--d-text-3); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-.cfg-source-tag { font-size: 10px; font-weight: 400; color: var(--d-blue-light); background: var(--d-blue-tint); padding: 1px 6px; border-radius: 3px; }
-.tech-config-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-.tech-config-row label { color: var(--d-text-3); min-width: 100px; }
-.tech-config-row input[type="number"], .tech-config-row select { background: var(--d-bg); border: 1px solid var(--d-border); color: var(--d-text-1); border-radius: 3px; padding: 4px 8px; font-size: 12px; width: 80px; }
-.tech-config-row small { color: var(--d-text-3); font-size: 11px; }
+/* Kapsama skorunun renk gradyanindaki konumu — sayi yok, sadece bir isaretci */
+.tt-spectrum { position: relative; height: 8px; margin: 2px 1px 4px; }
+.tt-spectrum-bar { width: 100%; height: 100%; border-radius: 4px; border: 1px solid var(--d-border); }
+.tt-spectrum-marker {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 2px;
+  height: 12px;
+  background: #fff;
+  border-radius: 1px;
+  transform: translateX(-1px);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.6);
+}
+/* Kapsayan urunler — isim yok, yalnizca renk (kartlardaki product-dots ile
+   ayni dil). Isim istenirse noktanin uzerine gelip native title tooltip'i
+   gorulebilir. */
+.tt-dots-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+.tt-dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.25); }
 
 /* ── Field validation ───────────────────────────────────── */
 .field-error { margin-top: 4px; font-size: 11px; color: #ff8a80; }
@@ -1892,7 +1979,7 @@ button.action-btn {
 
 /* Gradient bar */
 .wiki-gradient-bar { margin-bottom: 16px; }
-.wgb-track { position: relative; height: 24px; border-radius: 4px; background: linear-gradient(to right, rgb(20,26,34) 0%, rgb(205,50,50) 30%, rgb(225,135,45) 50%, rgb(185,205,60) 70%, rgb(42,155,55) 100%); margin-bottom: 24px; border: 1px solid var(--d-border); }
+.wgb-track { position: relative; height: 24px; border-radius: 4px; background: linear-gradient(to right, rgb(49,55,62) 0%, rgb(49,55,62) 2%, rgb(214,96,77) 2%, rgb(224,150,79) 45%, rgb(224,195,79) 70%, rgb(90,160,106) 100%); margin-bottom: 24px; border: 1px solid var(--d-border); }
 .wgb-marker { position: absolute; top: 100%; transform: translateX(-50%); text-align: center; }
 .wgb-label { font-size: 11px; color: var(--d-text-3); margin-top: 4px; }
 .wgb-zones { display: flex; font-size: 12px; color: var(--d-text-3); }
@@ -1934,390 +2021,16 @@ button.action-btn {
 .wiki-shell { height: 100%; }
 
 /* ═══════════════════════════════════════════════════════
-   Importance Badge — matrix cards & TTP list
+   Modal açılış animasyonları (.modal/.modal-content'te kullanılır)
    ═══════════════════════════════════════════════════════ */
-.importance-badge {
-  position: absolute;
-  top: 3px;
-  right: 4px;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  font-size: 9px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  cursor: default;
-  user-select: none;
-  z-index: 5;
-}
-.imp-level-1 { background: #4a4a4a; color: #c8c6c4; }
-.imp-level-2 { background: #0078d4; color: #fff; }
-.imp-level-3 { background: #b58900; color: #fff; }
-.imp-level-4 { background: #ca5010; color: #fff; }
-.imp-level-5 { background: #d13438; color: #fff; }
-
-/* ═══════════════════════════════════════════════════════
-   TTP Listesi Panel
-   ═══════════════════════════════════════════════════════ */
-#ttpPanel.panel.active { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
-
-.ttp-shell {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.ttp-toolbar {
-  flex-shrink: 0;
-  background: var(--d-surface);
-  border-bottom: 1px solid var(--d-border);
-  padding: 10px 16px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.ttp-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--d-text-1);
-  white-space: nowrap;
-  margin: 0;
-}
-
-.ttp-summary-strip {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
-}
-
-.ttp-stat {
-  font-size: 12px;
-  color: var(--d-text-3);
-  white-space: nowrap;
-}
-.ttp-stat strong { color: var(--d-text-1); }
-
-.ttp-search {
-  flex: 1;
-  min-width: 200px;
-  max-width: 340px;
-  background: var(--d-bg);
-  border: 1px solid var(--d-border);
-  color: var(--d-text-1);
-  border-radius: 3px;
-  padding: 5px 10px;
-  font-family: inherit;
-  font-size: 12px;
-}
-.ttp-search::placeholder { color: var(--d-text-3); }
-.ttp-search:focus { outline: none; border-color: var(--d-blue); }
-
-.ttp-content {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px 12px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.ttp-loading {
-  color: var(--d-text-3);
-  font-size: 13px;
-  padding: 20px;
-  text-align: center;
-}
-
-.ttp-tactic-section {
-  flex-shrink: 0;
-  background: var(--d-surface);
-  border: 1px solid var(--d-border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.ttp-tactic-header {
-  background: var(--d-surface-alt);
-  border-bottom: 2px solid var(--d-blue);
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--d-text-1);
-}
-
-.ttp-tech-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--d-border);
-  font-size: 12px;
-  color: var(--d-text-2);
-  transition: background 0.1s;
-  position: relative;
-  min-height: 34px;
-}
-.ttp-tech-row:last-child { border-bottom: none; }
-.ttp-tech-row:hover { filter: brightness(1.35); color: var(--d-text-1); }
-
-.ttp-subtech { padding-left: 30px; }
-
-.ttp-subs-container { border-top: 1px dashed var(--d-border); }
-
-.ttp-expand {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: var(--d-text-3);
-  cursor: default;
-  flex-shrink: 0;
-  border-radius: 3px;
-  transition: background 0.1s, color 0.1s;
-}
-.ttp-has-subs { cursor: pointer; }
-.ttp-has-subs:hover { background: var(--d-surface-alt); color: var(--d-blue); }
-
-.ttp-tech-id {
-  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
-  font-size: 10.5px;
-  color: var(--d-text-3);
-  min-width: 72px;
-  flex-shrink: 0;
-}
-
-.ttp-tech-name {
-  flex: 1;
-  font-weight: 500;
-  color: inherit;
-  cursor: pointer;
-  transition: color 0.1s;
-}
-.ttp-tech-name:hover { color: var(--d-blue-light); text-decoration: underline; }
-
-.ttp-badge-rule {
-  font-size: 11px;
-  color: var(--d-text-3);
-  white-space: nowrap;
-  min-width: 60px;
-}
-
-.ttp-badge-mit {
-  font-size: 11px;
-  color: var(--d-text-3);
-  white-space: nowrap;
-  min-width: 80px;
-}
-
-/* ═══════════════════════════════════════════════════════
-   Tech Detail Modal
-   ═══════════════════════════════════════════════════════ */
-.tech-detail-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.7);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.tech-detail-modal {
-  background: var(--d-surface);
-  border: 1px solid var(--d-border);
-  border-radius: 6px;
-  width: 70%;
-  max-width: 900px;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-  overflow: hidden;
-}
-
-.tech-detail-header {
-  background: var(--d-surface-alt);
-  border-bottom: 1px solid var(--d-border);
-  padding: 14px 18px;
-  flex-shrink: 0;
-  position: relative;
-}
-
-.tech-detail-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-  padding-right: 30px;
-}
-
-.tech-detail-id {
-  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
-  font-size: 13px;
-  color: var(--d-text-3);
-  background: var(--d-bg);
-  border: 1px solid var(--d-border);
-  border-radius: 3px;
-  padding: 2px 7px;
-  flex-shrink: 0;
-}
-
-.tech-detail-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--d-text-1);
-}
-
-.tech-detail-mitre-link {
-  color: var(--d-blue-light);
-  flex-shrink: 0;
-  opacity: 0.8;
-  transition: opacity 0.15s;
-}
-.tech-detail-mitre-link:hover { opacity: 1; }
-
-.tech-detail-meta {
-  font-size: 11px;
-  color: var(--d-text-3);
-  margin-bottom: 6px;
-}
-
-.tech-detail-importance-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.td-imp-slider {
-  width: 120px;
-  accent-color: var(--d-blue);
-  cursor: pointer;
-}
-
-.td-imp-val {
-  font-weight: 600;
-  color: var(--d-text-1);
-  min-width: 16px;
-}
-
-.tech-detail-header .modal-close {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-}
-
-.tech-detail-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.td-section {
-  background: var(--d-surface-alt);
-  border: 1px solid var(--d-border);
-  border-radius: 4px;
-  padding: 12px 14px;
-}
-
-.td-section-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--d-text-3);
-  margin-bottom: 8px;
-}
-
-.td-description {
-  font-size: 12px;
-  color: var(--d-text-2);
-  line-height: 1.55;
-}
-
-.td-rules-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.td-rule-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--d-bg);
-  border: 1px solid var(--d-border);
-  border-radius: 3px;
-  font-size: 12px;
-}
-
-.td-rule-name { flex: 1; color: var(--d-text-1); }
-.td-rule-src { font-size: 11px; color: var(--d-text-3); background: var(--d-surface); padding: 1px 6px; border-radius: 2px; }
-
-.td-empty {
-  font-size: 12px;
-  color: var(--d-text-3);
-  padding: 6px 0;
-}
-
-.td-mit-item {
-  background: var(--d-bg);
-  border: 1px solid var(--d-border);
-  border-radius: 3px;
-  padding: 7px 10px;
-  margin-bottom: 6px;
-}
-.td-mit-item:last-child { margin-bottom: 0; }
-.td-mit-item.td-mit-covered { border-color: rgba(87,163,0,0.4); background: rgba(87,163,0,0.06); }
-
-.td-mit-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.td-mit-id {
-  font-family: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
-  font-size: 10px;
-  color: var(--d-text-3);
-  background: var(--d-surface-alt);
-  padding: 1px 5px;
-  border-radius: 2px;
-}
-
-.td-mit-name { font-size: 12px; font-weight: 600; color: var(--d-text-1); }
-.td-mit-check { color: #57a300; font-weight: 700; font-size: 14px; }
-
-.td-mit-entries {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-top: 4px;
-}
-
-.td-mit-entry {
-  font-size: 11px;
-  color: var(--d-text-2);
-  padding: 3px 6px;
-  background: rgba(0,0,0,0.15);
-  border-radius: 2px;
+/* JS yalnizca display:none<->flex degistiriyor (birden fazla cagri
+   noktasi var) — bunlara dokunmadan akicilik icin CSS animasyonu
+   yeterli: eleman her gorunur oldugunda (display none->flex) otomatik
+   yeniden tetiklenir, transition'in aksine JS state takibi gerekmez. */
+@keyframes techModalBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes techModalPopIn {
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -2661,62 +2374,6 @@ button.action-btn {
 .action-item-btn:hover { background: var(--d-hover); color: var(--d-text-1); }
 .action-item-btn.del:hover { color: var(--d-red); }
 
-/* ═══════════════════════════════════════════════════════
-   Threat Actor Overlay (Matrix Toolbar)
-   ═══════════════════════════════════════════════════════ */
-.threat-actor-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--d-surface);
-  border: 1px solid var(--d-border);
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-.threat-actor-bar label {
-  font-size: 11px;
-  color: var(--d-text-3);
-  white-space: nowrap;
-}
-.threat-actor-select {
-  background: var(--d-surface-alt);
-  border: 1px solid var(--d-border);
-  color: var(--d-text-1);
-  font-family: inherit;
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 3px;
-  min-width: 160px;
-  max-width: 240px;
-}
-.threat-actor-stat {
-  font-size: 11px;
-  color: var(--d-text-3);
-  white-space: nowrap;
-}
-.threat-actor-stat strong { color: var(--d-text-1); }
-.threat-actor-clear {
-  background: none;
-  border: none;
-  color: var(--d-text-3);
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px 4px;
-  border-radius: 3px;
-}
-.threat-actor-clear:hover { background: var(--d-hover); color: var(--d-text-1); }
-/* Overlay states */
-.technique-card.threat-match {
-  outline: 2px solid #f59c00 !important;
-  outline-offset: -1px;
-  box-shadow: 0 0 6px rgba(245,156,0,0.35);
-}
-.technique-card.threat-dim {
-  opacity: 0.3;
-  transition: opacity 0.2s;
-}
-
 @media (max-width: 1100px) {
   .gap-stat-cards { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
 }
@@ -2875,23 +2532,40 @@ button.action-btn, .action-btn {
 
 .panel.active { padding: 20px 22px 24px; }
 .ms-page-title, .ops-header h2 { font-size: 20px; line-height: 1.25; }
-.info-card > h2, .gap-title, .actions-title, .ttp-title { font-size: 18px; line-height: 1.25; }
+.info-card > h2, .gap-title, .actions-title { font-size: 18px; line-height: 1.25; }
 .info-card > p { color: var(--d-text-3); margin: 5px 0 14px; }
 .ops-subtitle { font-size: 12px; line-height: 1.4; }
 
 .ms-page-header { gap: 14px; padding-bottom: 9px; }
 .ms-command-bar { gap: 8px; }
-.filter-bar, .matrix-stat-bar { border-color: #414642; }
-.filter-bar { padding: 9px 10px; }
-.matrix-stat-bar { min-height: 55px; }
-.mstat { padding: 7px 15px; }
-.mstat-val { font-size: 15px; }
-.mstat-lbl { font-size: 9px; line-height: 1.2; text-align: center; }
-.tactic-column { background: #1e211f; border-color: #3d423e; }
+.matrix-stat-bar { border-color: #414642; }
+.matrix-stat-bar { min-height: 34px; margin-bottom: 5px; }
+.mstat { padding: 3px 13px; }
+.mstat-val { font-size: 13px; }
+.mstat-lbl { font-size: 8.5px; line-height: 1.1; text-align: center; margin-top: 0; }
+.mstat-sep { height: 18px; }
 .tactic-header { min-height: 31px; display: flex; align-items: center; justify-content: center; }
-.technique-card { border-color: #444944; }
-.technique-card:hover, .subtech-card:hover { filter: brightness(1.18); box-shadow: inset 0 0 0 1px rgba(85,169,227,.25); }
-.tc-id { color: #9ba39d; }
+/* Kullanıcının yüklediği örnek HTML'deki hover "pop" efekti:
+   scale(1.04) translateY(-2px) + koyu gölge — önceki scale(1.18) çok
+   dramatik bulunmuştu, örnek çok daha ölçülü. */
+.technique-card:hover {
+  filter: brightness(1.08);
+  transform: scale(1.04) translateY(-2px);
+  transform-origin: center bottom;
+  box-shadow: 0 8px 25px rgba(0,0,0,.9);
+  z-index: 5;
+}
+/* Ayni kolondaki diger kartlar donuklasir — referans projedeki
+   ".mtr-tactic-col:hover .mtr-technique-container{opacity:.25}" ayni
+   fikir. Alt tekniği aşağıda açılan flyout, hemen altındaki kart ile
+   ayni gorsel alanda "yarisiyordu" gibi hissettiriyordu (kullanici
+   geri bildirimi) — donuklastirma hangisinin ust planda oldugunu
+   belirsizlik birakmadan gosteriyor. */
+.tactic-column:has(.technique-card:hover) .technique-card:not(:hover) {
+  opacity: 0.35;
+  filter: grayscale(0.4);
+}
+.subtech-card:hover { filter: brightness(1.18); box-shadow: inset 0 0 0 1px rgba(85,169,227,.25); }
 
 .quality-summary, .audit-summary { border-color: #414642; }
 .quality-summary, .audit-summary { border-radius: 5px; overflow: hidden; }
@@ -2933,15 +2607,6 @@ button.action-btn, .action-btn {
 .rule-list-row { min-height: 48px; padding: 9px 8px; }
 .cov-rail { height: 5px; }
 .cov-thumb { width: 13px; height: 13px; }
-
-.ttp-toolbar { min-height: 58px; padding: 11px 16px; background: #202321; }
-.ttp-summary-strip { padding-left: 14px; border-left: 1px solid var(--d-border); }
-.ttp-search { max-width: 400px; margin-left: auto; }
-.ttp-content { padding: 12px 14px 22px; gap: 10px; }
-.ttp-tactic-section { border-radius: 5px; }
-.ttp-tactic-header { min-height: 34px; display: flex; align-items: center; }
-.ttp-tech-row { min-height: 38px; padding: 7px 11px; }
-.ttp-tech-row:hover { filter: none; background: rgba(255,255,255,.045) !important; }
 
 .gap-toolbar, .actions-toolbar { min-height: 64px; padding: 12px 20px; }
 .gap-content, .actions-content { padding: 16px 20px 24px; }
@@ -3047,10 +2712,6 @@ button.action-btn, .action-btn {
   #mitigationPanel .mitigation-entry-form { grid-template-columns: 1fr; }
   .rule-list-header { display: none; }
   .rule-list-row { grid-template-columns: 1fr; gap: 8px; }
-  .ttp-toolbar { align-items: stretch; flex-direction: column; }
-  .ttp-summary-strip { border-left: 0; padding-left: 0; }
-  .ttp-search { width: 100%; max-width: none; }
-  .ttp-badge-mit { display: none; }
   .gap-stat-cards { grid-template-columns: 1fr 1fr; }
   .gap-toolbar, .actions-toolbar { align-items: stretch; flex-direction: column; }
   .actions-filter-bar { overflow-x: auto; }
@@ -3067,9 +2728,13 @@ button.action-btn, .action-btn {
   .connector-card-actions { align-items: stretch; flex-direction: column; }
 }
 
-/* Matrix baslik blogu */
+/* Matrix baslik blogu — ipucu metni (#matrixModeDescription) kaldirildi,
+   baslik alani da matrise daha fazla dikey yer acmak icin daraltildi
+   (kullanici: "olabildiğince matris kısmına alan açalım", 2026-08-15).
+   Sadece #matrixPanel scope'unda — diger panellerin basligi degismiyor. */
 .matrix-title-block { min-width: 220px; }
-.matrix-title-block > span { display: block; color: var(--d-text-3); font-size: 11px; margin-top: 2px; }
+#matrixPanel .ms-page-header { margin-bottom: 6px; padding-bottom: 5px; }
+#matrixPanel .ms-page-title { font-size: 15px; }
 
 /* Connector kart durum rozeti */
 .conn-badge { display: inline-block; border-radius: 3px; padding: 2px 6px; font-size: 10px; background: var(--d-surface-alt); }
@@ -3537,13 +3202,4 @@ button.action-btn, .action-btn {
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a19f9d' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
-}
-
-/* Yalnizca urun seviyesi iddiayla "kapsanan" teknikler — kesikli kenarlik.
-   Skoru var (kart amber) ama adi olan bir tespit yok, o yuzden "Tespit"
-   kovasina girmiyor. Bkz. app.py ensure_rule_origin(). */
-.technique-card.claim-only,
-.subtech-card.claim-only {
-  border-style: dashed;
-  border-color: #f0c674;
 }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Coverage Map</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=120" />
+  <link rel="stylesheet" href="/static/styles.css?v=137" />
 </head>
 <body>
   <div class="ms-shell">
@@ -100,74 +100,25 @@
           <div class="ms-page-header">
             <div class="matrix-title-block">
               <h1 class="ms-page-title">ATT&amp;CK Coverage Matrix</h1>
-              <span id="matrixModeDescription">Renk = etkin tespit / teknik hedefi. <strong>M</strong> rozeti mitigation'ı gösterir, renge karışmaz.</span>
             </div>
             <div class="ms-command-bar">
+              <div class="score-legend" id="scoreLegendContainer" title="Kart rengi = kapsama skoru"></div>
+              <div class="ms-command-divider"></div>
               <div class="legend" id="legendContainer"></div>
               <div class="ms-command-divider"></div>
-              <div class="threat-actor-bar" id="threatActorBar">
-                <label for="threatActorSelect">Tehdit Aktörü:</label>
-                <select id="threatActorSelect" class="threat-actor-select">
-                  <option value="">— Seç —</option>
-                </select>
-                <span class="threat-actor-stat" id="threatActorStat" style="display:none"></span>
-                <button class="threat-actor-clear" id="threatActorClear" title="Overlay kaldır" style="display:none">&#x2715;</button>
-              </div>
+              <input type="text" id="techSearch" class="ms-inline-search" placeholder="Ara (T1059)" aria-label="Teknik adı veya ID ara" />
               <div class="ms-command-divider"></div>
               <div class="admin-actions">
+                <button class="action-btn btn-neutral" id="btnMatrixFullscreen" title="Tam ekran (menü ve üst çubuk gizlenir, Esc ile çık)">
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M7 3H3v4M13 3h4v4M17 13v4h-4M3 13v4h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
                 <button class="action-btn btn-reset" id="btnReset" title="Verileri sıfırla ve seed dosyasından yeniden yükle">Sıfırla</button>
                 <button class="action-btn btn-add" id="btnExportCsv" title="CSV dışa aktar">CSV Export</button>
                 <button class="action-btn btn-add" id="btnExportPdf" title="PDF rapor">PDF Export</button>
                 <button class="action-btn btn-add" id="btnExportLayer" title="MITRE Layer JSON">Layer JSON</button>
               </div>
-            </div>
-          </div>
-          <div class="filter-bar">
-            <div class="filter-group">
-              <label for="techSearch">Arama</label>
-              <input type="text" id="techSearch" placeholder="Teknik adı veya ID (T1059)" />
-            </div>
-            <div class="filter-group filter-scope">
-              <label for="matrixScopeSelect">Ortam</label>
-              <select id="matrixScopeSelect" title="Seçilen ortamı izlemeyen ürünlerin tespitleri kapsamaya sayılmaz">
-                <option value="">Tüm ortamlar (birleşik)</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label style="visibility:hidden">_</label>
-              <button class="action-btn btn-neutral" id="btnExpandAll" title="Tüm alt teknikleri göster / gizle">Hepsini Aç</button>
-            </div>
-          </div>
-          <div class="scope-active-note hidden" id="matrixScopeNote"></div>
-          <div id="matrixStatBar" class="matrix-stat-bar">
-            <div class="mstat">
-              <span class="mstat-val" id="ms-total">—</span>
-              <span class="mstat-lbl">Teknik</span>
-            </div>
-            <div class="mstat-sep"></div>
-            <div class="mstat" title="Tespiti (kuralı) olan ana teknikler — 'görebiliyoruz'">
-              <span class="mstat-val" id="ms-covered">—</span>
-              <span class="mstat-lbl">Tespit</span>
-            </div>
-            <div class="mstat-sep"></div>
-            <div class="mstat" title="Hiç tespiti olmayan ana teknikler">
-              <span class="mstat-val" id="ms-uncovered">—</span>
-              <span class="mstat-lbl">Kapsamsız</span>
-            </div>
-            <div class="mstat-sep"></div>
-            <div class="mstat" title="İşaretli mitigation'ı olan teknikler — bilgi amaçlı, skoru ve kart rengini etkilemez">
-              <span class="mstat-val" id="ms-mitigated">—</span>
-              <span class="mstat-lbl">Mitigation</span>
-            </div>
-            <div class="mstat-sep"></div>
-            <div class="mstat" title="Ortalama kapsama skoru = etkin tespit sayısı / teknik hedefi">
-              <span class="mstat-val" id="ms-score">—</span>
-              <span class="mstat-lbl">Ort. Skor</span>
-            </div>
-            <div class="mstat-sep"></div>
-            <div class="mstat" title="Kendi kuralı olan alt teknikler — kurallar çoğunlukla ana tekniğe eşlenir, bu sayı düşükse alt teknik eşlemesi yapılmamış demektir">
-              <span class="mstat-val" id="ms-sub">—</span>
-              <span class="mstat-lbl">Alt Teknik</span>
             </div>
           </div>
           <div class="ms-matrix-wrap">
@@ -427,20 +378,27 @@
           </div>
         </div>
 
-        <!-- TTP Listesi Panel -->
-        <div id="ttpPanel" class="panel">
-          <div class="ttp-shell">
-            <div class="ttp-toolbar">
-              <h2 class="ttp-title">TTP Listesi</h2>
-              <div class="ttp-summary-strip" id="ttpSummaryStrip">
-                <span class="ttp-stat">Toplam: <strong id="ttpTotalCount">—</strong></span>
-                <span class="ttp-stat">Kapsanan: <strong id="ttpCoveredCount">—</strong></span>
-                <span class="ttp-stat">Oran: <strong id="ttpCoverageRatio">—</strong></span>
+        <!-- Teknik Hedefleri Panel (yalnızca admin) -->
+        <div id="targetsPanel" class="panel">
+          <div class="ops-page">
+            <div class="ops-header">
+              <div>
+                <h2>Teknik Hedefleri</h2>
+                <div class="ops-subtitle">Hangi tekniğe kaç etkin tespit yeterli sayılır — Matrix'te görünmez, sadece burada ayarlanır</div>
               </div>
-              <input type="text" id="ttpSearch" class="ttp-search" placeholder="Teknik adı veya ID ile ara…" />
             </div>
-            <div class="ttp-content" id="ttpContent">
-              <div class="ttp-loading">Yükleniyor…</div>
+            <div class="ops-toolbar">
+              <div class="filter-group ops-search">
+                <label for="targetsSearch">Ara</label>
+                <input id="targetsSearch" type="search" placeholder="Teknik adı veya ID" />
+              </div>
+            </div>
+            <div class="ops-table-wrap">
+              <table class="ops-table targets-table">
+                <thead><tr><th>ID</th><th>Ad</th><th>Taktik</th><th>Tehdit Grubu</th><th>Hedef</th></tr></thead>
+                <tbody id="targetsTableBody"></tbody>
+              </table>
+              <div class="ops-empty hidden" id="targetsEmpty">Sonuç yok.</div>
             </div>
           </div>
         </div>
@@ -685,7 +643,7 @@
     });
   </script>
 
-  <script src="/static/app.js?v=124"></script>
+  <script src="/static/app.js?v=143"></script>
   <script>
     // ── Teams Management ────────────────────────────────────
     let _teamsCache = [];

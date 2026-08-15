@@ -44,7 +44,7 @@ copy .env.example .env
 docker compose up -d --build
 ```
 
-Canlı veri (`soc.db`) Docker'ın yönettiği bir named volume'de (`soc_data`), yedekler ise Docker'ın hiç bilmediği düz bir host klasöründe (`./backups`, bind mount) tutulur — böylece `docker compose down -v` veya `docker system prune --volumes` gibi komutlar yedekleri etkilemez. Zamanlanmış yedekleme, kurulum ve geri yükleme adımları için bkz. [docs/backup_restore.md](docs/backup_restore.md).
+Canlı veri (`soc.db`) Docker'ın yönettiği bir named volume'de (`soc_data`), yedekler ise Docker'ın hiç bilmediği düz bir host klasöründe (`./backups`, bind mount) tutulur — böylece `docker compose down -v` veya `docker system prune --volumes` gibi komutlar yedekleri etkilemez. Zamanlanmış yedekleme ve mimari detaylar için bkz. [docs/backup_restore.md](docs/backup_restore.md); sıfır makineden kurulum + mevcut yedeği geri yükleme adımları için bkz. [docs/kurulum_rehberi.md](docs/kurulum_rehberi.md).
 
 ## Veri
 
@@ -94,32 +94,44 @@ skor = min(etkin tespit sayısı / teknik hedefi, 1)
 **Etkin tespit sayısı** iki ağırlığın çarpımıdır:
 
 ```
-etkin ağırlık = kapsam seviyesi (low 0.25 | partial 0.60 | full 1.00)
+etkin ağırlık = kapsam seviyesi (low 0.25 | half 0.50 | good 0.75 | full 1.00)
               × ortam izleme ağırlığı (full 1.00 | partial %/100 | none, unknown 0)
 ```
 
-**Teknik hedefi** (`technique_config.rule_threshold`) tüm teknikler için aynı değerle başlar (`DEFAULT_RULE_THRESHOLD = 2`); admin teknik detayı modalinden teknik bazında değiştirir. Bir tekniğin hedefini yükseltmek kartını anında kırmızıya çeker — "bu teknik için 2 tespit yetmez" demenin yolu budur.
+Kapsam seviyesi 4 kademeli (DeTT&CT Visibility Score'unun sadeleştirilmiş
+hali); ortam izleme ağırlığı ayrı, farklı bir kavramdır (bir ürünün bir
+*ortamı* ne kadar izlediği — bkz. "Kapsam Envanteri").
 
-**Mitigation skora girmez.** Haritada ayrı bir **M** rozeti olarak gösterilir; renk yalnızca tespite bakar çünkü haritanın cevapladığı soru *"bu tekniği görebiliyor muyuz"*. Ürün çeşitliliği de skora girmez — kartın üzerindeki ürün noktaları bunu zaten gösterir.
+**Teknik hedefi** (`technique_config.rule_threshold`) o tekniği kaç tehdit
+grubunun kullandığına (`group_count`, mitre.json'dan) göre 3 dilime ayrılarak
+başlar (düşük yaygınlık→1, orta→2, yüksek→3); admin teknik detayı modalinden
+teknik bazında değiştirir. Bir tekniğin hedefini yükseltmek kartını anında
+kırmızıya çeker.
+
+**Alt tekniği olan bir üst teknik için hedef, alt tekniklerin KARŞILANMAMIŞ
+boşluklarının toplamıdır** (`Σ max(0, alt.hedef - alt.etkin)`) — alt teknik
+sayısıyla değil, gerçekten boş kalan alt teknik sayısıyla büyür. Tam
+gerekçe ve formül: [`docs/scoring_methodology.md`](docs/scoring_methodology.md).
+
+**Mitigation skora girmez.** Renk yalnızca tespite bakar çünkü haritanın cevapladığı soru *"bu tekniği görebiliyor muyuz"*; mitigation durumu hover tooltip'inde ayrı bir satır olarak görünür. Ürün çeşitliliği de skora girmez — kartın üzerindeki ürün noktaları bunu zaten gösterir.
 
 > Bu puan bir olgunluk göstergesidir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.
 
 ### Harita hücresi nasıl okunur?
 
-MITRE Navigator'a yakın, yoğun bir ızgara kullanılır — taktik başına bir sütun, teknik başına eşit yükseklikte bir hücre.
+MITRE Navigator'a yakın, yoğun bir ızgara kullanılır — taktik başına bir sütun, teknik başına eşit yükseklikte bir hücre. Kart yüzünde yalnızca ad ve ID görünür; sayısal detay (tespit oranı, mitigation, ortam) kart üzerine gelince (hover) açılan bir tooltip'te gösterilir — renk tek başına yeterli sinyal versin diye kart yüzü sade tutulur.
 
 ```
 ┌────────────────────────────────┐
-│ ▸ Valid Accounts          ● ●  │  ← ok: alt teknikleri aç/kapat · noktalar: tespit üreten ürünler
-│   T1078   M   2/2       12.6/2 │  ← ID · mitigation rozeti · ortam rozeti · etkin tespit / hedef
+│ Valid Accounts             ● ● │  ← noktalar: tespit üreten ürünler
+│   T1078                     ▸  │  ← ID · sağ altta ok: alt teknikler var, hover ile açılır
 └────────────────────────────────┘
 ```
 
 - **Dolgu rengi** yalnızca skoru gösterir: 0 tespit koyu gri → hedefin altı amber → hedef ve üstü yeşil
-- **`M` rozeti** o teknikte kayıtlı mitigation olduğunu söyler; renge ve skora karışmaz
-- **Ortam rozeti** (`2/2`) yalnızca *Tüm ortamlar (birleşik)* modunda ve yalnızca en az bir ortamda tespit varsa çıkar. Tek ortam seçiliyken anlamsız olduğu için gizlenir
-- **Hücre gövdesine tıklamak** teknik detay modalini açar; **oka tıklamak** alt teknik ağacını açar/kapatır. Alt teknikler kendi renklerini alır ama kapsama oranının paydasına girmez
+- **Hücre gövdesine tıklamak** teknik detay modalini açar; **kartın üzerine gelmek** (alt tekniği varsa) alt teknik listesini altında açar — tıklamaya gerek yok, fare çekilince kapanır. Alt teknikler kendi renklerini alır ama kapsama oranının paydasına girmez
 - Hover'da tespit/hedef, ürünler, mitigation, ortam ve tekniği kullanan tehdit grubu sayısını içeren bir özet çıkar
+- Üst bardaki küçük degrade **skor lejantı** rengin ne anlama geldiğini özetler
 
 ### "Kapsanan" ne demek?
 
@@ -154,13 +166,13 @@ Aynı tanım hem matris şeridinde hem `GET /api/gap-analysis` çıktısında (`
 
 Bir mitigation'ın "uygulanıyor" sayılması **tek bir şeye** bağlıdır: en az bir kaydının olması. Ayrı bir onay kutusu yoktur — eskiden `mitigation_global` tablosunda paralel bir `checked` bayrağı tutuluyordu, hiç doldurulmadığı ve iki gerçek kaynağı olduğu için kaldırıldı.
 
-Mitigation kapsama skoruna girmez; haritada `M` rozeti olarak görünür.
+Mitigation kapsama skoruna girmez; haritada bir teknik kartının hover tooltip'inde ayrı bir satır olarak görünür.
 
 ## Ortam Bazlı Kapsama
 
 Kurumda her ürün her yerde bulunmaz: Defender client'larda ve kurumsal server'larda varken Lumos ortamındaki server'larda olmayabilir; QRadar tüm server'lardan log alırken client'lardan almayabilir. Bu durumda bir QRadar kuralı client ortamında **geçerli değildir**.
 
-Bu yüzden matrisin üstündeki **Ortam** seçicisi haritayı yeniden hesaplar:
+Bu ağırlıklandırma hesabı hâlâ geçerli:
 
 > Bir teknik bir ortamda kapsanır ⟺ o tekniğe bağlı bir tespit vardır **ve** tespitin ürünü o ortamı izlemektedir.
 
@@ -169,9 +181,9 @@ etkin ağırlık = kapsam seviyesi ağırlığı × izleme ağırlığı
     izleme:  full → 1.00 | partial → coverage_percent/100 | none, unknown → 0
 ```
 
-Ortam seçildiğinde, o ortamı izlemeyen ürünlerin tespitleri hesaptan düşer; matris altındaki şerit hangi tespit kaynaklarının sayıldığını ve hangilerinin izlemediğini açıkça listeler. İzleme durumları `Kapsam Envanteri` ekranından `Ortam > Ürün İzleme` yapısıyla girilir.
+> **Not (2026-08-14):** Ortam seçici canlı Matrix ekranından kaldırıldı — panel artık her zaman *Tüm ortamlar (birleşik)* modunda çalışıyor (sadeleştirme kararı, bkz. PROJECT_STATE.md). Ortam bazlı kapsama hâlâ **GAP Analizi** ekranında ve yönetici raporunda (`/report?environment_id=<id>`) kullanılabiliyor; izleme durumları yine `Kapsam Envanteri` ekranından `Ortam > Ürün İzleme` yapısıyla girilir. Özelliğin tamamen kaldırılması (ürün genelinde) ayrı, ileride ele alınacak bir karar — bkz. `docs/ACIK_SORULAR.md`.
 
-Aynı kural sunucu tarafında da uygulanır: `GET /api/gap-analysis?environment_id=<id>` — böylece GAP Analizi ekranı ve yönetici raporu matrisle aynı kapsamı gösterir.
+Sunucu tarafında: `GET /api/gap-analysis?environment_id=<id>` — GAP Analizi ekranı ve yönetici raporu bu şekilde ortam bazlı kapsamı gösterir.
 
 ## Ürün Kategorileri
 

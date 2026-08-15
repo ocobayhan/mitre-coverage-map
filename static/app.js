@@ -57,8 +57,7 @@ let rulesFilterProduct = '';
 let rulesOpenGroups = null; // null = tümü açık (başlangıç), Set = kullanıcı toggle sonrası
 let rulesSelectedIds = new Set(); // toplu teknik ekleme icin secili tespit id'leri
 
-const COV_CYCLE = ['low', 'partial', 'full'];
-const COV_LABEL = { low: 'Düşük', partial: 'Kısmi', full: 'Tam' };
+const COV_LABEL = { low: 'Düşük', half: 'Yarım', good: 'İyi', full: 'Tam' };
 // Ürün kategorileri — yalnızca tespit kaynakları haritayı boyar ve ürün
 // çeşitliliği bileşenine sayılır (bkz. app.py PRODUCT_CATEGORIES).
 const PRODUCT_CATEGORY_LABELS = {
@@ -100,6 +99,20 @@ function applyRoleUI() {
   const settingsNav = document.querySelector('.nav-item[data-section="settings"]');
   if (settingsNav) settingsNav.classList.remove('hidden');
 
+  // Viewer yalnizca Harita'yi gorsun — Envanter ve Bosluklar navigasyondan
+  // tamamen gizlenir (kullanici karari, 2026-08-15). API'ler hala viewer'a
+  // acik (read-only), bu salt gezinme/gorunurluk kisitlamasi.
+  const viewerOnlyMap = !hasRole('editor');
+  document.querySelector('.nav-item[data-section="inventory"]')
+    ?.classList.toggle('hidden', viewerOnlyMap);
+  document.querySelector('.nav-item[data-section="gaps"]')
+    ?.classList.toggle('hidden', viewerOnlyMap);
+  // Eger viewer su an gizlenen bir bolumdeyse (orn. baska rolden dusurulme
+  // sonrasi sayfa yenilenmeden), Harita'ya geri don.
+  if (viewerOnlyMap && (activeSection === 'inventory' || activeSection === 'gaps')) {
+    showPanel('matrixPanel');
+  }
+
   // Viewer icin varsayilan sekme "Urun Yonetimi" degil "Hesabim" olsun --
   // viewer o sekmede zaten hicbir seyi ekleyemez (yazma admin'e ozel).
   if (!hasRole('editor')) {
@@ -131,6 +144,7 @@ function applyRoleUI() {
 
 async function init() {
   wireActions();
+  renderScoreLegend();
   try {
     const meRes = await apiFetch('/api/me');
     if (!meRes.ok) throw new Error('Kullanici bilgisi alinamadi');
@@ -747,11 +761,12 @@ function renderRulesList() {
         <button class="action-btn btn-add" id="btnBulkAddTechnique" disabled>Teknik ekle</button>
         <span class="bulk-toolbar-divider"></span>
         <select id="bulkCoverageSelect" disabled>
-          <option value="full">Tam</option>
-          <option value="partial">Kısmi</option>
           <option value="low">Düşük</option>
+          <option value="half">Yarım</option>
+          <option value="good">İyi</option>
+          <option value="full">Tam</option>
         </select>
-        <button class="action-btn btn-add" id="btnBulkSetCoverage" disabled>Kapsamı değiştir</button>
+        <button class="action-btn btn-add" id="btnBulkSetCoverage" disabled>Tespit Gücünü Değiştir</button>
         <span class="bulk-toolbar-divider"></span>
         <button class="action-btn btn-reset bulk-delete-btn" id="btnBulkDelete" disabled>Seçilenleri sil</button>
       </div>
@@ -803,7 +818,7 @@ function renderRulesList() {
           <div class="rule-list-header">
             <div></div>
             <div>Tespit Adı</div>
-            <div>Kapsam</div>
+            <div>Tespit Gücü</div>
             <div>Teknikler</div>
             <div></div>
           </div>
@@ -833,7 +848,7 @@ function renderRulesList() {
     });
   });
 
-  // Kapsam slider — tıkla veya sürükle
+  // Tespit gücü slider — tıkla veya sürükle
   container.querySelectorAll('.cov-slider:not(.cov-readonly)').forEach(slider => {
     const rail  = slider.querySelector('.cov-rail');
     const fill  = slider.querySelector('.cov-fill');
@@ -841,7 +856,10 @@ function renderRulesList() {
     const lbl   = slider.querySelector('.cov-lbl');
 
     function snapLevel(pct) {
-      return pct < 0.33 ? 'low' : pct < 0.67 ? 'partial' : 'full';
+      return pct < 0.25 ? 'low' : pct < 0.50 ? 'half' : pct < 0.75 ? 'good' : 'full';
+    }
+    function levelColor(lvl) {
+      return lvl === 'low' ? '#c42b1c' : lvl === 'half' ? '#ca8a04' : lvl === 'good' ? '#65a30d' : '#2d7d32';
     }
     async function persistLevel(level) {
       const ruleId = parseInt(slider.dataset.ruleId);
@@ -852,7 +870,12 @@ function renderRulesList() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ coverage_level: level })
       });
-      if (res.ok && rule) rule.coverage_level = level;
+      if (res.ok && rule) {
+        rule.coverage_level = level;
+        // Kaydetmek yetmiyor — Matrix'teki kart rengi de yeni kapsam
+        // agirligini yansitmali (toplu degistirmedeki ayni desen).
+        renderMatrix();
+      }
     }
     function applyVisual(level) {
       slider.dataset.level = level;
@@ -880,7 +903,7 @@ function renderRulesList() {
         const rect = rail.getBoundingClientRect();
         const pct  = Math.max(0.0625, Math.min(0.9375, (e2.clientX - rect.left) / rect.width));
         const lvl  = snapLevel(pct);
-        const clr  = lvl === 'low' ? '#c42b1c' : lvl === 'partial' ? '#ca8a04' : '#2d7d32';
+        const clr  = levelColor(lvl);
         // Inline stil ile thumb imleci tam takip eder
         thumb.style.left       = `${pct * 100}%`;
         fill.style.width       = `${pct * 100}%`;
@@ -1145,8 +1168,8 @@ function wireRulesBulkToolbar(container, visibleIds) {
       const finalResult = document.getElementById('bulkResult');
       if (finalResult) {
         finalResult.textContent = failed.length === 0
-          ? `Kapsam "${COV_LABEL[level]}" olarak ${okCount} tespitte güncellendi.`
-          : `Kapsam ${okCount} tespitte güncellendi, ${failed.length} başarısız (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})`;
+          ? `Tespit gücü "${COV_LABEL[level]}" olarak ${okCount} tespitte güncellendi.`
+          : `Tespit gücü ${okCount} tespitte güncellendi, ${failed.length} başarısız (${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''})`;
         if (failed.length > 0) finalResult.classList.add('error');
       }
     });
@@ -1797,6 +1820,75 @@ function renderQualityIssues() {
   if (empty) empty.style.display = rows.length ? 'none' : 'block';
 }
 
+/** "Teknik Hedefleri" paneli — hangi teknige (ana+alt) kac etkin tespit
+ * yeterli sayilir, tek bir liste ekranindan gorup duzenleme. Sadece admin
+ * (SECTIONS'ta role:'admin'). Matrix'e hic yansimaz, kullanici karari
+ * (2026-08-15): "hangi teknige kac tespit lazim olur... admin gorsun
+ * sadece envanter kismina koyariz matriste bulunmasin". Veri zaten
+ * techDetailsMap/techniqueConfig'te yukleniyor (init() sirasinda), ayrica
+ * bir fetch gerekmez. PUT /api/technique-config/<id> zaten vardi
+ * (Faz 4c'de modal'dan kaldirilan admin sekmesinin ayni backend'i). */
+function renderTargetsTable() {
+  const body = document.getElementById('targetsTableBody');
+  const empty = document.getElementById('targetsEmpty');
+  if (!body) return;
+  const query = (document.getElementById('targetsSearch')?.value || '').trim().toLocaleLowerCase('tr-TR');
+
+  const rows = Object.values(techDetailsMap)
+    .map(t => {
+      const cfg = techniqueConfig[t.id] || {};
+      const tactics = t.isSub ? (techTactics[t.parentId] || []) : (techTactics[t.id] || []);
+      return {
+        id: t.id, name: t.name, isSub: t.isSub,
+        tactics: tactics.join(', '),
+        groupCount: cfg.group_count || 0,
+        threshold: cfg.rule_threshold ?? DEFAULT_RULE_THRESHOLD,
+      };
+    })
+    .filter(t => !query || `${t.id} ${t.name}`.toLocaleLowerCase('tr-TR').includes(query))
+    .sort((a, b) => b.groupCount - a.groupCount || a.id.localeCompare(b.id));
+
+  body.innerHTML = rows.map(t => `
+    <tr data-tech-id="${t.id}">
+      <td class="${t.isSub ? 'tt-sub-id' : ''}">${_esc(t.id)}</td>
+      <td>${_esc(t.name)}</td>
+      <td style="color:var(--d-text-3)">${_esc(t.tactics) || '—'}</td>
+      <td>${t.groupCount}</td>
+      <td><input type="number" class="targets-threshold-input" min="0" max="10" step="1"
+                  value="${t.threshold}" data-tech-id="${t.id}" ${hasRole('admin') ? '' : 'disabled'} /></td>
+    </tr>`).join('');
+  if (empty) empty.style.display = rows.length ? 'none' : 'block';
+}
+
+function renderTargetsPanel() {
+  renderTargetsTable();
+}
+
+async function saveTargetThreshold(input) {
+  const techId = input.dataset.techId;
+  const value = Math.max(0, Math.min(10, parseInt(input.value, 10) || 0));
+  input.value = value;
+  input.disabled = true;
+  const res = await apiFetch(`/api/technique-config/${techId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rule_threshold: value })
+  });
+  input.disabled = false;
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || 'Hedef kaydedilemedi.');
+    return;
+  }
+  techniqueConfig[techId] = { ...(techniqueConfig[techId] || {}), rule_threshold: value };
+  input.classList.remove('targets-saved-flash');
+  void input.offsetWidth;
+  input.classList.add('targets-saved-flash');
+  // Hedef degisince ilgili teknigin (ve varsa ailesinin) skoru degisir —
+  // Matrix'te acikken gorunur kalsin diye yeniden ciziyoruz.
+  renderMatrix();
+}
+
 async function loadDataQuality() {
   const res = await apiFetch('/api/data-quality');
   if (!res.ok) return;
@@ -1894,7 +1986,9 @@ function getMitigationTotal(techId) {
 // PRODUCT_CLAIM_SCORE_WEIGHT) — adı olan tespiti olmayan bir teknik artık
 // yalnızca toplu ürün iddiasıyla tam skor gösteremez.
 function ruleCoverageWeight(rule) {
-  const levelWeight = ({low: 0.25, partial: 0.60, full: 1.00})[rule?.coverage_level || 'full'] || 1.00;
+  // DeTT&CT Visibility Score'una (1-4) dayanan 4 kademeli agirlik — bkz.
+  // docs/scoring_methodology.md #1. app.py'deki level_weight ile ayni olmali.
+  const levelWeight = ({low: 0.25, half: 0.50, good: 0.75, full: 1.00})[rule?.coverage_level || 'full'] ?? 1.00;
   const originWeight = rule?.origin === 'product_claim' ? PRODUCT_CLAIM_SCORE_WEIGHT : 1.00;
   return levelWeight * originWeight;
 }
@@ -2005,21 +2099,37 @@ function computeScore(techId, rulesCount, mitigationCount, sources, weightedRule
 }
 
 /** Alt tekniği OLAN bir üst teknik için "aile" (rollup) hedef/etkin/kapsanma
- * değerlerini hesaplar: kendi payı + TÜM alt tekniklerinin toplamı. Her alt
- * teknik KENDİ hedefinde tavanlanır (bir alt tekniğin fazlası bir kardeşin
- * eksiğini örtmez — bilinçli, muhafazakâr seçim). "Gerekli değil" (hedef=0)
- * işaretli bir alt teknik aileye ne katkı ne yük getirir. Alt tekniği yoksa
- * "kendi" değerlerine indirgenir (ayrı bir dal gerekmez).
- * "Tespit" kovası da aileye genişler: kendi doğrudan kuralı VARSA ya da en
- * az bir alt tekniği zaten tespitliyse üst teknik de tespitli sayılır.
- * app.py _compute_gap_analysis() ile birebir aynı formül olmalı (bkz.
- * PROJECT_STATE.md 2026-07-29). enrichedRules verilmezse enrichRules() taze
- * çağrılır (tek kart yenilemesi gibi performans kritik olmayan yerler için). */
+ * değerlerini hesaplar — İKİ AYRI GÜVENCENİN KÜÇÜĞÜ. Tam gerekçe, canlı örnek
+ * ve önceki iki denemenin (ham toplama, boşluk-tabanlı) neden yetmediği:
+ * docs/scoring_methodology.md #3.
+ *   family.hedef = kendi.hedef + Σ alt.hedef        [TAM toplam; kendi.hedef
+ *                                                     genelde 0]
+ *   cappedSum    = min(kendi.etkin, kendi.hedef)
+ *                  + Σ min(alt.etkin, alt.hedef)     [her ÜYE kendi hedefinde
+ *                                                     tavanlanır]
+ *   dedupedSum   = ailenin (kendi+tüm altlar) dokunduğu BENZERSİZ kural
+ *                  ID'lerinin toplam ağırlığı         [aynı kural birden
+ *                                                     fazla üyeye eşliyse
+ *                                                     YALNIZCA BİR KEZ sayılır]
+ *   family.etkin = min(cappedSum, dedupedSum)
+ * İkisi FARKLI aşırı-sayma senaryosunu önler (yalnızca cappedSum: aynı kural
+ * hem üste hem birden fazla alta eşliyse N kez şişer; yalnızca dedupedSum:
+ * bir alt teknikte çok sayıda bağımsız kural varsa fazlası kardeşlerin
+ * eksiğini kapatmak için aileye taşar) — min() ikisini de aynı anda keser.
+ * "Tespit" kovası buna bağımsız: kendi doğrudan kuralı VARSA ya da en az
+ * bir alt tekniği zaten tespitliyse üst teknik de tespitli sayılır.
+ * Alt tekniği yoksa "kendi" değerlerine indirgenir (ayrı bir dal gerekmez).
+ * app.py _compute_gap_analysis() ile birebir aynı formül olmalı. enrichedRules
+ * verilmezse enrichRules() taze çağrılır (performans kritik olmayan yerler için). */
 function familyRollup(techId, ownRules, weightMap, enrichedRules) {
   const ownThreshold = techniqueThreshold(techId);
   const ownEffective = effectiveRuleCount(ownRules, weightMap);
-  let threshold = ownThreshold;
-  let effective = ownEffective;
+  let cappedSum = ownThreshold > 0 ? Math.min(ownEffective, ownThreshold) : 0;
+  let hedefSum = ownThreshold > 0 ? ownThreshold : 0;
+  const ruleWeights = new Map(); // rule id -> agirlik, dedup icin
+  (ownRules || []).forEach(r => {
+    if (r && r.id != null) ruleWeights.set(r.id, ruleCoverageWeight(r) * scopeWeight(r, weightMap));
+  });
   let covered = namedRuleCount(ownRules) > 0;
   const subTechs = subTechsByParent[techId] || [];
   if (subTechs.length) {
@@ -2028,12 +2138,19 @@ function familyRollup(techId, ownRules, weightMap, enrichedRules) {
       const stThreshold = techniqueThreshold(st.id);
       if (stThreshold <= 0) return;
       const stRules = rulesInScope(rules.filter(r => r.tid == st.id), weightMap);
-      threshold += stThreshold;
-      effective += Math.min(effectiveRuleCount(stRules, weightMap), stThreshold);
+      const stEffective = effectiveRuleCount(stRules, weightMap);
+      cappedSum += Math.min(stEffective, stThreshold);
+      hedefSum += stThreshold;
+      stRules.forEach(r => {
+        if (r && r.id != null) ruleWeights.set(r.id, ruleCoverageWeight(r) * scopeWeight(r, weightMap));
+      });
       if (namedRuleCount(stRules) > 0) covered = true;
     });
   }
-  return { threshold, effective, covered };
+  let dedupedSum = 0;
+  ruleWeights.forEach(w => { dedupedSum += w; });
+  const effective = Math.min(cappedSum, dedupedSum);
+  return { threshold: hedefSum, effective, covered };
 }
 
 /** Matris ortam seçicisini scopeRegistry'den doldurur. */
@@ -2089,24 +2206,29 @@ function updateMatrixScopeNote() {
     : `<strong>Bu ortamı izleyen tespit kaynağı yok</strong> — tüm teknikler kapsamsız görünecek. Kapsam Envanteri'nden izleme durumu girin.`;
 }
 
-// Ortak lerp & renk sabitleri
-// Gradyan: koyu → kırmızı → turuncu → sarı-yeşil → koyu yeşil (5 durak)
+// Ortak lerp & renk sabitleri — kullanıcının yüklediği örnek HTML'deki
+// getHeatColor() algoritmasından portlandı (2026-08-14): sıfır AYRI, DÜZ
+// bir gri (gradyanın bir parçası değil — "hiç tespit yok" hâli belirsiz
+// bir "çok düşük skor" tonuyla karışmasın), sıfırdan sonrası ise yumuşak
+// (pastel'e yakın, doygun/neon değil) çok-duraklı bir geçiş. Örnekteki
+// yön "yüksek=çok olay=kırmızı" idi (tehdit sayımı); bizde yüksek skor
+// İYİ demek olduğu için yön ters çevrildi: kırmızı→turuncu→sarı→yeşil.
 function _colorLerp(a, b, t) {
   return { r: Math.round(a.r + (b.r - a.r) * t),
            g: Math.round(a.g + (b.g - a.g) * t),
            b: Math.round(a.b + (b.b - a.b) * t) };
 }
+const _ZERO_COLOR = { r: 49, g: 55, b: 62 }; // #31373E — hiç tespit yok
 const _SCORE_STOPS = [
-  { s: 0.00, r: 20,  g: 26,  b: 34  }, // koyu (0%)
-  { s: 0.30, r: 205, g: 50,  b: 50  }, // kırmızı
-  { s: 0.50, r: 225, g: 135, b: 45  }, // turuncu
-  { s: 0.70, r: 185, g: 205, b: 60  }, // sarı-yeşil
-  { s: 1.00, r: 42,  g: 155, b: 55  }, // koyu yeşil
+  { s: 0.00, r: 214, g: 96,  b: 77  }, // yumuşak kırmızı
+  { s: 0.45, r: 224, g: 150, b: 79  }, // yumuşak turuncu
+  { s: 0.70, r: 224, g: 195, b: 79  }, // yumuşak sarı
+  { s: 1.00, r: 90,  g: 160, b: 106 }, // yumuşak yeşil
 ];
 
 function _scoreRgb(score) {
+  if (score <= 0) return _ZERO_COLOR;
   const st = _SCORE_STOPS;
-  if (score <= st[0].s) return st[0];
   if (score >= st[st.length - 1].s) return st[st.length - 1];
   for (let i = 0; i < st.length - 1; i++) {
     if (score <= st[i + 1].s) {
@@ -2117,16 +2239,51 @@ function _scoreRgb(score) {
   return st[st.length - 1];
 }
 
-// Ana kart rengi — %20 saydamlık (dark bg üzerinde ince tint)
+// Kart rengi — OPAK (örnekteki gibi; saydamlık denemeleri "cırtlak" veya
+// "soluk" bulunmuştu — asıl sorun saydamlık değil, durak renklerinin
+// canlılığıydı; bu durak renkleri zaten yumuşak, opak sorun olmamalı).
 function scoreToColor(score) {
   const c = _scoreRgb(score);
-  return `rgba(${c.r},${c.g},${c.b},0.20)`;
+  return `rgb(${c.r},${c.g},${c.b})`;
+}
+function scoreToSubColor(score) {
+  return scoreToColor(score);
 }
 
-// Alt teknik kartı — biraz daha sönük (%13 saydamlık)
-function scoreToSubColor(score) {
+// Opak dolgu üzerinde metin okunaklı kalsın diye luminance'a göre
+// siyah/beyaz seçer (örnekteki getHeatColor()'ın metin mantığıyla aynı).
+function scoreTextColor(score) {
   const c = _scoreRgb(score);
-  return `rgba(${c.r},${c.g},${c.b},0.13)`;
+  const luminance = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
+  return luminance > 0.55 ? '#111827' : '#ffffff';
+}
+
+// _SCORE_STOPS'tan tureyen paylasilan degrade string'i — hem statik lejant
+// hem hover tooltip'teki "renk gaminda nerede" gostergesi bunu kullanir, tek
+// kaynaktan (palet ileride degisirse ikisi de otomatik senkron kalir).
+// scoreToColor(0) YAZILAMAZ — score<=0 icin hep _ZERO_COLOR donuyor, ilk
+// durak olan yumusak kirmizi hic gorunmez. Sifir yerine DUZ bir "cap" olarak
+// elle eklenir (%0-2 gri), asil gradyan %2'den baslar — CSS'te sonraki
+// duragin nominal pozisyonu (0%) onceki duraktan (2%) geride kalamaz, otomatik
+// %2'ye sabitlenir, gri->kirmizi keskin gecisi boylece olusur.
+function _scoreGradientStops() {
+  const zero = `rgb(${_ZERO_COLOR.r},${_ZERO_COLOR.g},${_ZERO_COLOR.b})`;
+  const rest = _SCORE_STOPS.map(s => `rgb(${s.r},${s.g},${s.b}) ${s.s * 100}%`).join(', ');
+  return `${zero} 0%, ${zero} 2%, ${rest}`;
+}
+
+// Skor lejantı — degrade bir kez (init'te) çizilir; imleç ise wireScoreTooltip'in
+// mevcut hover mekanizmasına yaslanıp her kart hover'ında güncellenir (bkz.
+// wireScoreTooltip, #scoreLegendCursor).
+function renderScoreLegend() {
+  const el = document.getElementById('scoreLegendContainer');
+  if (!el) return;
+  el.innerHTML = `
+    <span class="score-legend-lbl">Düşük</span>
+    <div class="score-legend-bar" style="background: linear-gradient(90deg, ${_scoreGradientStops()})">
+      <div class="score-legend-cursor" id="scoreLegendCursor"></div>
+    </div>
+    <span class="score-legend-lbl">Yüksek</span>`;
 }
 
 
@@ -2164,15 +2321,15 @@ function applyTechniqueVisuals(card, techId, rulesCount, mitigationCount, source
   const score = computeScore(techId, rulesCount, mitigationCount, sources, weightedRuleCount, thresholdOverride);
   const covered = coveredOverride ?? (namedCount > 0);
   card.style.backgroundColor = scoreToColor(score);
+  card.style.color = scoreTextColor(score);
   card.classList.toggle('covered', covered);
-  card.classList.toggle('claim-only', namedCount === 0 && rulesCount > 0);
   card.classList.toggle('mitigated', mitigationCount > 0);
 
   const cfg = techniqueConfig[techId] || {};
   card.dataset.scoreData = JSON.stringify({
     techId,
-    // fillTechniqueCell once calistigi icin ad hucreden okunabiliyor
-    name: (card.querySelector('.tc-name') || {}).textContent || '', rulesCount, weightedRuleCount: Math.round(weightedRuleCount * 100) / 100, mitigationCount,
+    // fillTechniqueCell dataset.techName'e yazdi (bkz. fillTechniqueCell yorumu)
+    name: card.dataset.techName || '', rulesCount, weightedRuleCount: Math.round(weightedRuleCount * 100) / 100, mitigationCount,
     sources: [...new Set(Array.isArray(sources) ? sources : [])],
     score: Math.round(score * 100),
     namedCount,
@@ -2197,6 +2354,7 @@ function updateTechniqueCard(parentId) {
   const mitigationCount = getCheckedMitigationCountForTech(parentId);
   const score = rollup.threshold > 0 ? Math.min(rollup.effective / rollup.threshold, 1.0) : 1.0;
   card.style.backgroundColor = scoreToColor(score);
+  card.style.color = scoreTextColor(score);
   card.classList.toggle('covered', rollup.covered);
   card.classList.toggle('mitigated', mitigationCount > 0);
 }
@@ -2211,6 +2369,7 @@ function updateSubtechCard(techId) {
   const sources = enriched.map(r => r.source);
   const score = computeScore(techId, rulesCount, mitigationCount, sources, effectiveRuleCount(enriched, weightMap));
   card.style.backgroundColor = scoreToSubColor(score);
+  card.style.color = scoreTextColor(score);
   card.classList.toggle('covered', namedRuleCount(enriched) > 0);
   card.classList.toggle('mitigated', mitigationCount > 0);
 }
@@ -2228,35 +2387,21 @@ function refreshTechniqueCardsForMitigation(mitId) {
   parents.forEach(pid => updateTechniqueCard(pid));
 }
 
-/** Teknik hücresinin içeriğini kurar — ana teknik ve alt teknik aynı düzeni
- *  kullanır, yalnızca ölçek farklı. Kompakt olması için kimlik ve sayaçlar
- *  tek bir alt satırda toplanır; mitigation dolguyu değil köşedeki kalkanı
- *  etkiler. */
+/** Teknik hücresinin içeriğini kurar — ad üstte, ID altta hafif saydam
+ *  (kullanıcı kararı — tek satır "ID Ad" denemesi geri alındı). Ana ve alt
+ *  teknik aynı düzeni kullanır, yalnızca boyut/yazı tipi CSS'te
+ *  `.subtech-card` ile ayrışıyor (bkz. isSub → `is-sub` class'ı).
+ *  Sayaçlar (tespit oranı, mitigation, ortam) kart yüzünde değil, hover
+ *  tooltip'inde (bkz. wireScoreTooltip, card.dataset.scoreData) — o da
+ *  adı card.dataset.techName üzerinden okur (ham/kaçışsız yazılır —
+ *  `_esc(name)` YAZILMAZ, dataset zaten HTML-parse etmiyor, _esc ile
+ *  yazılırsa tooltip'te çifte kaçış olur). Parametreler (ruleCount,
+ *  weighted, mitigationCount, envRatio, thresholdOverride) burada
+ *  tüketilmiyor ama imza aynı kalıyor — applyTechniqueVisuals() çağrıları
+ *  aynı değerleri hâlâ kullanıyor. */
 function fillTechniqueCell(cell, { id, name, ruleCount, weighted, mitigationCount, envRatio, isSub, thresholdOverride = null }) {
-  const marks = [];
-  if (mitigationCount > 0) {
-    marks.push(`<span class="tc-shield" title="${mitigationCount} işaretli mitigation — kapsama skoruna girmez">M</span>`);
-  }
-  // Rozet yalnizca en az bir ortamda tespit varken anlamli; sifir olan kart
-  // zaten koyu gri, ustune "0/2" yazmak gurultu.
-  if (envRatio && envRatio.covered > 0) {
-    const full = envRatio.covered === envRatio.total;
-    marks.push(`<span class="tc-env ${full ? 'full' : 'partial'}" title="${envRatio.covered}/${envRatio.total} ortamda tespit var">${envRatio.covered}/${envRatio.total}</span>`);
-  }
-  const target = thresholdOverride ?? techniqueThreshold(id);
-  const shown = Math.round(weighted * 10) / 10;
-  // Hedef 0 = admin bu teknik icin tespit istemiyor demis ("kapsam disi").
-  // "0/0" kafa karistirir; acik bir etiket koyuyoruz.
-  const countHtml = target <= 0
-    ? `<span class="tc-count na" title="Bu teknik için tespit gerekmiyor (hedef 0)">gerekli değil</span>`
-    : `<span class="tc-count ${ruleCount ? '' : 'zero'}" title="${shown} etkin tespit / hedef ${target}">${shown}/${target}</span>`;
-  cell.innerHTML = `
-    <div class="tc-name">${_esc(name)}</div>
-    <div class="tc-foot">
-      <span class="tc-id">${_esc(id)}</span>
-      <span class="tc-marks">${marks.join('')}</span>
-      ${countHtml}
-    </div>`;
+  cell.dataset.techName = name;
+  cell.innerHTML = `<div class="tc-name">${_esc(name)}</div><div class="tc-foot"><span class="tc-id">${_esc(id)}</span></div>`;
   cell.classList.toggle('is-sub', !!isSub);
 }
 
@@ -2282,7 +2427,9 @@ function buildSubtechContainer(parentId, enrichedData, allowedSubs, weightMap = 
     });
     applyTechniqueVisuals(subCard, st.id, rulesForSub.length, mitigationCount, sources,
                           weightedCount, null, namedRuleCount(rulesForSub));
-    // Alt teknikler daha soluk gösterilir — ana tekniğin görsel ağırlığını korur
+    // applyTechniqueVisuals() kartı her zaman scoreToColor ile boyar (sub/ana
+    // ayrımı bilmiyor) — alt teknik daha soluk görünsün diye burada
+    // scoreToSubColor ile üzerine yazıyoruz.
     const subScore = computeScore(st.id, rulesForSub.length, mitigationCount, sources, weightedCount);
     subCard.style.backgroundColor = scoreToSubColor(subScore);
 
@@ -2374,6 +2521,22 @@ async function deleteRule(ruleId) {
   document.getElementById('ruleModal').style.display = 'none';
 }
 
+// Bir tespitin YALNIZCA bu teknikle eslemesini kaldirir — kural kalir,
+// diger tekniklere eslemesi varsa onlar da kalir. deleteRule()'un aksine
+// tum tespiti silmez. Modal'daki liste artik eski (bu teknige gore
+// gruplanmis) oldugu icin ayni pattern'i (deleteRule) izleyip modal'i
+// kapatiyoruz — kullanici karti tekrar tiklayip taze veriyle acabilir.
+async function unlinkRuleTechnique(ruleId, techId) {
+  if (!hasRole('editor')) return;
+  const res = await apiFetch(`/api/rules/${ruleId}/techniques/${techId}`, { method: 'DELETE' });
+  if (!res.ok) return;
+  const rule = userRules.find(r => r.id === ruleId);
+  if (rule && rule.techniques) rule.techniques = rule.techniques.filter(t => t !== techId);
+  renderRulesList();
+  renderMatrix();
+  document.getElementById('ruleModal').style.display = 'none';
+}
+
 async function openModal(parentId, parentName, rules) {
   if (mitDetailPopupEl) { mitDetailPopupEl.remove(); mitDetailPopupEl = null; }
   if (techChipPopoverEl) { techChipPopoverEl.remove(); techChipPopoverEl = null; }
@@ -2381,6 +2544,11 @@ async function openModal(parentId, parentName, rules) {
   const body = document.getElementById('modalBody');
   const colorMap = productColorMap();
   body.innerHTML = '';
+  // Modal'i HEMEN goster — icerik (Mitigations fetch'i dahil) asagida asenkron
+  // dolduruluyor. Eskiden display:flex en sonda atanip acilis animasyonu ancak
+  // tum veri geldikten sonra baslardi; kullanici bunu "yavas" olarak yorumladi
+  // (aslinda animasyon hizli, sorun icerik gelene kadarki bekleme suresiydi).
+  document.getElementById('ruleModal').style.display = 'flex';
   await reloadMitigationEntries();
 
   // Teknik açıklaması ve meta bilgisi
@@ -2407,26 +2575,22 @@ async function openModal(parentId, parentName, rules) {
 
   const tabBar = document.createElement('div');
   tabBar.className = 'modal-tabs';
+  // Tespitler varsayilan/ilk sekme — mitigation daha az onemli, ileride
+  // kullanilacak (kullanici karari, 2026-08-15).
   tabBar.innerHTML = `
-    <button class="tab-btn active" data-tab="mitigationsTab">Mitigations</button>
-    <button class="tab-btn" data-tab="rulesTab">Tespitler</button>
-    <button class="tab-btn" data-tab="actionsTab">Aksiyonlar</button>
+    <button class="tab-btn active" data-tab="rulesTab">Tespitler</button>
+    <button class="tab-btn" data-tab="mitigationsTab">Mitigations</button>
   `;
   body.appendChild(tabBar);
 
   const mitigationsTab = document.createElement('div');
-  mitigationsTab.className = 'tab-panel active';
+  mitigationsTab.className = 'tab-panel';
   mitigationsTab.id = 'mitigationsTab';
   const rulesTab = document.createElement('div');
-  rulesTab.className = 'tab-panel';
+  rulesTab.className = 'tab-panel active';
   rulesTab.id = 'rulesTab';
-  const actionsTab = document.createElement('div');
-  actionsTab.className = 'tab-panel';
-  actionsTab.id = 'actionsTab';
-  body.appendChild(mitigationsTab);
   body.appendChild(rulesTab);
-  body.appendChild(actionsTab);
-  renderModalActions(actionsTab, parentId);
+  body.appendChild(mitigationsTab);
 
   tabBar.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2520,7 +2684,7 @@ async function openModal(parentId, parentName, rules) {
   Object.keys(grouped).forEach(key => {
     const groupRules = grouped[key];
     if (groupRules.length == 0) return;
-    const headerTitle = (key == 'Direct') ? 'DoÄŸrudan EÅŸleÅŸmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
+    const headerTitle = (key == 'Direct') ? 'Doğrudan Eşleşmeler' : `${key} - ${techDetailsMap[key]?.name || 'Unknown'}`;
     const groupDiv = document.createElement('div');
     groupDiv.className = 'sub-tech-group';
     groupDiv.innerHTML = `<div class="sub-tech-header">${headerTitle}</div>`;
@@ -2533,7 +2697,8 @@ async function openModal(parentId, parentName, rules) {
         <td>${r.name}</td>
         <td style="text-align:right">
           <span class="source-tag" style="background:${colorMap[r.source] || "#546e7a"}">${r.source}</span>
-          ${hasRole('editor') ? `<button class="delete-btn" onclick="deleteRule(${r.id})">Sil</button>` : ''}
+          ${hasRole('editor') ? `<button class="delete-btn" title="Bu tekniği bu tespitten kaldır (tespit kalır)" onclick="unlinkRuleTechnique(${r.id}, '${r.tid}')">Bu Teknikten Kaldır</button>` : ''}
+          ${hasRole('editor') ? `<button class="delete-btn" title="Tüm tespiti kalıcı olarak sil" onclick="deleteRule(${r.id})">Sil</button>` : ''}
         </td>
       </tr>`;
     });
@@ -2623,50 +2788,6 @@ async function openModal(parentId, parentName, rules) {
       });
     });
   }
-
-  // Admin: teknik bazlı önem ve kural eşiği override bölümü
-  if (hasRole('admin')) {
-    const cfg = techniqueConfig[parentId] || {};
-    const cfgDiv = document.createElement('div');
-    cfgDiv.className = 'tech-config-admin';
-    const srcLabel = cfg.source === 'admin' ? 'admin override' : `auto (${cfg.group_count || 0} grup)`;
-    // DIKKAT: `cfg.rule_threshold || DEFAULT_RULE_THRESHOLD` degil \u2014 0 gecerli
-    // ve secili bir deger olabilir, `??` ile korunuyor.
-    const currentThreshold = cfg.rule_threshold ?? DEFAULT_RULE_THRESHOLD;
-    cfgDiv.innerHTML = `
-      <div class="tech-config-title">Teknik Yap\u0131land\u0131rmas\u0131 <span class="cfg-source-tag">${srcLabel}</span></div>
-      <div class="tech-config-row">
-        <label>Hedef tespit say\u0131s\u0131</label>
-        <select id="cfgThreshold">${[0,1,2,3,4,5,6,7,8,9,10].map(n =>
-          `<option value="${n}"${currentThreshold === n ? ' selected' : ''}>${n === 0 ? '0 (gerekli de\u011fil)' : n}</option>`
-        ).join('')}</select>
-        <small>Bu teknik i\xe7in ka\xe7 tespit \u201cyeterli kapsama\u201d say\u0131ls\u0131n. Kart rengi buna g\xf6re hesaplan\u0131r
-        (varsay\u0131lan ${DEFAULT_RULE_THRESHOLD}). <strong>0</strong> se\xe7ilirse bu teknik hi\xe7bir tespit
-        olmadan da tam skorla (%100) g\xf6sterilir \u2014 kapsam d\u0131\u015f\u0131 veya tamamen ba\u015fka
-        bir kontrolle kar\u015f\u0131lanan teknikler i\xe7in kullan\u0131n. Bu teknigi ${cfg.group_count || 0} tehdit grubu kullan\u0131yor.</small>
-      </div>
-      <button class="action-btn btn-add" id="btnSaveTechConfig">Kaydet</button>
-    `;
-    body.appendChild(cfgDiv);
-
-    document.getElementById('btnSaveTechConfig').addEventListener('click', async () => {
-      const rule_threshold = parseInt(document.getElementById('cfgThreshold').value, 10);
-      if (isNaN(rule_threshold)) return;
-      const res = await apiFetch(`/api/technique-config/${parentId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rule_threshold })
-      });
-      if (res.ok) {
-        techniqueConfig[parentId] = { ...techniqueConfig[parentId], rule_threshold, source: 'admin' };
-        renderMatrix();
-      } else {
-        alert('Kaydetme ba\u015far\u0131s\u0131z.');
-      }
-    });
-  }
-
-  document.getElementById('ruleModal').style.display = 'flex';
 }
 
 
@@ -2751,13 +2872,13 @@ const SECTIONS = {
     label: 'Harita',
     tabs: [
       { panel: 'matrixPanel', label: 'Matris' },
-      { panel: 'ttpPanel',    label: 'Liste Görünümü' },
     ],
   },
   inventory: {
     label: 'Envanter',
     tabs: [
       { panel: 'rulesPanel',      label: 'Tespitler' },
+      { panel: 'targetsPanel',    label: 'Teknik Hedefleri', role: 'admin' },
       { panel: 'scopePanel',      label: 'Ortam & Kapsam' },
       { panel: 'mitigationPanel', label: 'Mitigation' },
     ],
@@ -2781,12 +2902,12 @@ const SECTIONS = {
 
 // Panel ilk kez açıldığında veri çeken yükleyiciler.
 const PANEL_LOADERS = {
-  ttpPanel: () => loadTtpList(),
   gapPanel: () => loadGapDashboard(),
   actionsPanel: () => loadActionsPanel(),
   dataQualityPanel: () => loadDataQuality(),
   auditPanel: () => loadAuditLogs(),
   scopePanel: () => loadScopeRegistry(),
+  targetsPanel: () => renderTargetsPanel(),
 };
 
 let activeSection = 'map';
@@ -2986,7 +3107,7 @@ function renderImportPlan(plan) {
 
   const ruleHtml = rows.length
     ? '<h4>Kurallar</h4><div class="import-table-wrap"><table class="import-table">' +
-      '<thead><tr><th></th><th>Kural</th><th>Ürün</th><th>Eklenecek teknikler</th><th>Kapsam</th></tr></thead><tbody>' +
+      '<thead><tr><th></th><th>Kural</th><th>Ürün</th><th>Eklenecek teknikler</th><th>Tespit Gücü</th></tr></thead><tbody>' +
       rows.map(r => {
         const orphan = !r.existing_techniques.length && !r.added_techniques.length;
         const techCell = orphan
@@ -2996,7 +3117,7 @@ function renderImportPlan(plan) {
           '<td>' + _esc(r.name) + '</td>' +
           '<td>' + _esc(r.product) + '</td>' +
           '<td class="import-techs">' + techCell + '</td>' +
-          '<td>' + _esc(r.coverage_level) + '</td></tr>';
+          '<td>' + _esc(COV_LABEL[r.coverage_level] || r.coverage_level) + '</td></tr>';
       }).join('') +
       '</tbody></table></div>'
     : '<div class="import-hint">Uygulanacak bir değişiklik yok — dosyadaki her şey zaten kayıtlı.</div>';
@@ -3358,6 +3479,24 @@ function wireValidation() {
   });
 }
 
+// Matris tam ekran modu — gercek Fullscreen API degil, sadece kendi
+// menu/ust cubugumuz gizlenir ("chrome sayfasinin tamami heatmap olsun,
+// yandaki navigator ustteki kisim gitsin" — kullanici istegi).
+function wireMatrixFullscreen() {
+  const btn = document.getElementById('btnMatrixFullscreen');
+  const shell = document.querySelector('.ms-shell');
+  if (!btn || !shell) return;
+  const setState = (on) => {
+    shell.classList.toggle('matrix-fullscreen', on);
+    btn.classList.toggle('active', on);
+    btn.title = on ? 'Tam ekrandan çık (Esc)' : 'Tam ekran (menü ve üst çubuk gizlenir, Esc ile çık)';
+  };
+  btn.addEventListener('click', () => setState(!shell.classList.contains('matrix-fullscreen')));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && shell.classList.contains('matrix-fullscreen')) setState(false);
+  });
+}
+
 function wireExport() {
   // btnExportPdf burada wire edilmiyor — /report'a yonlendiren capture-phase
   // handler'i templates/index.html'de tanimli (PDF Export artik DOM kazima
@@ -3373,6 +3512,7 @@ function wireActions() {
   wireNavigation();
   wireSearch();
   wireExport();
+  wireMatrixFullscreen();
   wireValidation();
   wireSidebarToggle();
   wireSettings();
@@ -3424,17 +3564,6 @@ function wireActions() {
     });
   }
 
-  const btnExpandAll = document.getElementById('btnExpandAll');
-  if (btnExpandAll) {
-    btnExpandAll.addEventListener('click', () => {
-      const containers = document.querySelectorAll('.subtech-container');
-      const anyOpen = [...containers].some(c => c.children.length > 0 && !c.classList.contains('open'));
-      containers.forEach(c => { if (c.children.length > 0) c.classList.toggle('open', anyOpen); });
-      document.querySelectorAll('.technique-card.has-subtechs').forEach(c => c.classList.toggle('expanded', anyOpen));
-      btnExpandAll.textContent = anyOpen ? 'Hepsini Kapat' : 'Hepsini Aç';
-    });
-  }
-
   const logoutBtn = document.getElementById('btnLogout');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
@@ -3465,7 +3594,19 @@ function renderMatrix() {
     const col = document.createElement('div');
     col.className = 'tactic-column';
     col.innerHTML = `<div class="tactic-header">${tactic}</div>`;
+    const header = col.querySelector('.tactic-header');
+    // Teknik kartları artık col'un DOĞRUDAN çocuğu değil — referans projedeki
+    // gibi sarmalanan bir ızgara (.tactic-techniques, flex-wrap) içinde,
+    // birden fazlası aynı satıra sığabiliyor. col'a yalnızca DOLU ise
+    // eklenir (subContainer'daki koşullu-ekleme deseninin aynısı).
+    const techWrap = document.createElement('div');
+    techWrap.className = 'tactic-techniques';
     const techniques = (matrixStructure[tactic] || []).sort((a, b) => a.id.localeCompare(b.id));
+    // Başlık hover panelinin (Total/Unique/Average) verisi — arama filtresinden
+    // BAĞIMSIZ, taktiğin TÜM tekniklerine göre (kullanıcı ne yazarsa yazsın
+    // taktiğin gerçek kapsama durumunu göstersin). parentRollup ile aynı
+    // kaynaktan (kartın rengini belirleyenle tutarlı) biriktirilir.
+    let tacticTotal = 0, tacticCovered = 0;
 
     techniques.forEach(tech => {
       const parentMatchesSearch = matchesSearch(tech);
@@ -3493,6 +3634,8 @@ function renderMatrix() {
       const parentRules = rulesInScope(enrichedData.filter(r => r.parentId == tech.id), scopeWeights);
       const parentOwnRules = rulesInScope(enrichedData.filter(r => r.tid == tech.id), scopeWeights);
       const parentRollup = familyRollup(tech.id, parentOwnRules, scopeWeights, enrichedData);
+      tacticTotal += parentRollup.effective;
+      if (parentRollup.covered) tacticCovered += 1;
 
       const subTechs = subTechsByParent[tech.id] || [];
       // Ürün filtresi burada artik gorunurlugu etkilemiyor — yalnizca arama
@@ -3567,30 +3710,33 @@ function renderMatrix() {
       const subContainer = buildSubtechContainer(tech.id, enrichedData, subMatches, scopeWeights);
       card.style.cursor = 'pointer';
 
-      // Alt teknikleri olan kartta aç/kapa oku; ok dışına tıklamak detayı açar.
+      // Alt tekniği olan kartlarda subContainer kartın DOM ÇOCUĞU olarak
+      // eklenir (col'un değil) — hem CSS :hover'ın karttan flyout'a geçerken
+      // kopmaması (hover, torunlar dahil sürer, kardeşler dahil sürmez) hem
+      // de position:absolute'in doğru karta göre konumlanması için şart.
+      // Alt tekniği olmayan kartlarda subContainer boş — hiç eklenmez
+      // (yoksa görünmez de olsa hover/click yakalayan hayalet bir kutu olur).
       if (subContainer.children.length > 0) {
         card.classList.add('has-subtechs');
-        const toggle = document.createElement('button');
-        toggle.className = 'tc-toggle';
-        toggle.type = 'button';
-        toggle.setAttribute('aria-label', 'Alt teknikleri aç/kapat');
-        toggle.textContent = '▸';
-        toggle.onclick = (e) => {
-          e.stopPropagation();
-          const isOpen = subContainer.classList.toggle('open');
-          card.classList.toggle('expanded', isOpen);
-        };
-        card.insertBefore(toggle, card.firstChild);
+        card.appendChild(subContainer);
       }
       // Modal bilinçli olarak fold-up'lı parentRules alır (Direkt + alt
       // teknik başına gruplu görünüm) — drill-down'da tam aile görünsün.
       card.onclick = () => openModal(tech.id, tech.name, parentRules);
 
-      col.appendChild(card);
-      col.appendChild(subContainer);
+      techWrap.appendChild(card);
     });
 
-    if (col.children.length > 1) visibleColumns += 1;
+    header.dataset.tacticStats = JSON.stringify({
+      total: tacticTotal,
+      covered: tacticCovered,
+      techCount: techniques.length,
+    });
+
+    if (techWrap.children.length > 0) {
+      col.appendChild(techWrap);
+      visibleColumns += 1;
+    }
     container.appendChild(col);
   });
 
@@ -3609,11 +3755,55 @@ function renderMatrix() {
     `;
   }
 
-  const expBtn = document.getElementById('btnExpandAll');
-  if (expBtn) expBtn.textContent = 'Hepsini Aç';
-
   updateMatrixStats();
   wireScoreTooltip();
+  wireTacticStatsTooltip();
+}
+
+// Taktik başlığına gelince Total / Unique Techniques (+%) / Average per
+// Technique gösteren popup — kullanıcının paylaştığı referans görseldeki
+// gibi. Veri renderMatrix()'in taktik döngüsünde header.dataset.tacticStats'a
+// yazılıyor (arama filtresinden bağımsız, taktiğin TÜM teknikleri üzerinden).
+function wireTacticStatsTooltip() {
+  let tip = null;
+  document.querySelectorAll('.tactic-header[data-tactic-stats]').forEach(header => {
+    header.addEventListener('mouseenter', () => {
+      if (tip) tip.remove();
+      let d;
+      try { d = JSON.parse(header.dataset.tacticStats || '{}'); } catch { return; }
+      const pct = d.techCount > 0 ? Math.round((d.covered / d.techCount) * 100) : 0;
+      const avg = d.covered > 0 ? Math.round(d.total / d.covered) : 0;
+      const totalShown = Math.round(d.total * 10) / 10;
+      tip = document.createElement('div');
+      tip.className = 'tactic-stats-tooltip';
+      tip.innerHTML = `
+        <div class="tactic-stats-title">${_esc(header.textContent)}</div>
+        <div class="tst-row"><span class="tst-lbl">Toplam</span><span class="tst-val">${totalShown}</span></div>
+        <div class="tst-row"><span class="tst-lbl">Tespitli Teknik</span><span class="tst-val">${d.covered} (%${pct})</span></div>
+        <div class="tst-row"><span class="tst-lbl">Teknik Başına Ort.</span><span class="tst-val">${avg}</span></div>
+      `;
+      document.body.appendChild(tip);
+      // Basliğin ALTINA konumlanir (yana değil) — başlık zaten kolonun en
+      // üstünde, sağda/solda komşu kolonlarla çakışma riski olmadan altta
+      // rahatça yer var. Sağa taşarsa sola, ekrana clamp'lenir.
+      const rect = header.getBoundingClientRect();
+      const tipRect = tip.getBoundingClientRect();
+      const gap = 6;
+      let left = rect.left;
+      if (left + tipRect.width + 8 > window.innerWidth) {
+        left = window.innerWidth - tipRect.width - 8;
+      }
+      left = Math.max(8, left);
+      tip.style.left = `${left}px`;
+      tip.style.top = `${rect.bottom + gap}px`;
+      // Baslangic durumu (opacity:0, kucuk transform) commit olsun diye
+      // reflow zorlanir, sonra .visible eklenir — CSS transition boylece
+      // gercekten "buyuyerek" acilir (kullanici: "az aksiyon kat").
+      void tip.offsetWidth;
+      tip.classList.add('visible');
+    });
+    header.addEventListener('mouseleave', () => { if (tip) { tip.remove(); tip = null; } });
+  });
 }
 
 function updateMatrixStats() {
@@ -3674,7 +3864,12 @@ function updateMatrixStats() {
     totalS && detectedS / totalS >= 0.5 ? 'good' : 'muted');
 }
 
-// Teknik kartları üzerine gelinince kural/mitigation/önem/skor breakdown tooltip'i gösterir.
+// Teknik kartları üzerine gelinince ad + rengin gradyanda nerede oldugunu
+// + kapsayan ürünleri (yalnizca renk) gösteren sade bir tooltip. Bilinçli
+// olarak kaldırılanlar (kullanıcı kararı — "artık sadece renkler
+// konuşacak"): tespit sayısı/hedef, mitigation, tehdit grubu sayısı, ortam
+// oranı — hepsi sayısal detaydı. Bu bilgiler API'den hâlâ geliyor
+// (card.dataset.scoreData içinde), sadece burada basılmıyor.
 function wireScoreTooltip() {
   let tip = null;
   document.querySelectorAll('.technique-card[data-score-data], .subtech-card[data-score-data]')
@@ -3684,53 +3879,46 @@ function wireScoreTooltip() {
         let d;
         try { d = JSON.parse(card.dataset.scoreData || '{}'); } catch { return; }
         if (!d.techId) return;
-        const weightedRules = d.weightedRuleCount ?? d.rulesCount;
-        // Hedef 0 = "tespit gerekmiyor" — skor zaten %100, cubuk da dolu gostersin.
-        const thresholdIsZero = d.threshold <= 0;
-        const ruleBar  = thresholdIsZero ? 100 : Math.min(weightedRules / d.threshold, 1) * 100;
-        const mitBar   = d.mitTotal > 0 ? Math.min(d.mitigationCount / d.mitTotal, 1) * 100 : 0;
+        const legendCursor = document.getElementById('scoreLegendCursor');
+        if (legendCursor) {
+          legendCursor.style.left = `${d.score}%`;
+          legendCursor.classList.add('active');
+        }
+        const colorMap = productColorMap();
+        const dots = [...new Set(d.sources)]
+          .map(s => `<span class="tt-dot" style="background:${colorMap[s] || '#666'}" title="${_esc(s)}"></span>`)
+          .join('');
         tip = document.createElement('div');
         tip.className = 'score-tooltip';
         tip.innerHTML = `
           <div class="score-tooltip-title">${_esc(d.techId)} · ${_esc(d.name || '')}</div>
-          <div class="score-tooltip-row">
-            <span class="score-tooltip-label">Tespit</span>
-            <span class="score-tooltip-val">${d.rulesCount} adet · ${thresholdIsZero ? 'gerekli değil' : `${weightedRules}/${d.threshold} etkin`}</span>
+          <div class="tt-spectrum" title="Kapsama skoru: renk gradyanındaki konumu">
+            <div class="tt-spectrum-bar" style="background: linear-gradient(90deg, ${_scoreGradientStops()})"></div>
+            <div class="tt-spectrum-marker" style="left:${d.score}%"></div>
           </div>
-          ${d.namedCount === 0 && d.rulesCount > 0 ? `<div class="score-tooltip-row">
-            <span class="score-tooltip-label" style="color:#f0c674">Yalnız ürün iddiası</span>
-            <span class="score-tooltip-val" style="color:#f0c674">Adı olan tespit yok</span>
-          </div>` : ''}
-          <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${ruleBar.toFixed(0)}%;background:#4f86c6"></div></div>
-          <div class="score-tooltip-row">
-            <span class="score-tooltip-label">\xdcr\xfcnler</span>
-            <span class="score-tooltip-val">${d.sources.length ? _esc(d.sources.join(', ')) : '\u2014'}</span>
-          </div>
-          <div class="score-tooltip-row">
-            <span class="score-tooltip-label">Mitigation \u26e8</span>
-            <span class="score-tooltip-val">${d.mitigationCount}/${d.mitTotal} \xb7 skora girmez</span>
-          </div>
-          <div class="score-tooltip-bar"><div class="score-tooltip-fill" style="width:${mitBar.toFixed(0)}%;background:#8a7fd1"></div></div>
-          ${d.envRatio ? `<div class="score-tooltip-row">
-            <span class="score-tooltip-label">Ortam</span>
-            <span class="score-tooltip-val">${d.envRatio.covered}/${d.envRatio.total} ortamda tespit</span>
-          </div>` : ''}
-          <div class="score-tooltip-divider"></div>
-          <div class="score-tooltip-row">
-            <span class="score-tooltip-label">Tehdit grubu</span>
-            <span class="score-tooltip-val">${d.groupCount} grup kullanıyor</span>
-          </div>
-          <div class="score-tooltip-row">
-            <span class="score-tooltip-label">Kapsama</span>
-            <span class="score-tooltip-val" style="color:#35c48b">${d.score}% \xb7 ${thresholdIsZero ? 'tespit gerekmiyor' : `hedef ${d.threshold} tespit`}</span>
-          </div>
+          ${dots ? `<div class="tt-dots-row">${dots}</div>` : ''}
         `;
-        const rect = card.getBoundingClientRect();
-        tip.style.left = `${Math.min(rect.left, window.innerWidth - 210)}px`;
-        tip.style.top  = `${rect.bottom + 4}px`;
         document.body.appendChild(tip);
+        // Kartin YANINA konumlandirilir (alt tarafina degil) — alt teknigi
+        // olan kartlarda subtech-container zaten kartin ALTINDA aciliyor;
+        // tooltip de oraya konsaydi ikisi ayni alanda ust uste biner, tooltip
+        // (z-index 2100) flyout'u (z-index 5) tamamen ortuurdu. Sagda yer
+        // yoksa sola donuyor, dikeyde kartin ustune hizalanip ekrana clamp'lenir.
+        const rect = card.getBoundingClientRect();
+        const tipRect = tip.getBoundingClientRect();
+        const gap = 8;
+        const overflowsRight = rect.right + gap + tipRect.width > window.innerWidth;
+        const left = overflowsRight
+          ? Math.max(8, rect.left - tipRect.width - gap)
+          : rect.right + gap;
+        const top = Math.max(8, Math.min(rect.top, window.innerHeight - tipRect.height - 8));
+        tip.style.left = `${left}px`;
+        tip.style.top = `${top}px`;
       });
-      card.addEventListener('mouseleave', () => { if (tip) { tip.remove(); tip = null; } });
+      card.addEventListener('mouseleave', () => {
+        if (tip) { tip.remove(); tip = null; }
+        document.getElementById('scoreLegendCursor')?.classList.remove('active');
+      });
     });
 }
 
@@ -3891,38 +4079,6 @@ async function loadActionsPanel() {
 const PRIORITY_LABEL = {1:'Düşük', 2:'Orta', 3:'Yüksek', 4:'Kritik'};
 const STATUS_LABEL = {open:'Açık', in_progress:'Devam', done:'Tamamlandı', cancelled:'İptal'};
 
-/** Teknik modalındaki Aksiyonlar sekmesi — bu tekniğe açılmış aksiyonlar.
- *  Boşluk görüp aksiyon açmak ile açılmış aksiyonu görmek aynı yerde olsun diye. */
-async function renderModalActions(host, techId) {
-  host.innerHTML = '<div class="mitigation-empty">Yükleniyor…</div>';
-  let items = [];
-  try {
-    const res = await apiFetch(`/api/action-items?tech_id=${encodeURIComponent(techId)}`);
-    if (res.ok) items = await res.json();
-  } catch { /* ağ hatası — boş liste göster */ }
-
-  const addBtn = hasRole('editor')
-    ? `<button class="action-btn btn-add" id="modalAddAction">+ Bu teknik için aksiyon aç</button>`
-    : '';
-  if (!items.length) {
-    host.innerHTML = `<div class="mitigation-empty">Bu teknik için açılmış aksiyon yok.</div>${addBtn}`;
-  } else {
-    host.innerHTML = `<table class="table"><thead><tr>
-        <th>Başlık</th><th>Öncelik</th><th>Durum</th><th>Ekip</th><th>Termin</th>
-      </tr></thead><tbody>${items.map(a => `<tr>
-        <td>${_esc(a.title)}</td>
-        <td><span class="priority-badge p-${a.priority}">${PRIORITY_LABEL[a.priority] || a.priority}</span></td>
-        <td><span class="status-badge s-${a.status}">${STATUS_LABEL[a.status] || a.status}</span></td>
-        <td>${_esc(a.assigned_team_name || '—')}</td>
-        <td>${_esc(a.due_date || '—')}</td>
-      </tr>`).join('')}</tbody></table>${addBtn}`;
-  }
-  host.querySelector('#modalAddAction')?.addEventListener('click', () => {
-    document.getElementById('ruleModal').style.display = 'none';
-    openNewActionForTech(techId, techDetailsMap[techId]?.name || '');
-  });
-}
-
 function renderActionItems() {
   const tbody = document.getElementById('actionsTableBody');
   const emptyEl = document.getElementById('actionsEmpty');
@@ -4080,93 +4236,6 @@ function wireActionsPanel() {
       renderActionItems();
     });
   });
-}
-
-// ══════════════════════════════════════════════════════════════
-// P0: Threat Actor Overlay
-// ══════════════════════════════════════════════════════════════
-let _threatActors = [];
-let _activeThreatActor = null;
-
-async function loadThreatActors() {
-  try {
-    const res = await apiFetch('/api/threat-actors');
-    if (!res.ok) return;
-    _threatActors = await res.json();
-    populateThreatActorSelect();
-  } catch (e) { /* ignore — MITRE data may not exist */ }
-}
-
-function populateThreatActorSelect() {
-  const sel = document.getElementById('threatActorSelect');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">— Seç —</option>';
-  _threatActors.forEach(a => {
-    const opt = document.createElement('option');
-    opt.value = a.stix_id;
-    opt.textContent = a.name + (a.id ? ` (${a.id})` : '');
-    sel.appendChild(opt);
-  });
-}
-
-function applyThreatOverlay(stixId) {
-  const actor = _threatActors.find(a => a.stix_id === stixId);
-  const allCards = document.querySelectorAll('.technique-card[data-tech-id], .subtech-card[data-tech-id]');
-  const statEl = document.getElementById('threatActorStat');
-  const clearBtn = document.getElementById('threatActorClear');
-
-  if (!actor) {
-    clearThreatOverlay();
-    return;
-  }
-
-  _activeThreatActor = actor;
-  const techSet = new Set(actor.technique_ids);
-  const total = actor.technique_ids.length;
-
-  allCards.forEach(card => {
-    const tid = card.dataset.techId;
-    if (techSet.has(tid)) {
-      card.classList.add('threat-match');
-      card.classList.remove('threat-dim');
-    } else {
-      card.classList.add('threat-dim');
-      card.classList.remove('threat-match');
-    }
-  });
-
-  const visibleIds = new Set([...allCards].map(c => c.dataset.techId));
-  const visibleActorTechs = actor.technique_ids.filter(t => visibleIds.has(t)).length;
-
-  if (statEl) {
-    statEl.style.display = '';
-    statEl.innerHTML = `<strong>${_esc(actor.name)}</strong>: ${visibleActorTechs}/${total} teknik`;
-  }
-  if (clearBtn) clearBtn.style.display = '';
-}
-
-function clearThreatOverlay() {
-  _activeThreatActor = null;
-  document.querySelectorAll('.technique-card, .subtech-card').forEach(card => {
-    card.classList.remove('threat-match', 'threat-dim');
-  });
-  const statEl = document.getElementById('threatActorStat');
-  const clearBtn = document.getElementById('threatActorClear');
-  if (statEl) statEl.style.display = 'none';
-  if (clearBtn) clearBtn.style.display = 'none';
-  const sel = document.getElementById('threatActorSelect');
-  if (sel) sel.value = '';
-}
-
-function wireThreatActors() {
-  const sel = document.getElementById('threatActorSelect');
-  if (sel) {
-    sel.addEventListener('change', () => {
-      if (sel.value) applyThreatOverlay(sel.value);
-      else clearThreatOverlay();
-    });
-  }
-  document.getElementById('threatActorClear')?.addEventListener('click', clearThreatOverlay);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4359,6 +4428,13 @@ function wireNewPanels() {
   document.getElementById('qualityType')?.addEventListener('change', renderQualityIssues);
   document.getElementById('qualitySearch')?.addEventListener('input', renderQualityIssues);
 
+  document.getElementById('targetsSearch')?.addEventListener('input', renderTargetsTable);
+  // Delege edilmis dinleyici: tbody her renderTargetsTable()'da yeniden
+  // yazildigi icin tek tek input'lara degil sabit ust elemana baglanir.
+  document.getElementById('targetsTableBody')?.addEventListener('change', (e) => {
+    if (e.target.matches('.targets-threshold-input')) saveTargetThreshold(e.target);
+  });
+
   document.getElementById('auditRefresh')?.addEventListener('click', () => loadAuditLogs());
   document.getElementById('auditExport')?.addEventListener('click', () => {
     window.location.href = `/api/audit-logs/export?${auditFilterParams(false).toString()}`;
@@ -4385,169 +4461,8 @@ function wireNewPanels() {
   });
 
   wireActionsPanel();
-  wireThreatActors();
-
-  // Load threat actors in background after main init completes
-  setTimeout(loadThreatActors, 1500);
-
-  // TTP search
-  document.getElementById('ttpSearch')?.addEventListener('input', e => {
-    if (_ttpData) renderTtpList(_ttpData, e.target.value);
-  });
 }
 
-
-// ══════════════════════════════════════════════════════════════
-// TTP Listesi
-// ══════════════════════════════════════════════════════════════
-const _TTP_TACTIC_LABELS = {
-  'reconnaissance':'Reconnaissance','resource-development':'Resource Development',
-  'initial-access':'Initial Access','execution':'Execution',
-  'persistence':'Persistence','privilege-escalation':'Privilege Escalation',
-  'stealth':'Stealth','defense-impairment':'Defense Impairment','credential-access':'Credential Access',
-  'discovery':'Discovery','lateral-movement':'Lateral Movement',
-  'collection':'Collection','command-and-control':'Command and Control',
-  'exfiltration':'Exfiltration','impact':'Impact'
-};
-
-let _ttpData = null;
-
-function _ttpRowBg(ruleCount, mitEntryCount, totalMits, ruleThreshold) {
-  // DIKKAT: `ruleThreshold || 3` degil — 0 gecerli bir hedef ("tespit
-  // gerekmiyor"), falsy oldugu icin `||` onu sessizce 3'e cevirirdi.
-  const threshold = ruleThreshold ?? DEFAULT_RULE_THRESHOLD;
-  const ruleScore = threshold <= 0 ? 1.0 : Math.min(ruleCount / threshold, 1.0);
-  const mitScore  = totalMits > 0 ? Math.min(mitEntryCount / totalMits, 1.0) : 0;
-  const score = Math.min(ruleScore * 0.65 + mitScore * 0.35, 1.0);
-  if (score < 0.01) return '';
-  if (score < 0.30) return 'rgba(209,52,56,0.07)';
-  if (score < 0.60) return 'rgba(202,112,16,0.09)';
-  return 'rgba(57,135,37,0.14)';
-}
-
-async function loadTtpList() {
-  if (_ttpData) {
-    renderTtpList(_ttpData, document.getElementById('ttpSearch')?.value || '');
-    return;
-  }
-  const el = document.getElementById('ttpContent');
-  if (!el) return;
-  el.innerHTML = '<div class="ttp-loading">Yükleniyor\u2026</div>';
-  try {
-    const res = await fetch('/api/ttp-list');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('Unexpected response');
-    _ttpData = data;
-    renderTtpList(_ttpData, '');
-  } catch(e) {
-    if (el) el.innerHTML = '<div class="ttp-loading">Veriler y\u00fcklenemedi: ' + e.message + '</div>';
-  }
-}
-
-function renderTtpList(data, filter) {
-  const el = document.getElementById('ttpContent');
-  if (!el) return;
-  filter = (filter || '').toLowerCase();
-
-  let totalTechs = 0, coveredTechs = 0;
-  data.forEach(tg => tg.techniques.forEach(t => {
-    if (!t.is_subtechnique) {
-      totalTechs++;
-      // Tek doğru tanım: kapsanan = en az bir tespiti olan. Mitigation ayrı
-      // gösterilir, kapsama sayısına girmez (bkz. README "Kapsanan ne demek").
-      if (t.rule_count > 0) coveredTechs++;
-    }
-  }));
-  const totalEl = document.getElementById('ttpTotalCount');
-  const coveredEl = document.getElementById('ttpCoveredCount');
-  const ratioEl = document.getElementById('ttpCoverageRatio');
-  if (totalEl) totalEl.textContent = totalTechs;
-  if (coveredEl) coveredEl.textContent = coveredTechs;
-  if (ratioEl) ratioEl.textContent = totalTechs ? Math.round(coveredTechs / totalTechs * 100) + '%' : '0%';
-
-  let html = '';
-  data.forEach(tg => {
-    const tactic = tg.tactic;
-    const label = _TTP_TACTIC_LABELS[tactic] || tactic;
-    const parents = tg.techniques.filter(t => !t.is_subtechnique);
-    const subs = {};
-    tg.techniques.filter(t => t.is_subtechnique).forEach(t => {
-      (subs[t.parent_id] = subs[t.parent_id] || []).push(t);
-    });
-
-    const visParents = parents.filter(t => {
-      if (!filter) return true;
-      if (t.tech_id.toLowerCase().includes(filter)) return true;
-      if (t.name.toLowerCase().includes(filter)) return true;
-      if ((subs[t.tech_id] || []).some(s =>
-        s.tech_id.toLowerCase().includes(filter) || s.name.toLowerCase().includes(filter)
-      )) return true;
-      return false;
-    });
-    if (!visParents.length) return;
-
-    html += `<div class="ttp-tactic-section"><div class="ttp-tactic-header">${_esc(label)}</div>`;
-
-    visParents.forEach(t => {
-      const subList = subs[t.tech_id] || [];
-      const hasSubs = subList.length > 0;
-      const bg = _ttpRowBg(t.rule_count, t.mitigation_entry_count, t.total_mitigations, t.rule_threshold);
-      const bgStyle = bg ? ` style="background:${bg}"` : '';
-      html += `<div class="ttp-tech-row" data-tech-id="${t.tech_id}"${bgStyle}>
-        <span class="ttp-expand${hasSubs?' ttp-has-subs':''}" onclick="ttpToggle('${t.tech_id}','${tactic}')" title="${hasSubs?'Alt teknikleri a\u00e7/kapat':''}">${hasSubs?'\u25ba':''}</span>
-        <span class="ttp-tech-id">${_esc(t.tech_id)}</span>
-        <span class="ttp-tech-name" onclick="openTechDetail('${t.tech_id}')" title="Detay">${_esc(t.name)}</span>
-        <span class="ttp-badge-rule" title="Tespit say\u0131s\u0131">\ud83d\udd0d ${t.rule_count}</span>
-        <span class="ttp-badge-mit" title="Mitigation kapsama">${t.mitigation_entry_count}/${t.total_mitigations} Mitigation</span>
-      </div>`;
-
-      if (hasSubs) {
-        html += `<div class="ttp-subs-container" id="ttp-subs-${t.tech_id}-${tactic}" style="display:none">`;
-        subList
-          .filter(s => !filter || s.tech_id.toLowerCase().includes(filter) || s.name.toLowerCase().includes(filter))
-          .forEach(s => {
-            const sbg = _ttpRowBg(s.rule_count, s.mitigation_entry_count, s.total_mitigations, s.rule_threshold);
-            const sbgStyle = sbg ? ` style="background:${sbg}"` : '';
-            html += `<div class="ttp-tech-row ttp-subtech"${sbgStyle}>
-              <span class="ttp-expand"></span>
-              <span class="ttp-tech-id">${_esc(s.tech_id)}</span>
-              <span class="ttp-tech-name" onclick="openTechDetail('${s.tech_id}')" title="Detay">${_esc(s.name)}</span>
-              <span class="ttp-badge-rule">\ud83d\udd0d ${s.rule_count}</span>
-              <span class="ttp-badge-mit">${s.mitigation_entry_count}/${s.total_mitigations}</span>
-            </div>`;
-          });
-        html += '</div>';
-      }
-    });
-    html += '</div>';
-  });
-
-  el.innerHTML = html || '<div class="ttp-loading">Sonu\u00e7 bulunamad\u0131.</div>';
-}
-
-function ttpToggle(techId, tactic) {
-  const sub = document.getElementById(`ttp-subs-${techId}-${tactic}`);
-  if (!sub) return;
-  const row = sub.previousElementSibling;
-  const expandBtn = row ? row.querySelector('.ttp-expand') : null;
-  if (sub.style.display === 'none') {
-    sub.style.display = '';
-    if (expandBtn) expandBtn.textContent = '\u25bc';
-  } else {
-    sub.style.display = 'none';
-    if (expandBtn) expandBtn.textContent = '\u25ba';
-  }
-}
-
-function openTechDetail(techId) {
-  const detail = techDetailsMap[techId];
-  if (!detail) return;
-  const parentId = detail.isSub ? detail.parentId : techId;
-  const parentDetail = techDetailsMap[parentId] || detail;
-  const rules = enrichRules().filter(r => r.parentId === parentId || r.tid === parentId);
-  openModal(parentId, parentDetail.name, rules);
-}
 
 function setMatrixStatLabels(labels) {
   document.querySelectorAll('#matrixStatBar .mstat-lbl').forEach((element, index) => {
