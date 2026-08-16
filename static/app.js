@@ -1994,7 +1994,7 @@ function ruleCoverageWeight(rule) {
 }
 
 // ─── Ortam boyutu ──────────────────────────────────────────────────────────
-// Kurumda her ürün her yerde yok: Defender client'ta var ama Lumos server'da
+// Kurumda her ürün her yerde yok: Defender client'ta var ama Site B server'da
 // yok; QRadar server'lardan log alıyor ama client'lardan almıyor. Dolayısıyla
 // bir tespit yalnızca ürünü o ortamı izliyorsa orada kapsama sağlar.
 //

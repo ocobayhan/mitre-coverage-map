@@ -1,8 +1,25 @@
 # SOC Coverage Map
 
-Kurumsal tespit, mitigation ve aksiyon verisini MITRE ATT&CK Enterprise matrisi üzerinde birleştiren Flask tabanlı uygulama.
+A self-hosted Flask + SQLite application for tracking detection coverage against the MITRE ATT&CK Enterprise matrix. It answers one question for a security operations team: **for a given environment, which ATT&CK techniques can we actually detect — and where are the blind spots?**
 
-## Yerel Çalıştırma
+## Why this exists
+
+Most ATT&CK coverage tracking lives in spreadsheets or the standalone Navigator tool, neither of which models the same technique differently per detection source, per environment, or over time. This project ties detection rules, threat-intel product claims, mitigations, and environment-specific monitoring into one scored, filterable matrix — with an audit trail and role-based access, so it can serve as a team's living source of truth rather than a one-off snapshot.
+
+## Key features
+
+- **Navigator-style coverage matrix** — a dense, color-coded grid of every ATT&CK technique and sub-technique, scored 0–100%.
+- **Evidence-aware scoring** — a named, verified detection rule counts differently than a bulk "this product covers 300 techniques" import claim; sub-technique coverage rolls up to the parent technique without double-counting shared rules. Full methodology: [docs/scoring_methodology.md](docs/scoring_methodology.md).
+- **Environment-scoped coverage** — the same detection rule may or may not apply in a given environment, depending on whether the product that generates it actually monitors that environment. Coverage percentages, gaps, and reports can all be filtered per environment.
+- **Mitigation tracking**, kept separate from detection scoring — who owns each MITRE mitigation, with which product, and how.
+- **LLM-assisted coverage import** — paste a vendor's technique-coverage claim and get a structured preview/apply flow instead of hand-entering hundreds of rows (schema + prompt documented in [docs/mitre_mapping_prompt.md](docs/mitre_mapping_prompt.md)).
+- **Executive PDF report** — a print-ready `/report` view with an executive summary, the full coverage map, a tactic breakdown, and an action-item list.
+- **Role-based access** (`viewer` / `editor` / `admin`) and an append-only, hash-chained audit log for every write.
+- **QRadar connector** — pulls the Use Case Manager mapping inventory read-only and reconciles it against existing rules.
+
+## Quick start
+
+### Local
 
 ```powershell
 python -m venv .venv
@@ -12,220 +29,192 @@ $env:SOC_PORT='8888'
 python app.py
 ```
 
-Uygulama: `http://127.0.0.1:8888`
+App: `http://127.0.0.1:8888`
 
-Yeni veritabanında geliştirme hesapları oluşturulur:
+Three accounts are created for local use on first run:
 
 - `admin / Admin123!`
 - `editor / Editor123!`
 - `viewer / Viewer123!`
 
-Bu parolalar yalnızca yerel başlangıç içindir. Kurum ortamında ilk açılıştan sonra değiştirilmelidir.
+**Change these immediately in any shared or production environment.**
 
-## Üretim Çalıştırma
+### Production
 
-Üretimde Flask geliştirme sunucusu yerine Waitress kullanılır. Güçlü ve kalıcı bir session secret zorunludur.
+Production runs on Waitress instead of Flask's dev server and requires a strong, persistent session secret — generate a fresh one per deployment, never reuse a key across environments:
 
 ```powershell
-$env:SOC_SECRET_KEY='<en-az-32-byte-rastgele-deger>'
+$env:SOC_SECRET_KEY='<32+ random bytes, e.g. openssl rand -hex 32>'
 $env:SOC_HOST='0.0.0.0'
 $env:SOC_PORT='8000'
 $env:SOC_COOKIE_SECURE='1'
 .\.venv\Scripts\python.exe serve.py
 ```
 
-TLS sonlandırması için ters proxy kullanın. `SOC_COOKIE_SECURE=1` yalnızca HTTPS üzerinden yayın yapılırken etkinleştirilmelidir.
+Put a reverse proxy in front for TLS termination. Only set `SOC_COOKIE_SECURE=1` when actually serving over HTTPS.
 
-## Docker
+### Docker
 
 ```powershell
 copy .env.example .env
-# .env icine SOC_SECRET_KEY doldur
+# fill in SOC_SECRET_KEY inside .env
 docker compose up -d --build
 ```
 
-Canlı veri (`soc.db`) Docker'ın yönettiği bir named volume'de (`soc_data`), yedekler ise Docker'ın hiç bilmediği düz bir host klasöründe (`./backups`, bind mount) tutulur — böylece `docker compose down -v` veya `docker system prune --volumes` gibi komutlar yedekleri etkilemez. Zamanlanmış yedekleme ve mimari detaylar için bkz. [docs/backup_restore.md](docs/backup_restore.md); sıfır makineden kurulum + mevcut yedeği geri yükleme adımları için bkz. [docs/kurulum_rehberi.md](docs/kurulum_rehberi.md).
+Live data (`soc.db`) lives in a Docker-managed named volume (`soc_data`); backups go to a plain host folder (`./backups`) that Docker never touches, so `docker compose down -v` or `docker system prune --volumes` can't take your backups with them. See [docs/backup_restore.md](docs/backup_restore.md) for the backup architecture, and [docs/kurulum_rehberi.md](docs/kurulum_rehberi.md) for a from-scratch setup + restore walkthrough (Turkish).
 
-## Veri
+## Data
 
-- MITRE Enterprise ATT&CK: `data/mitre.json`
-- Başlangıç tespitleri: `data/rules_seed.json`
-- SQLite veritabanı: `soc.db` (Git dışında)
+- MITRE Enterprise ATT&CK dataset: `data/mitre.json`
+- Seed detections: `data/rules_seed.json`
+- SQLite database: `soc.db` (not committed)
 
-MITRE veri seti değiştirildiğinde uygulamayı yeniden başlatın. Veri Kalitesi ekranı teknik ID, ürün, taktik ve eşleme tutarlılığını denetler.
+Restart the app after replacing the MITRE dataset. The Data Quality screen checks technique-ID, product, tactic, and mapping consistency.
 
-### MITRE veri setini güncelleme
+### Updating the MITRE dataset
 
-`data/mitre.json` MITRE'nin resmi STIX deposundan indirilir (Git'e commit'lidir — 50MB+, `soc.db` gibi hariç tutulmaz):
+`data/mitre.json` comes from MITRE's official STIX repository (committed to this repo despite its size — 50MB+):
 
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json" -OutFile "data\mitre.json"
 ```
 
-Yeniden başlatınca `build_technique_config()` otomatik olarak eksik teknikleri `technique_config`'e ekler (mevcut admin override'ları asla ezmez — `tech_id` PRIMARY KEY, `INSERT OR IGNORE`). **Ama MITRE bazen taktik isimlerini de değiştirir** (örn. 2026-07'de "Defense Evasion" (TA0005) ikiye ayrılıp "Stealth" + "Defense Impairment" (TA0112) oldu) — bu durumda `app.py`'deki `_TACTIC_LABEL_MAP`/`_TACTIC_ORDER` ve `static/app.js`'teki `tacticMap` + iki adet taktik-etiket sözlüğü (`grep -rn "defense-evasion"` ile bulunur, MITRE'nin yeni taktik adıyla değiştirilir) elle güncellenmelidir. Güncelleme sonrası kontrol listesi:
+On restart, `build_technique_config()` automatically adds any newly introduced techniques (existing admin overrides are never touched — `INSERT OR IGNORE` on the technique-ID primary key). **MITRE occasionally renames or splits a whole tactic** (e.g. in 2026-07, "Defense Evasion" split into "Stealth" and "Defense Impairment") — when that happens, `_TACTIC_LABEL_MAP` / `_TACTIC_ORDER` in `app.py` and the matching dictionaries in `static/app.js` need a manual update (`grep -rn "defense-evasion"` finds the pattern to follow). After updating:
 
-1. Taktik sayısı ve isimleri gerçek MITRE sırasıyla eşleşiyor mu? (`attack.mitre.org/tactics/enterprise/`)
-2. `technique_config` satır sayısı arttı mı, admin override'lar (`source='admin'`) korundu mu?
-3. Harita sıfır konsol hatasıyla render oluyor mu, yeni/değişen taktik sütun(lar)ı doğru sırada mı?
-4. Testler (`python -m unittest discover -s tests`) ve `scripts/browser_smoke.py` geçiyor mu?
+1. Confirm tactic count and names match the live ATT&CK site.
+2. Confirm the `technique_config` row count grew and admin overrides (`source='admin'`) survived.
+3. Confirm the matrix renders with zero console errors and the correct column order.
+4. Run the test suite and `scripts/browser_smoke.py`.
 
-## Yönetici Raporu (PDF Export)
+## Scoring
 
-Haritadaki **PDF Export** butonu `/report` sayfasını yeni sekmede açar (seçili ortamı `?environment_id=` ile taşıyarak). Sayfa yazdırmaya hazırdır (`Yazdır / PDF Kaydet` → tarayıcının "PDF olarak kaydet" seçeneği), A4 yatay, birkaç sayfa sürebilir:
-
-- **Yönetici özeti** — ana teknik/tespit/kapsamsız/mitigation/ortalama skor kartları
-- **Kapsama Haritası** — MITRE Navigator tarzı yoğun tek parça ızgara, 15 taktik tek satırda yan yana (yapay sayfa bölmesi yok — uzun sütunlar yazdırırken doğal olarak sonraki sayfaya akar), alt teknikler ana tekniğin altında girintili ve her zaman görünür
-- **Taktik Bazlı Kapsama**, **Tespitsiz Teknikler** (öncelik: tehdit grubu sayısı), **Tam Teknik Listesi** (taktik başına tam tablo — ID, ad, tespit, skor, mitigation, ürünler), **Aksiyon Planı**
-
-Sayfa üstündeki **Ortam** seçici raporun tamamını (haritayı ve tabloları) o ortama göre yeniden hesaplar — matristeki ortam filtresiyle aynı mantık (`_compute_gap_analysis`).
-
-## Audit
-
-Audit kayıtları istek ID, kullanıcı, IP, user-agent, önce/sonra değerleri ve SHA-256 zincir hash'i içerir. Veritabanı trigger'ları audit satırlarının güncellenmesini veya silinmesini engeller. Admin kullanıcılar Audit ekranından filtreleme, detay inceleme, bütünlük doğrulama ve CSV export yapabilir. `Kanıt Paketi`, seçili filtrelerle kayıtları; üretim manifesti, tam zincir durumu, önceki/kayıt hash'leri ve bağımsız doğrulanabilir paket hash'i içeren JSON dosyası olarak dışa aktarır.
-
-## Kapsama Puanlaması
-
-Her teknik için tek satırda açıklanabilen bir kapsama skoru hesaplanır ve kart rengini belirler:
+Every technique gets a single coverage score that also drives its matrix cell color:
 
 ```
-skor = min(etkin tespit sayısı / teknik hedefi, 1)
+score = min(effective detections / technique target, 1)
 ```
 
-**Etkin tespit sayısı** iki ağırlığın çarpımıdır:
+**Effective detections** is the product of two independent weights:
 
 ```
-etkin ağırlık = kapsam seviyesi (low 0.25 | half 0.50 | good 0.75 | full 1.00)
-              × ortam izleme ağırlığı (full 1.00 | partial %/100 | none, unknown 0)
+effective weight = coverage level (low 0.25 | half 0.50 | good 0.75 | full 1.00)
+                  × environment monitoring weight (full 1.00 | partial %/100 | none/unknown 0)
 ```
 
-Kapsam seviyesi 4 kademeli (DeTT&CT Visibility Score'unun sadeleştirilmiş
-hali); ortam izleme ağırlığı ayrı, farklı bir kavramdır (bir ürünün bir
-*ortamı* ne kadar izlediği — bkz. "Kapsam Envanteri").
+Coverage level is a 4-tier simplification of DeTT&CT's Visibility Score; monitoring weight is a separate concept — how much of an *environment* a given product actually observes (see "Environment-scoped coverage" below).
 
-**Teknik hedefi** (`technique_config.rule_threshold`) o tekniği kaç tehdit
-grubunun kullandığına (`group_count`, mitre.json'dan) göre 3 dilime ayrılarak
-başlar (düşük yaygınlık→1, orta→2, yüksek→3); admin teknik detayı modalinden
-teknik bazında değiştirir. Bir tekniğin hedefini yükseltmek kartını anında
-kırmızıya çeker.
+**Technique target** (`technique_config.rule_threshold`) starts from a 3-tier bucket based on how many threat groups (`group_count`, from `mitre.json`) are known to use that technique (low prevalence → 1, medium → 2, high → 3). An admin can override it per technique, either from the technique detail modal or from the dedicated **Technique Targets** list view under Inventory (admin-only, deliberately kept off the map itself). Raising a technique's target immediately turns its cell red if coverage hasn't kept up.
 
-**Alt tekniği olan bir üst teknik için hedef, alt tekniklerin KARŞILANMAMIŞ
-boşluklarının toplamıdır** (`Σ max(0, alt.hedef - alt.etkin)`) — alt teknik
-sayısıyla değil, gerçekten boş kalan alt teknik sayısıyla büyür. Tam
-gerekçe ve formül: [`docs/scoring_methodology.md`](docs/scoring_methodology.md).
+**A parent technique's target is the sum of its sub-techniques' unmet gaps** (`Σ max(0, sub.target − sub.effective)`) — it grows with how many sub-techniques are genuinely still open, not with how many sub-techniques merely exist. Full rationale and formula history: [docs/scoring_methodology.md](docs/scoring_methodology.md).
 
-**Mitigation skora girmez.** Renk yalnızca tespite bakar çünkü haritanın cevapladığı soru *"bu tekniği görebiliyor muyuz"*; mitigation durumu hover tooltip'inde ayrı bir satır olarak görünür. Ürün çeşitliliği de skora girmez — kartın üzerindeki ürün noktaları bunu zaten gösterir.
+**Mitigations don't affect the score.** Color answers one question — *can we detect this?* — mitigation status shows up separately, as a line in the hover tooltip. Product diversity doesn't affect the score either; the dots on each card already show that.
 
-> Bu puan bir olgunluk göstergesidir; tek başına bir tespitin gerçekten çalıştığının kanıtı değildir.
+> This score is a maturity signal, not proof that a detection actually fires in production.
 
-### Harita hücresi nasıl okunur?
+### Reading a matrix cell
 
-MITRE Navigator'a yakın, yoğun bir ızgara kullanılır — taktik başına bir sütun, teknik başına eşit yükseklikte bir hücre. Kart yüzünde yalnızca ad ve ID görünür; sayısal detay (tespit oranı, mitigation, ortam) kart üzerine gelince (hover) açılan bir tooltip'te gösterilir — renk tek başına yeterli sinyal versin diye kart yüzü sade tutulur.
+The map is a dense grid close to MITRE Navigator's own layout — one column per tactic, one equal-height cell per technique. Only the name and ID show on the card face; numeric detail (detection ratio, mitigation, environment) appears in a tooltip on hover, so color alone is never the only signal.
 
-```
-┌────────────────────────────────┐
-│ Valid Accounts             ● ● │  ← noktalar: tespit üreten ürünler
-│   T1078                     ▸  │  ← ID · sağ altta ok: alt teknikler var, hover ile açılır
-└────────────────────────────────┘
-```
+- **Fill color** reflects score only: no detections → dark gray, below target → amber, at or above target → green.
+- **Clicking a cell** opens the technique detail modal; **hovering** a cell that has sub-techniques expands them underneath (no click needed — it closes when the mouse leaves). Sub-techniques get their own color but don't count toward the parent's denominator.
+- Hovering shows detections/target, products, mitigation status, environment, and how many threat groups use the technique.
+- The small gradient legend above the map summarizes what each color means.
 
-- **Dolgu rengi** yalnızca skoru gösterir: 0 tespit koyu gri → hedefin altı amber → hedef ve üstü yeşil
-- **Hücre gövdesine tıklamak** teknik detay modalini açar; **kartın üzerine gelmek** (alt tekniği varsa) alt teknik listesini altında açar — tıklamaya gerek yok, fare çekilince kapanır. Alt teknikler kendi renklerini alır ama kapsama oranının paydasına girmez
-- Hover'da tespit/hedef, ürünler, mitigation, ortam ve tekniği kullanan tehdit grubu sayısını içeren bir özet çıkar
-- Üst bardaki küçük degrade **skor lejantı** rengin ne anlama geldiğini özetler
+### What counts as "covered"?
 
-### "Kapsanan" ne demek?
+Two mutually exclusive buckets, which sum to the total technique count:
 
-**İki ayrık kova** kullanılır; toplamları ana teknik sayısını verir:
-
-| Metrik | Anlamı |
+| Metric | Meaning |
 |---|---|
-| **Tespit** | Tekniğe bağlı **adı olan** en az bir tespit var — *görebiliyoruz* |
-| **Kapsamsız** | Adı olan hiç tespit yok — *asıl aksiyon listesi* |
+| **Detected** | At least one *named* detection is mapped to the technique — we can see it |
+| **Undetected** | No named detection exists — the actual action list |
 
-`Mitigation` ayrıca sayılır ama bir kova değildir; kovalarla kesişir ve yalnızca bilgi amaçlıdır.
+`Mitigated` is tracked separately and is informational only — it overlaps both buckets.
 
-**Kova sert kanıt ister.** İçe aktarımdaki `product_coverage[]` — yani *"bu ürün şu teknikleri kapsıyor"* şeklindeki ürün seviyesi toplu iddia — skora katkı yapar ama tekniği **Tespit kovasına sokmaz** (`rules.origin = 'product_claim'`). Tek satırlık bir iddianın 120 tekniği birden kapsanmış göstermesi, haritanın cevapladığı soruyla çelişirdi. Haritada bu teknikler **kesikli amber çerçeveyle** işaretlenir: skoru var, sert kanıtı yok.
+**The Detected bucket requires hard evidence.** A bulk product-coverage claim from an import (*"this product covers these 300 techniques"*) contributes to the score but never fills the Detected bucket (`rules.origin = 'product_claim'`) — a single blanket claim shouldn't make 120 techniques look detected when the map's whole purpose is answering "can we actually see this." These techniques are marked on the map with a dashed amber border: scored, but without hard evidence behind them.
 
-**Payda ana tekniklerdir.** Alt teknikler paydaya girmez: kurallar neredeyse tamamen ana tekniğe eşlenir ve bir alt tekniğe yazılan kural zaten ana tekniğe sayılır. Alt teknikler haritada görünür ve kendi renklerini alır, ayrıca bir metrikte bilgi olarak gösterilir — düşük değer "alt teknik eşlemesi yapılmamış" anlamına gelir.
+**The denominator is parent techniques only.** Sub-techniques don't count toward it — almost all rules map to the parent, and a rule written against a sub-technique already counts for its parent. Sub-techniques still render on the map with their own color and are reported separately as informational; a low value there just means sub-technique mapping hasn't been done yet.
 
-Aynı tanım hem matris şeridinde hem `GET /api/gap-analysis` çıktısında (`detected_techniques` / `uncovered_techniques` / `mitigated_techniques`) ve yönetici raporunda kullanılır.
+The same definition is used in the matrix, in `GET /api/gap-analysis` (`detected_techniques` / `uncovered_techniques` / `mitigated_techniques`), and in the executive report.
 
-### Önceliklendirme
+### Prioritization
 
-"Önem seviyesi" kavramı kaldırıldı — `data/mitre.json`'dan türetilen 0.3–1.0 arası opak bir puandı ve yönetilemiyordu. Yerine tespitsiz teknikler, **kaç tehdit grubunun o tekniği kullandığına** göre sıralanır (`technique_config.group_count`). Bu bir ayar değil, MITRE'den gelen objektif veridir.
+There's no "importance" score anymore — it used to be an opaque 0.3–1.0 value derived from `mitre.json` that nobody could tune. Instead, undetected techniques are ranked by **how many threat groups are known to use that technique** (`technique_config.group_count`) — objective MITRE data, not a setting.
 
-## Mitigation Kayıtları
+## Mitigation records
 
-`Envanter > Mitigation` her MITRE mitigation'ı için **kim, hangi ürünle, nasıl sağlıyor** sorusunu kaydeder:
+`Inventory > Mitigations` records, per MITRE mitigation, **who** provides it, **with which product**, and **how**:
 
-| Alan | Zorunlu | Not |
+| Field | Required | Note |
 |---|---|---|
-| Ekip | evet | `teams` kataloğundan seçilir |
-| Ürün | hayır | `products` kataloğundan; boş bırakılırsa "süreç/eğitim/politika ile sağlanıyor" demektir |
-| Açıklama | evet | Nasıl sağlandığı — serbest metin |
+| Team | yes | picked from the `teams` catalog |
+| Product | no | picked from the `products` catalog; empty means "covered by process/training/policy" |
+| Description | yes | free text describing how it's actually provided |
 
-Bir mitigation'ın "uygulanıyor" sayılması **tek bir şeye** bağlıdır: en az bir kaydının olması. Ayrı bir onay kutusu yoktur — eskiden `mitigation_global` tablosunda paralel bir `checked` bayrağı tutuluyordu, hiç doldurulmadığı ve iki gerçek kaynağı olduğu için kaldırıldı.
+A mitigation counts as "applied" based on exactly one thing: having at least one record. There's no separate checkbox — an earlier design kept a parallel `checked` flag that was never actually filled in and created two sources of truth, so it was removed.
 
-Mitigation kapsama skoruna girmez; haritada bir teknik kartının hover tooltip'inde ayrı bir satır olarak görünür.
+Mitigation status doesn't affect the coverage score; it shows up as a separate line in a technique card's hover tooltip.
 
-## Ortam Bazlı Kapsama
+## Environment-scoped coverage
 
-Kurumda her ürün her yerde bulunmaz: Defender client'larda ve kurumsal server'larda varken Lumos ortamındaki server'larda olmayabilir; QRadar tüm server'lardan log alırken client'lardan almayabilir. Bu durumda bir QRadar kuralı client ortamında **geçerli değildir**.
+Not every product is deployed everywhere: an EDR might cover both client machines and corporate servers while missing a second site's servers entirely; a SIEM might ingest logs from every server but not from any client. In that case, a SIEM-based rule simply **doesn't apply** in the client environment.
 
-Bu ağırlıklandırma hesabı hâlâ geçerli:
-
-> Bir teknik bir ortamda kapsanır ⟺ o tekniğe bağlı bir tespit vardır **ve** tespitin ürünü o ortamı izlemektedir.
+The weighting is:
 
 ```
-etkin ağırlık = kapsam seviyesi ağırlığı × izleme ağırlığı
-    izleme:  full → 1.00 | partial → coverage_percent/100 | none, unknown → 0
+effective weight = coverage-level weight × monitoring weight
+    monitoring:  full → 1.00 | partial → coverage_percent/100 | none, unknown → 0
 ```
 
-> **Not (2026-08-14):** Ortam seçici canlı Matrix ekranından kaldırıldı — panel artık her zaman *Tüm ortamlar (birleşik)* modunda çalışıyor (sadeleştirme kararı, bkz. PROJECT_STATE.md). Ortam bazlı kapsama hâlâ **GAP Analizi** ekranında ve yönetici raporunda (`/report?environment_id=<id>`) kullanılabiliyor; izleme durumları yine `Kapsam Envanteri` ekranından `Ortam > Ürün İzleme` yapısıyla girilir. Özelliğin tamamen kaldırılması (ürün genelinde) ayrı, ileride ele alınacak bir karar — bkz. `docs/ACIK_SORULAR.md`.
+> **Note:** the environment selector was removed from the live matrix screen — the matrix panel now always runs in *all environments (merged)* mode, a deliberate simplification. Environment-scoped coverage is still available on the **Gap Analysis** screen and in the executive report (`/report?environment_id=<id>`); monitoring status is entered per environment under `Coverage Inventory > Environment > Product Monitoring`.
 
-Sunucu tarafında: `GET /api/gap-analysis?environment_id=<id>` — GAP Analizi ekranı ve yönetici raporu bu şekilde ortam bazlı kapsamı gösterir.
+Server-side: `GET /api/gap-analysis?environment_id=<id>` powers both the Gap Analysis screen and the environment-scoped report.
 
-## Ürün Kategorileri
+## Product categories
 
-`products.category` üç değer alır ve haritaya etkisi farklıdır:
+`products.category` takes three values, each with a different effect on the map:
 
-| Kategori | Örnek | Etki |
+| Category | Example | Effect |
 |---|---|---|
-| `tespit_kaynagi` (varsayılan) | QRadar, DFE, Defender for Identity, MDO365, Wazuh | Haritayı boyar; ürün çeşitliliği bileşenine **yalnızca bunlar** sayılır |
-| `onleyici_kontrol` | Firewall, antivirüs, yama yönetimi, MFA | Tespit üretmez; kapsamaya sayılmaz |
-| `zenginlestirme` | CTI beslemeleri | Önceliklendirmeyi besler, kapsamayı değil |
+| `detection_source` (default) | SIEM, EDR, identity protection, email security, XDR | Colors the map; only these count toward the product-diversity indicator |
+| `preventive_control` | Firewall, antivirus, patch management, MFA | Doesn't generate detections; doesn't count toward coverage |
+| `enrichment` | Threat-intel feeds | Feeds prioritization, not coverage |
 
-Mevcut kurulumlarda migration tüm ürünleri `tespit_kaynagi` olarak işaretler (kimsenin kapsama sayısı sessizce değişmesin diye); doğru sınıflandırma `Ayarlar > Ürün Yönetimi`'nden yapılır.
+Existing installs migrate every product to `detection_source` by default (so nobody's coverage count silently changes); reclassify from `Settings > Product Management`.
 
-`rules.source` ile `products.name` arasında yabancı anahtar yoktur — köprü yalnızca isim eşitliğidir. Katalogda bulunmayan bir kaynak hiçbir ortama bağlanamayacağı için kural yazma anında reddedilir; mevcut uyumsuzluklar Veri Kalitesi ekranında **kritik** olarak listelenir.
+There's no foreign key between `products.id` and `rules.source` — the two are linked only by name equality. A rule source that doesn't match a catalog entry can't be attached to any environment, so rule creation rejects it outright; existing mismatches are flagged as **critical** on the Data Quality screen.
 
-## QRadar Connector
+## QRadar connector
 
-Connector, QRadar Use Case Manager mapping envanterini salt-okunur alır. SEC token veritabanında saklanmaz; connector ayarında yalnızca token'ın okunacağı ortam değişkeni adı tutulur.
+The connector pulls the QRadar Use Case Manager mapping inventory read-only. The SEC token is never stored in the database — only the name of the environment variable it should be read from is kept in the connector config.
 
 ```powershell
 $env:QRADAR_SEC_TOKEN='<read-only-authorized-service-token>'
 ```
 
-Admin kullanıcı `Ayarlar > Connector'lar` ekranından birden fazla QRadar instance tanımlayabilir, bağlantıyı test edebilir ve senkronizasyon başlatabilir. İlk eşleştirmede native rule ID kullanılır; aynı ürün ve aynı ada sahip tek mevcut kayıt varsa bu kayıtla bağ kurulur. Yeni kayıtlar isteğe bağlı olarak `untested` ve düşük güvenle oluşturulur. Manuel ATT&CK eşleşmeleri ile validation kanıtları connector tarafından silinmez.
+An admin can register multiple QRadar instances, test connectivity, and trigger a sync from `Settings > Connectors`. Reconciliation first matches on native rule ID; if exactly one existing record shares the same product and name, it links to that record instead. New records are created as `untested` with low confidence. Manual ATT&CK mappings and validation evidence are never deleted by the connector.
 
-Zamanlanmış senkronizasyon için aynı ortam değişkenlerini taşıyan servis hesabıyla şu komut çalıştırılır:
+For scheduled syncs, run this as a service account carrying the same environment variables:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\sync_connectors.py
-# Yalnızca tek bağlantı:
+# a single connector only:
 .\.venv\Scripts\python.exe scripts\sync_connectors.py --connector-id 1
 ```
 
-Windows Task Scheduler için önerilen başlangıç sıklığı 6 saattir. Aynı connector için eşzamanlı sync engellenir; 15 dakikadan eski yarım kalmış çalışma zaman aşımı olarak kapatılır. Üç ardışık senkronizasyonda görünmeyen native kayıtlar silinmez, `stale` işaretlenir.
+Every 6 hours is a reasonable interval for Windows Task Scheduler. Concurrent syncs of the same connector are blocked; a run stalled for over 15 minutes is treated as timed out and closed. Native records missing from three consecutive syncs aren't deleted — they're marked `stale`.
 
-## Kapsam Envanteri
+## Coverage inventory
 
-`Kapsam Envanteri`, ölçüm sınırını `Ortam > Ürün İzleme` yapısıyla yönetir. Admin ortamları ve platform/varlık tipi bazlı grupları tanımlar; editor her ürün için `unknown`, `none`, `partial` veya `full` izleme durumunu, yöntemi, yüzdeyi, sahibi ve kapsam notunu kaydeder. Bir QRadar connector yalnızca aynı ürün etiketli izleme kaydına bağlanabilir.
+`Coverage Inventory` manages the measurement boundary through `Environment > Product Monitoring`. An admin defines environments and platform/asset-type groups; an editor records each product's monitoring status (`unknown`, `none`, `partial`, `full`), method, percentage, owner, and notes. A QRadar connector can only link to a monitoring record tagged with the same product.
 
-Bu kayıt ürün bulunurluğu kanıtıdır, doğrudan MITRE detection coverage değildir. Connector'dan gelen native tespitlerin teknik eşlemesi ve validation kanıtı ayrı değerlendirilir. Tüm kapsam ve anket değişiklikleri önce/sonra değerleriyle Audit zincirine yazılır.
+This record is evidence of product *presence*, not MITRE detection coverage directly. Technique mapping and validation evidence for native detections pulled from a connector are tracked separately. Every coverage and survey change is written to the audit chain with before/after values.
 
-## Test
+## Audit log
+
+Audit entries record request ID, user, IP, user agent, before/after values, and a SHA-256 hash chain. Database triggers block updates or deletes on audit rows. Admins can filter, inspect, verify chain integrity, and export CSV from the Audit screen. An **Evidence Package** export bundles the filtered records plus a manifest with full chain status, prior/current hashes, and an independently verifiable package hash, as JSON.
+
+## Testing
 
 ```powershell
 pip install -r requirements-dev.txt
@@ -233,8 +222,8 @@ python -m unittest discover -s tests -v
 python scripts\browser_smoke.py
 ```
 
-Tarayıcı testi çalışan uygulamaya bağlanır ve ekran görüntülerini sistem geçici klasörüne yazar.
+The browser test connects to a running instance and writes screenshots to the system temp folder.
 
-## Yedekleme
+## Backup
 
-Uygulama kapalıyken `soc.db` dosyasını kopyalayın. Geri yükleme için çalışan süreci durdurup mevcut dosyayı doğrulanmış yedekle değiştirin. Audit export, veritabanı yedeğinin yerine geçmez.
+Copy `soc.db` while the app is stopped. To restore, stop the running process and replace the current file with a verified backup. An audit export is not a substitute for a database backup.

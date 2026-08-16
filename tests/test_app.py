@@ -290,9 +290,9 @@ class AppTestCase(unittest.TestCase):
         environment = self.client.post(
             "/api/environments",
             json={
-                "name": "Lumos Serverlar",
-                "code": "LUMOS-SRV",
-                "description": "Lumos ortamındaki Linux sunucular",
+                "name": "Site B Serverlar",
+                "code": "SITEB-SRV",
+                "description": "Site B ortamındaki Linux sunucular",
                 "criticality": 5,
                 "owner": "Platform Ekibi",
                 "asset_count": 42,
@@ -340,7 +340,7 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(registry["summary"]["environment_count"], 1)
         self.assertEqual(registry["summary"]["asset_count"], 42)
         saved = registry["environments"][0]
-        self.assertEqual(saved["name"], "Lumos Serverlar")
+        self.assertEqual(saved["name"], "Site B Serverlar")
         deployments = {item["product_name"]: item for item in saved["deployments"]}
         self.assertEqual(deployments["QRadar"]["monitoring_status"], "full")
         self.assertEqual(deployments["QRadar"]["connector_id"], connector_id)
@@ -373,10 +373,10 @@ class AppTestCase(unittest.TestCase):
                 reviewed_by TEXT DEFAULT '', reviewed_at TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(asset_group_id, product_id));
-            INSERT INTO environments (name, code) VALUES ('Kurumsal', 'KURUMSAL');
+            INSERT INTO environments (name, code) VALUES ('Site A', 'SITEA');
             """
         )
-        env_id = db.execute("SELECT id FROM environments WHERE code='KURUMSAL'").fetchone()["id"]
+        env_id = db.execute("SELECT id FROM environments WHERE code='SITEA'").fetchone()["id"]
         # Serverlar: 300 varlik, QRadar full | Client: 1200 varlik, QRadar none
         db.execute("INSERT INTO asset_groups (environment_id,name,asset_count) VALUES (?,?,?)", (env_id, "Serverlar", 300))
         db.execute("INSERT INTO asset_groups (environment_id,name,asset_count) VALUES (?,?,?)", (env_id, "Client", 1200))
@@ -1363,7 +1363,7 @@ class AppTestCase(unittest.TestCase):
         clients = self.client.post("/api/environments", json={
             "name": "Client Makineler", "code": "CLIENT"}).get_json()["id"]
         servers = self.client.post("/api/environments", json={
-            "name": "Kurumsal Serverlar", "code": "KURUMSAL-SRV"}).get_json()["id"]
+            "name": "Site A Serverlar", "code": "SITEA-SRV"}).get_json()["id"]
 
         products = {p["name"]: p["id"] for p in self.client.get("/api/products").get_json()}
         # Client: Defender var, QRadar log almiyor
@@ -1397,7 +1397,7 @@ class AppTestCase(unittest.TestCase):
         self.client.post("/api/rules", json={
             "name": "QRadar CRE", "tactic": "execution", "tech": "T1000", "source": "QRadar"})
         group = self.client.post("/api/environments", json={
-            "name": "Kurumsal Serverlar", "code": "KURUMSAL-SRV"}).get_json()["id"]
+            "name": "Site A Serverlar", "code": "SITEA-SRV"}).get_json()["id"]
         products = {p["name"]: p["id"] for p in self.client.get("/api/products").get_json()}
 
         def score_for(status, percent=0):

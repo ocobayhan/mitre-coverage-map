@@ -11,3 +11,6 @@ backups/
 
 # Gercek kural adlari ve kural yedekleri — kurum ici veri, repoya girmez
 exports/
+
+# Ic gelistirme gunlugu — cok samimi/ic workflow tonunda, public repoda durmasin
+PROJECT_STATE.md

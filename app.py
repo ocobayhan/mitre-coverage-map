@@ -679,7 +679,7 @@ def flatten_asset_groups(db: sqlite3.Connection) -> None:
     Yeni model: Ortam > Urun izleme.
 
     Bir ortamin altindaki gruplar CAKISAN izleme durumlari tasiyabilir —
-    orn. QRadar 'Kurumsal Serverlar'da full ama 'Client Makineler'de none.
+    orn. QRadar 'Site A Serverlar'da full ama 'Client Makineler'de none.
     Birini secip digerini atmak bu bilgiyi sessizce yok ederdi; bunun yerine
     VARLIK SAYISI AGIRLIKLI ortalama alinir:
 

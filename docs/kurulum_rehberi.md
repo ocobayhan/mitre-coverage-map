@@ -76,15 +76,10 @@ cat .env
 
 `SOC_SECRET_KEY=` satirinda 64 karakterlik bir hex deger gormelisiniz.
 
-> **Hemen kullanmak icin hazir deger:** Asagidaki blok, bu rehberi
-> yazarken uretilmis gercek rastgele bir anahtardir — isterseniz yukaridaki
-> komut yerine dogrudan bunu yapistirabilirsiniz (`cat > .env <<'EOF'`
-> ile baslayip asagidaki iki satiri yapistirip `EOF` yazip Enter'a basin):
->
-> ```
-> SOC_SECRET_KEY=cc062abcbfc41b3dde289fe60d85da27e230bab1a4cf12ccc8552e55262ac670
-> SOC_COOKIE_SECURE=0
-> ```
+> **Onemli:** Bu degeri baska bir kurulumdan kopyalamayin — her ortamin
+> kendi benzersiz anahtarini `openssl rand -hex 32` ile uretmesi gerekir.
+> Ayni anahtari birden fazla yerde kullanmak, o anahtari bilen herkesin
+> oturum cerezlerini sahtelemesine izin verir.
 
 ## 4. Port ayari (gerekliyse)
 
