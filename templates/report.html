@@ -6,178 +6,239 @@
   <title>MITRE ATT&CK Kapsama Raporu</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <style>
+    :root {
+      --ink-primary: #0b0b0b;
+      --ink-secondary: #52514e;
+      --ink-muted: #898781;
+      --gridline: #e1e0d9;
+      --border: rgba(11,11,11,0.10);
+      --surface: #fcfcfb;
+      --page: #f9f9f7;
+      --success-text: #006300;
+      --status-good: #0ca30c;
+      --status-serious: #ec835a;
+      --status-critical: #d03b3b;
+      --brand: #2a78d6;
+      --brand-dark: #184f95;
+      --brand-deeper: #0d366b;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Segoe UI', Arial, sans-serif;
+      font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
       font-size: 13px;
-      color: #201f1e;
+      color: var(--ink-primary);
       background: #fff;
       padding: 28px 36px;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
+
     /* ── Header ── */
     .rpt-header {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      border-bottom: 3px solid #0078d4;
+      border-bottom: 3px solid var(--brand);
       padding-bottom: 16px;
-      margin-bottom: 24px;
+      margin-bottom: 26px;
     }
-    .rpt-title { font-size: 22px; font-weight: 700; color: #003060; }
-    .rpt-subtitle { font-size: 13px; color: #605e5c; margin-top: 4px; }
-    .rpt-meta { font-size: 12px; color: #605e5c; text-align: right; }
-    .rpt-meta strong { color: #201f1e; }
+    .rpt-title { font-size: 23px; font-weight: 700; color: var(--brand-deeper); letter-spacing: -0.2px; }
+    .rpt-subtitle { font-size: 13px; color: var(--ink-secondary); margin-top: 4px; }
+    .rpt-meta { font-size: 11.5px; color: var(--ink-secondary); text-align: right; line-height: 1.6; }
+    .rpt-meta strong { color: var(--ink-primary); }
     .rpt-back {
       display: inline-block;
       font-size: 12px;
-      color: #0078d4;
+      color: var(--brand);
       text-decoration: none;
       cursor: pointer;
+      font-weight: 600;
     }
     .rpt-back:hover { text-decoration: underline; }
 
     /* ── Section titles ── */
-    .rpt-section { margin-bottom: 26px; }
+    .rpt-section { margin-bottom: 28px; }
     .rpt-section-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: #003060;
-      border-bottom: 1px solid #edebe9;
-      padding-bottom: 6px;
-      margin-bottom: 12px;
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--brand-deeper);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      border-bottom: 2px solid var(--gridline);
+      padding-bottom: 7px;
+      margin-bottom: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .rpt-section-title::before {
+      content: '';
+      width: 4px; height: 14px;
+      background: var(--brand);
+      border-radius: 1px;
+      display: inline-block;
     }
     .rpt-section-note {
       font-size: 11.5px;
-      color: #605e5c;
-      margin-bottom: 10px;
-      line-height: 1.5;
+      color: var(--ink-secondary);
+      margin-bottom: 12px;
+      line-height: 1.55;
+      max-width: 920px;
     }
 
-    /* ── Overview cards ── */
+    /* ── Overview cards (stat tiles) ── */
     .rpt-cards {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      gap: 14px;
-      margin-bottom: 16px;
+      gap: 12px;
+      margin-bottom: 18px;
     }
     .rpt-card {
-      border: 1px solid #edebe9;
-      border-radius: 6px;
-      padding: 14px 16px;
-      text-align: center;
-      background: #faf9f8;
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--brand);
+      border-radius: 7px;
+      padding: 13px 14px 12px;
+      background: var(--surface);
     }
-    .rpt-card-val { font-size: 28px; font-weight: 700; color: #0078d4; line-height: 1.1; }
-    .rpt-card-val.red { color: #d13438; }
-    .rpt-card-val.green { color: #107c10; }
-    .rpt-card-lbl { font-size: 11.5px; color: #605e5c; margin-top: 4px; font-weight: 600; }
-    .rpt-card-sub { font-size: 10.5px; color: #a19f9d; margin-top: 2px; }
+    .rpt-card.good { border-top-color: var(--status-good); }
+    .rpt-card.critical { border-top-color: var(--status-critical); }
+    .rpt-card-lbl {
+      font-size: 10.5px; color: var(--ink-secondary); font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.4px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .rpt-card-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+    .rpt-card-val {
+      font-size: 30px; font-weight: 700; color: var(--brand-deeper); line-height: 1.15;
+      margin-top: 6px;
+    }
+    .rpt-card-val.good { color: var(--status-good); }
+    .rpt-card-val.critical { color: var(--status-critical); }
+    .rpt-card-sub { font-size: 10.5px; color: var(--ink-muted); margin-top: 4px; line-height: 1.4; }
 
     /* ── Status comment ── */
     .rpt-status-box {
-      padding: 11px 16px;
-      border-radius: 6px;
-      border-left: 4px solid #0078d4;
-      background: #f0f6ff;
+      padding: 12px 16px;
+      border-radius: 7px;
+      border-left: 4px solid var(--brand);
+      background: #eef5fc;
       font-size: 12.5px;
-      line-height: 1.5;
+      line-height: 1.55;
     }
-    .rpt-status-box.warn { border-color: #ca5010; background: #fff4ef; }
-    .rpt-status-box.danger { border-color: #d13438; background: #fde7e9; }
+    .rpt-status-box.good { border-color: var(--status-good); background: #eaf7ea; }
+    .rpt-status-box.warn { border-color: var(--status-serious); background: #fdf1ea; }
+    .rpt-status-box.danger { border-color: var(--status-critical); background: #fbeaea; }
 
     /* ── Generic table ── */
-    .rpt-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    .rpt-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 4px; }
     .rpt-table th {
-      background: #0078d4; color: #fff; padding: 6px 9px; text-align: left; font-weight: 600;
+      background: var(--page); color: var(--ink-primary); padding: 8px 10px; text-align: left;
+      font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.3px;
+      border-bottom: 2px solid var(--brand);
     }
-    .rpt-table td { padding: 5px 9px; border-bottom: 1px solid #edebe9; vertical-align: middle; page-break-inside: avoid; }
+    .rpt-table td {
+      padding: 6.5px 10px; border-bottom: 1px solid var(--gridline); vertical-align: middle;
+      page-break-inside: avoid; font-variant-numeric: tabular-nums;
+    }
     .rpt-table tr:last-child td { border-bottom: none; }
     .rpt-table tr { page-break-inside: avoid; }
+    .rpt-table tbody tr:nth-child(even) td { background: var(--page); }
 
-    .rpt-bar-wrap { background: #edebe9; border-radius: 3px; height: 9px; width: 160px; overflow: hidden; }
-    .rpt-bar-fill { height: 100%; border-radius: 3px; background: #107c10; }
-    .rpt-bar-fill.low { background: #ca5010; }
-    .rpt-bar-fill.mid { background: #d69923; }
+    .rpt-bar-wrap { background: var(--gridline); border-radius: 3px; height: 9px; width: 160px; overflow: hidden; }
+    .rpt-bar-fill { height: 100%; border-radius: 3px; background: var(--status-good); }
+    .rpt-bar-fill.low { background: var(--status-critical); }
+    .rpt-bar-fill.mid { background: var(--status-serious); }
 
-    .badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10.5px; font-weight: 600; }
-    .p-1 { background: #f3f2f1; color: #605e5c; }
-    .p-2 { background: #dff6dd; color: #107c10; }
-    .p-3 { background: #fff4ce; color: #7a5900; }
-    .p-4 { background: #fde7e9; color: #d13438; }
-    .s-open { background: #deecf9; color: #004e8c; }
-    .s-in_progress { background: #fff4ce; color: #7a5900; }
-    .s-done { background: #dff6dd; color: #107c10; }
-    .s-cancelled { background: #f3f2f1; color: #605e5c; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10.5px; font-weight: 700; }
+    .p-1 { background: var(--page); color: var(--ink-secondary); }
+    .p-2 { background: #eaf7ea; color: var(--success-text); }
+    .p-3 { background: #fdf1ea; color: #a3521f; }
+    .p-4 { background: #fbeaea; color: var(--status-critical); }
+    .s-open { background: #e8f1fb; color: var(--brand-dark); }
+    .s-in_progress { background: #fdf1ea; color: #a3521f; }
+    .s-done { background: #eaf7ea; color: var(--success-text); }
+    .s-cancelled { background: var(--page); color: var(--ink-muted); }
 
     /* ── Kapsama Haritası (Navigator tarzı, tek parça yoğun ızgara) ──
        Not: font-size burada CSS px — yazdırmada ~px*0.75 = pt'ye denk gelir.
        Önceki sürüm 6-7px (≈5pt) kullanıyordu, kağıtta neredeyse okunaksızdı.
        Şimdiki 8.5-9.5px (≈6.5-7pt) baskıda hâlâ küçük ama okunabilir asgari.
        Bunun bedeli: 15 taktik artık tek satıra sığmıyor, 2 satıra sarıyor
-       (yapay sayfalama değil — flex-wrap doğal taşma, bkz. 2026-07-28 notu). */
-    .rpt-matrix-wrap { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+       (yapay sayfalama değil — flex-wrap doğal taşma, bkz. 2026-07-28 notu).
+       Hücre renkleri _score_to_report_color()'dan (app.py) gelir — canlı
+       Matrix'in kırmızı→yeşil skalasıyla bilinçli olarak aynı, buradaki
+       yenidem tasarım o skalayı DEĞİŞTİRMEZ, yalnızca çevresindeki kromu. */
+    .rpt-matrix-wrap { display: flex; flex-wrap: wrap; gap: 5px; align-items: flex-start; }
     .rpt-matrix-col {
       flex: 0 0 auto; width: 108px;
-      border: 1px solid #d8d6d4; border-radius: 3px; overflow: hidden; background: #fff;
+      border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #fff;
     }
     .rpt-matrix-col-header {
-      background: #003060; color: #fff; font-size: 9.5px; font-weight: 700; line-height: 1.2;
+      background: var(--brand-deeper); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 1.2;
       text-align: center; padding: 5px 4px; min-height: 26px;
       display: flex; align-items: center; justify-content: center;
     }
     .rpt-matrix-cell, .rpt-subcell {
       position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      border-bottom: 1px solid #e5e3e1; page-break-inside: avoid;
+      border-bottom: 1px solid rgba(11,11,11,0.08); page-break-inside: avoid;
     }
     .rpt-matrix-col > .rpt-matrix-cell:last-child,
     .rpt-matrix-col > .rpt-subcell:last-child { border-bottom: none; }
-    .rpt-matrix-cell { padding: 3.5px 16px 3.5px 5px; font-size: 9px; line-height: 1.4; color: #201f1e; }
+    .rpt-matrix-cell { padding: 3.5px 16px 3.5px 5px; font-size: 9px; line-height: 1.4; color: var(--ink-primary); }
     .rpt-subcell {
-      padding: 3px 16px 3px 9px; font-size: 8px; line-height: 1.35; color: #201f1e;
+      padding: 3px 16px 3px 9px; font-size: 8px; line-height: 1.35; color: var(--ink-primary);
       border-left: 3px solid rgba(0,0,0,0.15);
     }
-    .rpt-cell-id { font-family: 'Consolas', monospace; font-weight: 700; color: #003060; margin-right: 3px; }
+    .rpt-cell-id { font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace; font-weight: 700; color: var(--brand-deeper); margin-right: 3px; }
     .rpt-subcell .rpt-cell-id { font-size: 7.5px; }
-    .rpt-matrix-legend { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 10.5px; color: #605e5c; flex-wrap: wrap; }
-    .rpt-legend-swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 3px; vertical-align: middle; border: 1px solid rgba(0,0,0,0.1); }
+    .rpt-matrix-legend { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; font-size: 10.5px; color: var(--ink-secondary); flex-wrap: wrap; }
+    .rpt-legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: middle; border: 1px solid var(--border); }
 
     /* ── Tam teknik listesi eki ── */
     .rpt-fulllist-section .rpt-subtactic-title {
-      font-size: 12px; font-weight: 700; color: #003060; margin: 14px 0 6px;
-      background: #f3f2f1; padding: 5px 9px; border-radius: 4px;
+      font-size: 12px; font-weight: 700; color: var(--brand-deeper); margin: 16px 0 7px;
+      background: var(--page); padding: 6px 10px; border-radius: 5px;
+      border-left: 3px solid var(--brand);
     }
     .rpt-fulllist-section .rpt-subtactic-title:first-of-type { margin-top: 0; }
     .rpt-src-badge {
-      display: inline-block; font-size: 9.5px; background: #f3f2f1; color: #494847;
-      border-radius: 3px; padding: 1px 6px; margin: 1px 3px 1px 0;
+      display: inline-block; font-size: 9.5px; background: var(--page); color: var(--ink-secondary);
+      border-radius: 3px; padding: 1.5px 7px; margin: 1px 3px 1px 0; border: 1px solid var(--border);
     }
 
     /* ── Footer ── */
     .rpt-footer {
-      margin-top: 30px; padding-top: 12px; border-top: 1px solid #edebe9;
-      font-size: 11px; color: #a19f9d; display: flex; justify-content: space-between;
+      margin-top: 32px; padding-top: 13px; border-top: 1px solid var(--gridline);
+      font-size: 10.5px; color: var(--ink-muted); display: flex; justify-content: space-between;
     }
 
     /* ── Action bar (screen only) ── */
-    .rpt-actions-bar { display: flex; gap: 14px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
-    .rpt-env-form { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #605e5c; }
+    .rpt-actions-bar {
+      display: flex; gap: 14px; align-items: center; margin-bottom: 22px; flex-wrap: wrap;
+      padding-bottom: 14px; border-bottom: 1px solid var(--gridline);
+    }
+    .rpt-env-form { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-secondary); }
     .rpt-env-form select {
-      font-size: 12px; padding: 5px 8px; border: 1px solid #d8d6d4; border-radius: 4px; font-family: inherit;
+      font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 5px;
+      font-family: inherit; color: var(--ink-primary); background: #fff;
     }
     .rpt-print-btn {
-      background: #0078d4; color: #fff; border: none; border-radius: 4px;
-      padding: 8px 18px; font-size: 13px; cursor: pointer; font-family: inherit; margin-left: auto;
+      background: var(--brand); color: #fff; border: none; border-radius: 5px;
+      padding: 9px 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; margin-left: auto;
     }
-    .rpt-print-btn:hover { background: #106ebe; }
+    .rpt-print-btn:hover { background: var(--brand-dark); }
 
     .rpt-empty {
-      padding: 18px; text-align: center; color: #a19f9d; font-style: italic;
-      border: 1px dashed #edebe9; border-radius: 4px;
+      padding: 20px; text-align: center; color: var(--ink-muted); font-style: italic; font-size: 12px;
+      border: 1px dashed var(--gridline); border-radius: 5px;
     }
 
     /* ── Print ── */
     @page { size: A4 landscape; margin: 12mm; }
     @media print {
+      html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       body { padding: 0; font-size: 11px; }
       .rpt-actions-bar { display: none !important; }
       .rpt-section { page-break-inside: avoid; }
@@ -222,37 +283,40 @@
   <!-- ── Yönetici Özeti ── -->
   <div class="rpt-section">
     <div class="rpt-section-title">Yönetici Özeti</div>
+    {% set sub_pct = ((gap.overview.detected_subtechniques / gap.overview.total_subtechniques * 100) | round(1)) if gap.overview.total_subtechniques else 0 %}
+    {% set uncovered_pct = (100 - gap.overview.coverage_pct) | round(1) %}
+    {% set mitigation_pct = ((gap.overview.mitigated_techniques / gap.overview.total_techniques * 100) | round(1)) if gap.overview.total_techniques else 0 %}
     <div class="rpt-cards">
       <div class="rpt-card">
+        <div class="rpt-card-lbl"><span class="rpt-card-dot" style="background:var(--brand)"></span>Ana Teknik</div>
         <div class="rpt-card-val">{{ gap.overview.total_techniques }}</div>
-        <div class="rpt-card-lbl">Ana Teknik</div>
-        <div class="rpt-card-sub">Alt teknik: {{ gap.overview.detected_subtechniques }} / {{ gap.overview.total_subtechniques }} kendi kuralı var</div>
+        <div class="rpt-card-sub">Alt tekniklerin %{{ sub_pct }}'i kendi kuralına sahip</div>
+      </div>
+      <div class="rpt-card good">
+        <div class="rpt-card-lbl"><span class="rpt-card-dot" style="background:var(--status-good)"></span>Tespit</div>
+        <div class="rpt-card-val good">%{{ gap.overview.coverage_pct }}</div>
+        <div class="rpt-card-sub">{{ gap.overview.detected_techniques }} teknikte adı olan tespit var</div>
+      </div>
+      <div class="rpt-card critical">
+        <div class="rpt-card-lbl"><span class="rpt-card-dot" style="background:var(--status-critical)"></span>Kapsamsız</div>
+        <div class="rpt-card-val critical">%{{ uncovered_pct }}</div>
+        <div class="rpt-card-sub">{{ gap.overview.uncovered_techniques }} teknikte hiç tespit yok — asıl aksiyon listesi</div>
       </div>
       <div class="rpt-card">
-        <div class="rpt-card-val green">{{ gap.overview.detected_techniques }} <small style="font-size:16px">(%{{ gap.overview.coverage_pct }})</small></div>
-        <div class="rpt-card-lbl">Tespit</div>
-        <div class="rpt-card-sub">Görebiliyoruz — adı olan tespit var</div>
+        <div class="rpt-card-lbl"><span class="rpt-card-dot" style="background:var(--brand)"></span>Mitigation'ı Olan</div>
+        <div class="rpt-card-val">%{{ mitigation_pct }}</div>
+        <div class="rpt-card-sub">{{ gap.overview.mitigated_techniques }} teknikte belgelenmiş mitigation var — skora girmez</div>
       </div>
       <div class="rpt-card">
-        <div class="rpt-card-val red">{{ gap.overview.uncovered_techniques }}</div>
-        <div class="rpt-card-lbl">Kapsamsız</div>
-        <div class="rpt-card-sub">Hiç tespit yok — asıl aksiyon listesi</div>
-      </div>
-      <div class="rpt-card">
-        <div class="rpt-card-val">{{ gap.overview.mitigated_techniques }}</div>
-        <div class="rpt-card-lbl">Mitigation'ı Olan</div>
-        <div class="rpt-card-sub">Bilgi — kapsama skoruna girmez</div>
-      </div>
-      <div class="rpt-card">
+        <div class="rpt-card-lbl"><span class="rpt-card-dot" style="background:var(--brand)"></span>Ortalama Skor</div>
         <div class="rpt-card-val">%{{ gap.overview.average_score_pct }}</div>
-        <div class="rpt-card-lbl">Ortalama Skor</div>
         <div class="rpt-card-sub">Tespit kalitesi ve kısmi kapsamaların ağırlıklı ortalaması</div>
       </div>
     </div>
 
     {% set pct = gap.overview.coverage_pct | float %}
     {% if pct >= 60 %}
-      <div class="rpt-status-box">
+      <div class="rpt-status-box good">
         <strong>Genel Durum: İyi.</strong> Tespit oranı %{{ gap.overview.coverage_pct }}'dir.
         Tespitsiz tekniklerin kapatılması önceliklendirilmelidir.
       </div>
@@ -318,7 +382,7 @@
     {% if gap.by_tactic %}
     <table class="rpt-table">
       <thead>
-        <tr><th>Taktik</th><th>Tespit Oranı</th><th>Tespit / Toplam</th><th>Oran</th><th>Ort. Skor</th></tr>
+        <tr><th>Taktik</th><th>Tespit Oranı</th><th>Oran</th><th>Ort. Skor</th></tr>
       </thead>
       <tbody>
         {% for t in gap.by_tactic %}
@@ -329,7 +393,6 @@
               <div class="rpt-bar-fill {% if t.pct < 30 %}low{% elif t.pct < 60 %}mid{% endif %}" style="width:{{ t.pct }}%"></div>
             </div>
           </td>
-          <td>{{ t.covered }} / {{ t.total }}</td>
           <td><strong>%{{ t.pct }}</strong></td>
           <td>%{{ t.average_score_pct }}</td>
         </tr>
@@ -360,7 +423,7 @@
         <tr>
           <td><strong>{{ g_item.tech_id }}</strong></td>
           <td>{{ g_item.name }}</td>
-          <td style="color:#605e5c">{{ g_item.tactic | replace('-', ' ') | title }}</td>
+          <td style="color:var(--ink-secondary)">{{ g_item.tactic | replace('-', ' ') | title }}</td>
           <td>{{ g_item.group_count }} grup</td>
           <td>{{ 'Var' if g_item.mitigation_checked else '—' }}</td>
         </tr>
